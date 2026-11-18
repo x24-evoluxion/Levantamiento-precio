@@ -13,7 +13,7 @@
 | 2 | Base de datos y Storage | ✅ |
 | 3 | Lista de visitas y nueva visita | ✅ |
 | 4 | Ubicación | ✅ |
-| 5 | Subir fotos | ⬜ |
+| 5 | Subir fotos | 🟡 (falta la prueba del usuario) |
 | 6 | Ver fotos de una visita | ⬜ |
 | 7 | Pulido móvil y despliegue | ⬜ |
 
@@ -29,11 +29,9 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
       `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
       confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
-- [ ] **Fotos HEIC de iPhone (Fase 5).** Convertirlas a JPEG en el navegador antes de
-      subirlas, porque el bucket solo acepta JPEG, PNG y WebP. Primero con canvas; una
-      librería solo con permiso del usuario. La prueba de la Fase 5 debe incluir una foto
-      HEIC real de iPhone. Es una decisión nuestra, no viene de la grabación (ver PLAN
-      Fase 5 y sección 8).
+- [ ] **Prueba de la Fase 5 con celulares reales.** El agente comprobó build y lint, pero no
+      puede elegir fotos de un celular. Falta que el usuario suba varias fotos, **incluida una
+      HEIC real de iPhone**, y revise Storage y la tabla `fotos` (ver "Cómo probarlo" de la Fase 5).
 - [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
@@ -345,3 +343,78 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   (próximamente)" en `DetalleVisita.tsx`.
 
 **Commit:** ver `git log` — `Fase 4: ubicación obligatoria al crear una visita`
+
+---
+
+## Fase 5 — Subir fotos (2026-11-18)
+
+**Qué se hizo:**
+- En `/visitas/[id]`, sección "Fotos" con una zona grande **"Toca para elegir fotos"**
+  (`<input type="file" accept="image/*" multiple>`, **sin** `capture`: abre la galería, no la cámara).
+- Cada foto se prepara antes de subirla (lado mayor de 2000 px, JPEG calidad 0.8):
+  - JPEG, PNG y WebP → `browser-image-compression` (instalada con permiso del usuario).
+  - HEIC/HEIF u otro formato → se convierte a JPEG con `<canvas>` (lo que trae el navegador).
+    Si el navegador no la puede abrir, sale un mensaje en español con qué hacer (Android e
+    iPhone) y **se siguen subiendo las demás**.
+- Se suben **una por una** a `visitas/<visita_id>/<uuid>.jpg` y, por cada una, se hace el
+  `insert` en `fotos` (`visita_id`, `ruta`, `nombre_original`, `tamano_bytes` ya comprimido).
+- Progreso "⏳ Subiendo 3 de 12…", estado de cada foto (Reduciendo / Subiendo / Guardando /
+  ✅ Subida / ❌ Error) y resumen al final. Cada foto con error de red o servidor tiene su
+  botón **"Reintentar esta foto"**.
+- Si se intenta cerrar o recargar la página mientras sube, el navegador pregunta antes.
+
+**Archivos creados o cambiados:**
+- `package.json`, `package-lock.json` — nueva dependencia `browser-image-compression` 2.0.2
+- `src/lib/fotos.ts` — `prepararFoto()` (comprimir / convertir), `rutaFoto()`, `nuevoUuid()`,
+  `mensajeErrorSubida()` y la clase `ErrorFoto`
+- `src/app/visitas/[id]/SubirFotos.tsx` — zona de fotos, cola de subida, progreso y reintentos
+- `src/app/visitas/[id]/DetalleVisita.tsx` — usa `SubirFotos` en lugar del texto "próximamente"
+
+**Pasos que hizo el usuario a mano:**
+- Aprobó instalar `browser-image-compression`. Falta su prueba con celulares reales (ver "Pendientes").
+
+**Cómo probarlo:**
+1. `npm run dev` y abrir una visita (desde la lista de `http://localhost:3000`).
+2. Tocar "Toca para elegir fotos" y elegir varias. Debe salir "Subiendo N de M…" y luego
+   "✅ Listo: M fotos subidas".
+3. En Supabase → Storage → `fotos` → `visitas` → carpeta con el id de la visita: están los
+   archivos, con nombres UUID y casi siempre de menos de 1 MB.
+4. En Table Editor → `fotos`: una fila por foto, con su `ruta`, nombre original y tamaño.
+5. **HEIC de iPhone:** subir una foto HEIC real (por ejemplo, pasada a la computadora por
+   AirDrop, o desde el iPhone mismo) y revisar que en Storage queda como `.jpg`.
+6. **Foto que no se puede convertir:** elegirla junto con otras (por ejemplo, una HEIC en
+   Chrome de Windows/Android). Esa sale con ❌ y el mensaje de qué hacer; las demás se suben.
+7. **Reintento:** quitar el internet (modo avión o DevTools → Network → Offline), elegir una
+   foto: sale ❌ con "No hay conexión…". Volver a conectar y tocar "Reintentar esta foto".
+8. **Desde el celular:** subir fotos sí funciona abriendo la app con la IP de la computadora
+   (`http://192.168...:3000`), porque no necesita https. Ojo: crear la visita sí necesita
+   ubicación, así que crea la visita en la computadora y ábrela en el celular.
+
+**Decisiones tomadas (y por qué):**
+- **`useWebWorker: false` en la librería.** Con `true`, la librería descarga su propio código
+  desde `cdn.jsdelivr.net`; así todo sale de nuestra app. Comprimir en la pantalla principal
+  tarda unos cientos de milisegundos por foto, aceptable porque se suben una por una.
+- **Si la librería falla, se intenta con canvas** antes de marcar la foto con error.
+- **La extensión sigue al tipo real del archivo** (`.jpg`, `.png` o `.webp`). Casi siempre es
+  `.jpg`, pero la librería devuelve el archivo original si comprimirlo lo hace más pesado; la
+  regla de Storage acepta los tres.
+- **Fondo blanco al convertir con canvas**, porque JPEG no tiene transparencia (si no, queda negro).
+- **El reintento sigue donde se quedó:** si el archivo ya se subió y solo falló el `insert`,
+  no se vuelve a subir (con `upsert: false` daría "ya existe"). Si Storage responde "ya existe"
+  o la tabla responde ruta repetida (`23505`), se toma como éxito de un intento anterior.
+- **Errores de conversión no tienen botón de reintentar**, porque volver a intentar no cambia
+  nada; el mensaje dice qué hacer.
+- **`nuevoUuid()` con respaldo:** `crypto.randomUUID()` solo existe en https o `localhost`; en
+  `http://192.168...` se arma el UUID con `crypto.getRandomValues()`.
+- **No se agregó la galería ni el conteo de fotos**: son de la Fase 6.
+
+**Problemas encontrados / pendientes para la siguiente fase:**
+- Fase 6: para que las fotos nuevas aparezcan en la galería sin recargar, `SubirFotos` puede
+  recibir una función (ej. `alSubir`) y llamarla después del `insert` en `subirUna()`. La URL
+  pública de cada foto sale de `supabase.storage.from(BUCKET_FOTOS).getPublicUrl(ruta)`.
+- iPhone suele convertir HEIC a JPEG por sí mismo al elegir fotos con `accept="image/*"`; la
+  conversión con canvas cubre los casos en que no lo hace (y Safari sí sabe abrir HEIC). En
+  Chrome de Android/Windows, HEIC normalmente **no** se puede abrir: sale el mensaje de error.
+  Si eso resulta común en la prueba real, se puede proponer una librería HEIC (con permiso).
+
+**Commit:** ver `git log` — `Fase 5: subir fotos comprimidas a la carpeta de la visita`

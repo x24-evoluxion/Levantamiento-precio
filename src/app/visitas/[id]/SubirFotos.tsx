@@ -1,0 +1,205 @@
+"use client";
+
+// Zona para elegir fotos de la galería y subirlas, una por una, a la carpeta de
+// la visita en Storage (visitas/<visita_id>/<uuid>.jpg). Por cada foto subida se
+// crea una fila en la tabla "fotos".
+//
+// Si una foto falla, las demás se siguen subiendo, y esa se puede reintentar sola.
+
+import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { BUCKET_FOTOS } from "@/lib/tipos";
+import { ErrorFoto, mensajeErrorSubida, prepararFoto, rutaFoto, type FotoPreparada } from "@/lib/fotos";
+
+type EstadoFoto = "esperando" | "preparando" | "subiendo" | "guardando" | "listo" | "error";
+
+type ItemFoto = {
+  clave: string;
+  nombre: string;
+  estado: EstadoFoto;
+  mensaje?: string;
+  /** false si reintentar no sirve (por ejemplo, un formato que el navegador no abre). */
+  reintentable?: boolean;
+};
+
+/** Lo que se va logrando con cada foto, para que un reintento siga donde se quedó. */
+type Avance = {
+  archivo: File;
+  preparada?: FotoPreparada;
+  ruta?: string;
+  archivoSubido: boolean;
+};
+
+const TEXTO_ESTADO: Record<EstadoFoto, string> = {
+  esperando: "En espera",
+  preparando: "Reduciendo…",
+  subiendo: "Subiendo…",
+  guardando: "Guardando…",
+  listo: "✅ Subida",
+  error: "❌ Error",
+};
+
+let contador = 0;
+
+export default function SubirFotos({ visitaId }: { visitaId: string }) {
+  const [items, setItems] = useState<ItemFoto[]>([]);
+  const [progreso, setProgreso] = useState<{ actual: number; total: number } | null>(null);
+  const avances = useRef(new Map<string, Avance>());
+  const ocupado = progreso !== null;
+
+  // Si cierra o recarga la página mientras sube, el navegador pregunta antes.
+  useEffect(() => {
+    if (!ocupado) return;
+    const avisar = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", avisar);
+    return () => window.removeEventListener("beforeunload", avisar);
+  }, [ocupado]);
+
+  function actualizar(clave: string, cambios: Partial<ItemFoto>) {
+    setItems((lista) => lista.map((it) => (it.clave === clave ? { ...it, ...cambios } : it)));
+  }
+
+  async function subirUna(clave: string) {
+    const av = avances.current.get(clave);
+    if (!av) return;
+
+    // 1) Reducir / convertir a JPEG (solo la primera vez).
+    if (!av.preparada) {
+      actualizar(clave, { estado: "preparando", mensaje: undefined });
+      av.preparada = await prepararFoto(av.archivo);
+    }
+
+    // 2) Subir el archivo a Storage (si un intento anterior no lo logró).
+    if (!av.archivoSubido) {
+      actualizar(clave, { estado: "subiendo", mensaje: undefined });
+      av.ruta ??= rutaFoto(visitaId, av.preparada.extension);
+      const { error } = await supabase.storage.from(BUCKET_FOTOS).upload(av.ruta, av.preparada.blob, {
+        contentType: av.preparada.tipo,
+        upsert: false, // "anon" no puede reemplazar archivos
+        cacheControl: "31536000", // la foto nunca cambia: el celular la puede guardar en caché
+      });
+      // "Ya existe": un intento anterior sí la subió, aunque no llegó la respuesta.
+      const yaExiste = error && /already exists|duplicate/i.test(error.message);
+      if (error && !yaExiste) throw error;
+      av.archivoSubido = true;
+    }
+
+    // 3) Registrar la foto en la tabla "fotos".
+    actualizar(clave, { estado: "guardando", mensaje: undefined });
+    const { error } = await supabase.from("fotos").insert({
+      visita_id: visitaId,
+      ruta: av.ruta!,
+      nombre_original: av.archivo.name || null,
+      tamano_bytes: av.preparada.blob.size,
+    });
+    // 23505 = ruta repetida: un intento anterior ya la registró.
+    if (error && error.code !== "23505") throw error;
+
+    actualizar(clave, { estado: "listo", mensaje: undefined });
+  }
+
+  async function procesar(claves: string[]) {
+    for (let i = 0; i < claves.length; i++) {
+      setProgreso({ actual: i + 1, total: claves.length });
+      try {
+        await subirUna(claves[i]);
+      } catch (e) {
+        if (e instanceof ErrorFoto) {
+          actualizar(claves[i], { estado: "error", mensaje: e.message, reintentable: false });
+        } else {
+          const err = e as { message?: string; statusCode?: string | number };
+          actualizar(claves[i], { estado: "error", mensaje: mensajeErrorSubida(err), reintentable: true });
+        }
+      }
+    }
+    setProgreso(null);
+  }
+
+  function alElegir(e: React.ChangeEvent<HTMLInputElement>) {
+    const archivos = Array.from(e.target.files ?? []);
+    // Se limpia para poder volver a elegir las mismas fotos si hace falta.
+    e.target.value = "";
+    if (archivos.length === 0 || ocupado) return;
+
+    const nuevos: ItemFoto[] = archivos.map((archivo) => {
+      const clave = `foto-${++contador}`;
+      avances.current.set(clave, { archivo, archivoSubido: false });
+      return { clave, nombre: archivo.name || "Foto sin nombre", estado: "esperando" };
+    });
+    setItems((lista) => [...nuevos, ...lista]);
+    procesar(nuevos.map((n) => n.clave));
+  }
+
+  const listos = items.filter((it) => it.estado === "listo").length;
+  const fallidos = items.filter((it) => it.estado === "error").length;
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-2xl font-bold">Fotos</h2>
+
+      <label
+        className={`flex flex-col items-center justify-center gap-1 rounded-2xl border-4 border-dashed px-4 py-10 text-center ${
+          ocupado
+            ? "cursor-not-allowed border-zinc-300 bg-zinc-100 text-zinc-500"
+            : "cursor-pointer border-blue-400 bg-blue-50 text-blue-900 active:bg-blue-100"
+        }`}
+      >
+        <span className="text-5xl" aria-hidden>
+          🖼️
+        </span>
+        <span className="text-xl font-bold">{ocupado ? "Espera a que terminen…" : "Toca para elegir fotos"}</span>
+        <span className="text-base">Se abre tu galería. Puedes elegir varias.</span>
+        {/* Sin "capture": no queremos abrir la cámara, solo la galería. */}
+        <input type="file" accept="image/*" multiple disabled={ocupado} onChange={alElegir} className="sr-only" />
+      </label>
+
+      {progreso && (
+        <p role="status" className="rounded-xl bg-blue-100 p-4 text-lg font-semibold text-blue-900">
+          ⏳ Subiendo {progreso.actual} de {progreso.total}… No cierres esta pantalla.
+        </p>
+      )}
+
+      {!progreso && items.length > 0 && (
+        <p
+          role="status"
+          className={`rounded-xl p-4 text-lg font-semibold ${
+            fallidos > 0 ? "bg-red-100 text-red-900" : "bg-green-100 text-green-900"
+          }`}
+        >
+          {fallidos === 0
+            ? `✅ Listo: ${listos} ${listos === 1 ? "foto subida" : "fotos subidas"}.`
+            : `${listos} ${listos === 1 ? "foto subida" : "fotos subidas"}. ❌ ${fallidos} con error (revisa abajo).`}
+        </p>
+      )}
+
+      {items.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {items.map((it) => (
+            <li
+              key={it.clave}
+              className={`rounded-xl border-2 p-3 ${
+                it.estado === "error" ? "border-red-300 bg-red-50" : "border-zinc-200 bg-white"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate text-base text-zinc-800">{it.nombre}</span>
+                <span className="shrink-0 text-base font-semibold text-zinc-900">{TEXTO_ESTADO[it.estado]}</span>
+              </div>
+              {it.mensaje && <p className="mt-1 text-base text-red-900">{it.mensaje}</p>}
+              {it.estado === "error" && it.reintentable && (
+                <button
+                  type="button"
+                  disabled={ocupado}
+                  onClick={() => procesar([it.clave])}
+                  className="mt-2 w-full rounded-xl bg-red-700 px-4 py-3 text-lg font-semibold text-white active:bg-red-800 disabled:bg-zinc-400"
+                >
+                  Reintentar esta foto
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
