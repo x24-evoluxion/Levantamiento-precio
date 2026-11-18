@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "./tipos";
 
 // Cliente de Supabase: el objeto que usa la app para leer y guardar datos.
 //
@@ -19,7 +20,8 @@ if (!supabaseUrl || !supabasePublishableKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
+// <Database> le dice a TypeScript cómo son las tablas (ver src/lib/tipos.ts).
+export const supabase = createClient<Database>(supabaseUrl, supabasePublishableKey, {
   // Sin login: no hace falta guardar sesiones en el navegador.
   auth: { persistSession: false, autoRefreshToken: false },
 });

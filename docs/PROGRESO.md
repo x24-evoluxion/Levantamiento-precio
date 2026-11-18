@@ -10,7 +10,7 @@
 |---|---|---|
 | 0 | Plan | ✅ |
 | 1 | Esqueleto del proyecto | ✅ |
-| 2 | Base de datos y Storage | ⬜ |
+| 2 | Base de datos y Storage | ✅ |
 | 3 | Lista de visitas y nueva visita | ⬜ |
 | 4 | Ubicación | ⬜ |
 | 5 | Subir fotos | ⬜ |
@@ -22,8 +22,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 ## Pendientes y dudas abiertas
 
 - [ ] **Lista de competidores definitiva.** La actual es provisional. Falta uno
-      ("POR CONFIRMAR"). Se corrige editando `supabase/seed_competidores.sql`
-      (se crea en la Fase 2).
+      ("POR CONFIRMAR"). Se corrige editando `supabase/seed_competidores.sql` y
+      volviéndolo a ejecutar en el SQL Editor (para renombrar, ver el comentario del archivo).
 - [ ] **Markdown de referencia del jefe.** No está disponible todavía. Si llega,
       ponerlo en `docs/` y revisar si cambia algo del plan.
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
@@ -168,3 +168,54 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 
 **Commit:** ver `git log` — `Fase 1: esqueleto del proyecto Next.js con cliente de Supabase`
 
+---
+
+## Fase 2 — Base de datos y Storage (2026-11-18)
+
+**Qué se hizo:**
+- SQL con las 3 tablas (`competidores`, `visitas`, `fotos`), permisos, RLS, el bucket
+  `fotos` y sus reglas de Storage. Se puede ejecutar varias veces sin duplicar nada.
+- SQL de competidores editable, con `on conflict (nombre) do update`.
+- Tipos de TypeScript escritos a mano y conectados al cliente (`createClient<Database>`).
+- El recuadro provisional de `/` ahora lista los competidores activos.
+
+**Archivos creados o cambiados:**
+- `supabase/001_esquema.sql` — tablas, índices, GRANTs, RLS, bucket y políticas de Storage
+- `supabase/seed_competidores.sql` — lista de competidores (7, "POR CONFIRMAR" inactivo)
+- `src/lib/tipos.ts` — tipos `Database`, `Competidor`, `Visita`, `NuevaVisita`, `Foto`,
+  `NuevaFoto` y la constante `BUCKET_FOTOS`
+- `src/lib/supabase.ts` — el cliente ahora usa los tipos
+- `src/app/EstadoConexion.tsx` — muestra cuántos competidores activos hay y sus nombres
+
+**Pasos que hizo el usuario a mano:**
+- Ejecutó `001_esquema.sql` y luego `seed_competidores.sql` en Supabase → SQL Editor.
+- Revisó en Table Editor las 3 tablas y los 7 competidores ("POR CONFIRMAR" con `activo = false`).
+- Revisó en Storage el bucket `fotos`: público, límite de 5 MB y los 3 tipos de imagen.
+- Abrió `http://localhost:3000` y vio "Competidores activos: 6".
+
+**Cómo probarlo:**
+1. `npm run dev` y abrir `http://localhost:3000`.
+2. Debe salir el recuadro verde con "Competidores activos: 6" y sus nombres.
+
+**Decisiones tomadas (y por qué):**
+- **Permisos por columna al crear:** `anon` solo puede llenar ciertas columnas de
+  `visitas` y `fotos`. No puede mandar `id` ni `created_at`, así que esa fecha siempre
+  la pone el servidor (es el dato confiable).
+- **Solo se crean visitas con un competidor activo** (regla RLS del insert).
+- **`fotos.ruta` debe estar dentro de la carpeta de su visita** (constraint
+  `fotos_ruta_en_su_visita`).
+- **Storage:** solo se puede subir con la ruta `visitas/<uuid>/<uuid>.(jpg|jpeg|png|webp)`
+  y solo si esa visita existe. No hay políticas de update ni delete, así que nadie
+  puede reemplazar ni borrar fotos. Para la Fase 5: subir con `upsert: false` (el valor
+  por defecto), porque `upsert` necesita permiso de update.
+- **`anon` puede leer todos los competidores**, también los inactivos, para que las
+  visitas viejas muestren su nombre. La app debe filtrar `activo = true` en el selector.
+- **`latitud`/`longitud` aceptan nulos en la base de datos**, porque la Fase 3 crea visitas
+  sin ubicación. La Fase 4 hace la ubicación obligatoria desde la app.
+
+**Problemas encontrados / pendientes para la siguiente fase:**
+- Fase 3: `EstadoConexion.tsx` sigue siendo provisional y se puede reemplazar por la
+  lista de visitas. Para el insert, usar el tipo `NuevaVisita` y `.select("id").single()`
+  para obtener el id y navegar a `/visitas/[id]`.
+
+**Commit:** ver `git log` — `Fase 2: esquema de base de datos, Storage y tipos`

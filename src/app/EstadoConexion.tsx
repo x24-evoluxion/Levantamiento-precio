@@ -1,13 +1,16 @@
 "use client";
 
-// Componente PROVISIONAL (Fase 1): comprueba desde el navegador que la app
-// puede hablar con Supabase. Se reemplaza en la Fase 3 por la lista de visitas.
+// Componente PROVISIONAL (Fases 1 y 2): comprueba desde el navegador que la app
+// puede hablar con Supabase y lee los competidores activos.
+// Se reemplaza en la Fase 3 por la lista de visitas.
 
 import { useEffect, useState } from "react";
+import type { Competidor } from "@/lib/tipos";
 
 type Estado =
   | { tipo: "cargando" }
-  | { tipo: "ok"; detalle: string }
+  | { tipo: "ok"; competidores: Pick<Competidor, "id" | "nombre">[] }
+  | { tipo: "sin-tablas" }
   | { tipo: "error"; detalle: string };
 
 export default function EstadoConexion() {
@@ -19,20 +22,17 @@ export default function EstadoConexion() {
         // Se importa aquí para poder mostrar el error si faltan las variables.
         const { supabase } = await import("@/lib/supabase");
 
-        // Consulta de prueba. La tabla aún no existe (se crea en la Fase 2),
-        // así que un error "la tabla no existe" también prueba que Supabase
-        // respondió y que la llave es válida.
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("competidores")
-          .select("id", { head: true, count: "exact" });
+          .select("id, nombre")
+          .eq("activo", true)
+          .order("orden");
 
         if (!error) {
-          setEstado({ tipo: "ok", detalle: "Conectado. La tabla competidores ya existe." });
+          setEstado({ tipo: "ok", competidores: data });
         } else if (error.code === "PGRST205" || error.code === "42P01") {
-          setEstado({
-            tipo: "ok",
-            detalle: "Conectado. Las tablas todavía no existen (se crean en la Fase 2).",
-          });
+          // "La tabla no existe": falta ejecutar supabase/001_esquema.sql.
+          setEstado({ tipo: "sin-tablas" });
         } else {
           setEstado({ tipo: "error", detalle: error.message || "Error desconocido" });
         }
@@ -58,7 +58,26 @@ export default function EstadoConexion() {
     return (
       <div className="rounded-xl bg-green-100 p-4 text-lg text-green-900">
         <p className="font-semibold">✅ Conexión con Supabase: funciona</p>
-        <p className="mt-1 text-base">{estado.detalle}</p>
+        <p className="mt-1 text-base">
+          Competidores activos: {estado.competidores.length}
+        </p>
+        <ul className="mt-2 list-disc pl-6 text-base">
+          {estado.competidores.map((c) => (
+            <li key={c.id}>{c.nombre}</li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  if (estado.tipo === "sin-tablas") {
+    return (
+      <div className="rounded-xl bg-yellow-100 p-4 text-lg text-yellow-900">
+        <p className="font-semibold">⚠️ Conectado, pero faltan las tablas</p>
+        <p className="mt-1 text-base">
+          Ejecuta supabase/001_esquema.sql y supabase/seed_competidores.sql en el
+          SQL Editor de Supabase.
+        </p>
       </div>
     );
   }
