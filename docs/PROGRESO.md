@@ -14,7 +14,7 @@
 | 3 | Lista de visitas y nueva visita | ✅ |
 | 4 | Ubicación | ✅ |
 | 5 | Subir fotos | ✅ |
-| 6 | Ver fotos de una visita | 🟡 (falta la prueba del usuario) |
+| 6 | Ver fotos de una visita | ✅ |
 | 7 | Pulido móvil y despliegue | ⬜ |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
@@ -29,8 +29,6 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
       `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
       confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
-- [ ] **Prueba de la Fase 6.** El agente comprobó build y lint, pero no puede abrir la app
-      con datos reales. Falta que el usuario siga "Cómo probarlo" de la Fase 6.
 - [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
@@ -445,7 +443,8 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - `src/lib/fotos.ts` — nueva función `urlFoto(ruta)` (URL pública de una foto)
 
 **Pasos que hizo el usuario a mano:**
-- Ninguno todavía. Falta su prueba (ver "Pendientes").
+- Probó la galería, la foto en grande, la subida sin recargar y el conteo en la lista
+  (ver "Cómo probarlo"). Salió bien.
 
 **Cómo probarlo:**
 1. `npm run dev` y abrir `http://localhost:3000`.
