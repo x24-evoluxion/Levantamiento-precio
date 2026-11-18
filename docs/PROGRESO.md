@@ -13,7 +13,7 @@
 | 2 | Base de datos y Storage | ✅ |
 | 3 | Lista de visitas y nueva visita | ✅ |
 | 4 | Ubicación | ✅ |
-| 5 | Subir fotos | 🟡 (falta la prueba del usuario) |
+| 5 | Subir fotos | ✅ |
 | 6 | Ver fotos de una visita | ⬜ |
 | 7 | Pulido móvil y despliegue | ⬜ |
 
@@ -29,9 +29,6 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
       `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
       confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
-- [ ] **Prueba de la Fase 5 con celulares reales.** El agente comprobó build y lint, pero no
-      puede elegir fotos de un celular. Falta que el usuario suba varias fotos, **incluida una
-      HEIC real de iPhone**, y revise Storage y la tabla `fotos` (ver "Cómo probarlo" de la Fase 5).
 - [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
@@ -371,7 +368,8 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - `src/app/visitas/[id]/DetalleVisita.tsx` — usa `SubirFotos` en lugar del texto "próximamente"
 
 **Pasos que hizo el usuario a mano:**
-- Aprobó instalar `browser-image-compression`. Falta su prueba con celulares reales (ver "Pendientes").
+- Aprobó instalar `browser-image-compression`.
+- Probó la subida de fotos (incluida una HEIC de iPhone) y revisó Storage y la tabla `fotos`. Salió bien.
 
 **Cómo probarlo:**
 1. `npm run dev` y abrir una visita (desde la lista de `http://localhost:3000`).
