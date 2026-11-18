@@ -34,10 +34,6 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       librería solo con permiso del usuario. La prueba de la Fase 5 debe incluir una foto
       HEIC real de iPhone. Es una decisión nuestra, no viene de la grabación (ver PLAN
       Fase 5 y sección 8).
-- [ ] **Prueba de la Fase 4 con un celular real.** El agente comprobó build, lint y que las
-      pantallas cargan, pero no puede usar el GPS. Falta que el usuario guarde una visita
-      con ubicación y revise que el pin de Google Maps cae donde estaba (ver "Cómo probarlo"
-      de la Fase 4).
 - [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
@@ -314,7 +310,8 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - `src/app/visitas/[id]/DetalleVisita.tsx` — muestra la ubicación y el enlace al mapa
 
 **Pasos que hizo el usuario a mano:**
-- Ninguno durante la fase. Falta su prueba con un celular real (ver "Pendientes").
+- Probó el flujo: guardó una visita con ubicación, revisó el pin en Google Maps y la fila
+  en `visitas` de Supabase. Salió bien.
 
 **Cómo probarlo:**
 1. `npm run dev` y abrir `http://localhost:3000` → "Nueva visita".
