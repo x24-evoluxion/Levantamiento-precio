@@ -15,7 +15,7 @@
 | 4 | Ubicación | ✅ |
 | 5 | Subir fotos | ✅ |
 | 6 | Ver fotos de una visita | ✅ |
-| 7 | Pulido móvil y despliegue | ⬜ |
+| 7 | Pulido móvil y despliegue | 🟡 |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 
@@ -480,3 +480,61 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   (se usa `h-dvh`, el alto real visible, para que la barra del navegador no tape los botones).
 
 **Commit:** ver `git log` — `Fase 6: galería de fotos y conteo en la lista`
+
+---
+
+## Fase 7 — Pulido móvil y despliegue (2026-11-18) — 🟡 falta desplegar y probar en celulares
+
+**Qué se hizo:**
+- **Siempre modo claro.** Antes, si el celular estaba en modo oscuro, el fondo se ponía negro
+  pero las tarjetas seguían claras: títulos y textos grises casi no se leían. Ahora la app es
+  clara siempre (`color-scheme: light`), que además se lee mejor al sol.
+- **Fuente:** el texto ahora usa Geist (antes se descargaba pero Arial la tapaba). Se quitó
+  Geist Mono, que no se usaba.
+- **Ícono propio** (un "$" blanco sobre el azul de la app) para la pestaña y para "Agregar a
+  pantalla de inicio" en iPhone. Se generan con `next/og`, que ya trae Next.js (sin librerías
+  nuevas). Se borró el `favicon.ico` de la plantilla (el triángulo de Next.js).
+- **Color de la barra del navegador** en el celular: el azul de la app (`themeColor`).
+- **Noindex (pedido del usuario):** `<meta name="robots" content="noindex, nofollow">` en todas
+  las páginas y el encabezado `X-Robots-Tag: noindex, nofollow` en todas las respuestas.
+- Se revisaron las pantallas: botones grandes, una columna, mensajes de cargando / listo / error
+  en todos los pasos. No hizo falta cambiar nada más.
+
+**Archivos creados o cambiados:**
+- `src/app/layout.tsx` — `robots` (noindex), `viewport.themeColor`, nombre corto para iPhone, solo fuente Geist
+- `src/app/globals.css` — siempre modo claro y fuente Geist
+- `next.config.ts` — encabezado `X-Robots-Tag` en todas las rutas
+- `src/lib/icono.tsx` — **nuevo**. Dibujo del ícono
+- `src/app/icon.tsx`, `src/app/apple-icon.tsx` — **nuevos**. Ícono de pestaña (64 px) y de iPhone (180 px)
+- `src/app/favicon.ico` — borrado
+- `docs/PLAN.md` — sección 8: decisión del noindex
+
+**Pasos que hizo el usuario a mano:**
+- (Pendiente) Desplegar en Vercel y probar en un iPhone y un Android reales.
+
+**Cómo probarlo:**
+1. `npm run build` y `npx next start`; abrir `http://localhost:3000`.
+2. La pestaña muestra el ícono azul con "$".
+3. Ver el código de la página (clic derecho → "Ver código fuente") y buscar
+   `noindex`: sale `<meta name="robots" content="noindex, nofollow"/>`.
+4. En la terminal: `curl -I http://localhost:3000` → sale `X-Robots-Tag: noindex, nofollow`.
+5. Poner el celular (o la computadora) en modo oscuro: la app se sigue viendo clara.
+6. **Con el link de Vercel**, en un iPhone y un Android reales: crear visita → ubicación →
+   subir fotos (incluida una HEIC en el iPhone) → ver fotos en grande.
+
+**Decisiones tomadas (y por qué):**
+- **Modo claro fijo** en lugar de diseñar un modo oscuro completo: menos código, y en la
+  calle se lee mejor un fondo claro.
+- **Noindex con meta + encabezado, sin `Disallow` en robots.txt:** si `robots.txt` bloquea, el
+  buscador no entra, no ve el "noindex" y podría listar el link si alguien lo publica.
+- **Las fotos no llevan el encabezado** porque las sirve Supabase (otro dominio). Sus links
+  son UUID imposibles de adivinar y solo aparecen dentro de la app, que no se indexa.
+- **Noindex no es seguridad:** cualquiera con el link puede usar la app (así lo pide el plan,
+  sin login). Solo evita que salga en Google.
+
+**Problemas encontrados / pendientes:**
+- Desplegar en Vercel y hacer la prueba en celulares reales (ver arriba). Al confirmarla,
+  cambiar la Fase 7 a ✅.
+- En la prueba, revisar que la foto en grande no quede tapada por la barra del navegador (Fase 6).
+
+**Commit:** ver `git log` — `Fase 7: pulido móvil, ícono y noindex`
