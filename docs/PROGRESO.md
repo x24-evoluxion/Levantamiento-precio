@@ -12,7 +12,7 @@
 | 1 | Esqueleto del proyecto | ✅ |
 | 2 | Base de datos y Storage | ✅ |
 | 3 | Lista de visitas y nueva visita | ✅ |
-| 4 | Ubicación | ⬜ |
+| 4 | Ubicación | ✅ |
 | 5 | Subir fotos | ⬜ |
 | 6 | Ver fotos de una visita | ⬜ |
 | 7 | Pulido móvil y despliegue | ⬜ |
@@ -34,6 +34,14 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       librería solo con permiso del usuario. La prueba de la Fase 5 debe incluir una foto
       HEIC real de iPhone. Es una decisión nuestra, no viene de la grabación (ver PLAN
       Fase 5 y sección 8).
+- [ ] **Prueba de la Fase 4 con un celular real.** El agente comprobó build, lint y que las
+      pantallas cargan, pero no puede usar el GPS. Falta que el usuario guarde una visita
+      con ubicación y revise que el pin de Google Maps cae donde estaba (ver "Cómo probarlo"
+      de la Fase 4).
+- [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
+      exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
+      Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
+      nuevas). No se hizo porque no lo pide el plan.
 
 ---
 
@@ -278,3 +286,65 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   (próximamente)" en `DetalleVisita.tsx`.
 
 **Commit:** ver `git log` — `Fase 3: lista y creación de visitas`
+
+---
+
+## Fase 4 — Ubicación (2026-11-18)
+
+**Qué se hizo:**
+- En `/visitas/nueva`, paso 2 "¿Dónde estás?" con el botón **"Guardar mi ubicación"**. Usa
+  `navigator.geolocation.getCurrentPosition` con alta precisión (`enableHighAccuracy`),
+  espera máxima de 20 s y sin reutilizar ubicaciones viejas (`maximumAge: 0`).
+- Guarda `latitud`, `longitud`, `precision_metros` y `ubicacion_at` en el mismo `insert` de la visita.
+- **"Guardar visita" queda desactivado** hasta tener competidor **y** ubicación. Un texto
+  abajo dice qué falta.
+- Al obtenerla, muestra "✅ Ubicación guardada (± 15 m)" y el enlace **"Ver en el mapa"**
+  (Google Maps). Si la precisión es peor que 100 m, avisa que es poco exacta.
+- Si falla, mensaje según el motivo (sin permiso, GPS no disponible, tardó mucho, no es
+  https, navegador sin soporte), con pasos para activarla en **iPhone** y **Android**, y
+  botón **"Volver a intentar"**.
+- En `/visitas/[id]` se ve la precisión, la hora en que se guardó la ubicación y "Ver en el
+  mapa". Las visitas viejas sin ubicación dicen "Sin ubicación".
+
+**Archivos creados o cambiados:**
+- `src/lib/ubicacion.ts` — `pedirUbicacion()`, `enlaceMapa()`, `formatearPrecision()` y el tipo `Ubicacion`
+- `src/app/visitas/nueva/BotonUbicacion.tsx` — botón, estados y mensajes de ayuda
+- `src/app/visitas/nueva/FormularioNuevaVisita.tsx` — usa el botón y manda la ubicación en el `insert`
+- `src/app/visitas/nueva/page.tsx` — solo el comentario
+- `src/app/visitas/[id]/DetalleVisita.tsx` — muestra la ubicación y el enlace al mapa
+
+**Pasos que hizo el usuario a mano:**
+- Ninguno durante la fase. Falta su prueba con un celular real (ver "Pendientes").
+
+**Cómo probarlo:**
+1. `npm run dev` y abrir `http://localhost:3000` → "Nueva visita".
+2. Elegir un competidor. "Guardar visita" sigue gris y dice "Primero guarda tu ubicación".
+3. Tocar "📍 Guardar mi ubicación" y aceptar el permiso del navegador.
+4. Sale "✅ Ubicación guardada (± N m)". "Ver en el mapa" abre Google Maps donde estás.
+5. "Guardar visita" → la pantalla de la visita muestra la ubicación y "Ver en el mapa".
+6. En Supabase → `visitas`: la fila nueva tiene `latitud`, `longitud`, `precision_metros`
+   y `ubicacion_at` llenos.
+7. Para probar el error: bloquear la ubicación del sitio en el navegador y volver a tocar
+   el botón. Debe salir el mensaje con los pasos para iPhone y Android.
+8. **En el celular:** la ubicación solo funciona en `https` o `localhost`. Si abres la app
+   desde el celular con la IP de tu computadora (`http://192.168...`), saldrá el mensaje
+   "No se puede pedir la ubicación en esta dirección". Eso es normal. La prueba real en
+   celular es con el link de Vercel (Fase 7).
+
+**Decisiones tomadas (y por qué):**
+- **`ubicacion_at` es la hora del celular en que llegó la ubicación** (`new Date()`), no
+  `pos.timestamp`, porque en algunos celulares ese valor viene desfasado.
+- **No se cambió la base de datos.** Las columnas y los permisos ya existían desde la Fase 2.
+  La ubicación es obligatoria desde la app (ver "Pendientes" si se quiere también en la BD).
+- **Si se vuelve a pedir la ubicación y falla, se conserva la anterior** y se sigue
+  mostrando, para no perder una ubicación buena por un reintento.
+- **Enlace de mapa con la URL oficial de Google Maps** (`/maps/search/?api=1&query=lat,lon`).
+  Abre la app de Maps si está instalada y, si no, la web.
+- Aviso de "poco exacta" a partir de **100 m**. Es un valor elegido por el agente; se puede
+  cambiar en `PRECISION_DUDOSA_METROS` (`src/lib/ubicacion.ts`).
+
+**Problemas encontrados / pendientes para la siguiente fase:**
+- Fase 5: la zona de fotos reemplaza el texto "Aquí se podrán subir las fotos
+  (próximamente)" en `DetalleVisita.tsx`.
+
+**Commit:** ver `git log` — `Fase 4: ubicación obligatoria al crear una visita`

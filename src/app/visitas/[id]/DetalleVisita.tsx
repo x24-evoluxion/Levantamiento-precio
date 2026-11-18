@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatearFecha } from "@/lib/fechas";
 import type { Visita } from "@/lib/tipos";
+import { enlaceMapa, formatearPrecision } from "@/lib/ubicacion";
 
 type VisitaConCompetidor = Visita & { competidores: { nombre: string } | null };
 
@@ -99,6 +100,31 @@ export default function DetalleVisita({ id }: { id: string }) {
         <div>
           <dt className="text-base text-zinc-600">Competidor elegido</dt>
           <dd className="text-lg font-semibold">{formatearFecha(v.competidor_elegido_at)}</dd>
+        </div>
+        <div>
+          <dt className="text-base text-zinc-600">Ubicación</dt>
+          {v.latitud != null && v.longitud != null ? (
+            <dd className="text-lg">
+              <span className="font-semibold">
+                {v.precision_metros != null ? formatearPrecision(v.precision_metros) : "Precisión desconocida"}
+              </span>
+              {v.ubicacion_at && (
+                <span className="block text-base text-zinc-600">
+                  Guardada {formatearFecha(v.ubicacion_at)}
+                </span>
+              )}
+              <a
+                href={enlaceMapa(v.latitud, v.longitud)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-block font-semibold text-blue-700 underline"
+              >
+                Ver en el mapa
+              </a>
+            </dd>
+          ) : (
+            <dd className="text-lg font-semibold text-zinc-500">Sin ubicación</dd>
+          )}
         </div>
       </dl>
 

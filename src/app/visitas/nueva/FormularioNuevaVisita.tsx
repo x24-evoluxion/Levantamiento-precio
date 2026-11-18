@@ -3,11 +3,14 @@
 // Formulario de nueva visita.
 // Todo vive en la pantalla hasta tocar "Guardar visita": entonces se crea la
 // visita de una sola vez, porque "anon" no puede cambiarla después (PLAN 4.3).
+// Se necesitan dos cosas: el competidor y la ubicación (obligatoria).
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Competidor, NuevaVisita } from "@/lib/tipos";
+import type { Ubicacion } from "@/lib/ubicacion";
+import BotonUbicacion from "./BotonUbicacion";
 
 type OpcionCompetidor = Pick<Competidor, "id" | "nombre">;
 
@@ -23,6 +26,9 @@ export default function FormularioNuevaVisita() {
 
   // Competidor elegido y el momento en que se eligió (reloj del celular).
   const [elegido, setElegido] = useState<{ id: number; at: string } | null>(null);
+
+  // Ubicación del celular (latitud, longitud, precisión y momento).
+  const [ubicacion, setUbicacion] = useState<Ubicacion | null>(null);
 
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
@@ -57,13 +63,17 @@ export default function FormularioNuevaVisita() {
   }
 
   async function guardar() {
-    if (!elegido || guardando) return;
+    if (!elegido || !ubicacion || guardando) return;
     setGuardando(true);
     setErrorGuardar(null);
 
     const nueva: NuevaVisita = {
       competidor_id: elegido.id,
       competidor_elegido_at: elegido.at,
+      latitud: ubicacion.latitud,
+      longitud: ubicacion.longitud,
+      precision_metros: ubicacion.precision_metros,
+      ubicacion_at: ubicacion.ubicacion_at,
     };
 
     const { data, error } = await supabase
@@ -137,6 +147,15 @@ export default function FormularioNuevaVisita() {
         })}
       </fieldset>
 
+      <BotonUbicacion
+        ubicacion={ubicacion}
+        onUbicacion={(u) => {
+          setUbicacion(u);
+          setErrorGuardar(null);
+        }}
+        desactivado={guardando}
+      />
+
       {errorGuardar && (
         <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
           <p className="font-semibold">❌ No se pudo guardar la visita</p>
@@ -148,14 +167,18 @@ export default function FormularioNuevaVisita() {
       <button
         type="button"
         onClick={guardar}
-        disabled={!elegido || guardando}
+        disabled={!elegido || !ubicacion || guardando}
         className="rounded-2xl bg-green-700 px-6 py-5 text-2xl font-bold text-white active:bg-green-800 disabled:bg-zinc-400"
       >
         {guardando ? "Guardando…" : "Guardar visita"}
       </button>
-      {!elegido && (
+      {(!elegido || !ubicacion) && (
         <p className="-mt-3 text-center text-base text-zinc-600">
-          Primero elige una tienda.
+          {!elegido && !ubicacion
+            ? "Primero elige una tienda y guarda tu ubicación."
+            : !elegido
+              ? "Primero elige una tienda."
+              : "Primero guarda tu ubicación."}
         </p>
       )}
     </div>
