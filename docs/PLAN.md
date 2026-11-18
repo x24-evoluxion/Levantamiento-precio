@@ -298,9 +298,24 @@ caen donde estabas.
 - Subir **una por una** a `visitas/<visita_id>/<uuid>.jpg` y, por cada una, hacer el
   `insert` en `fotos`.
 - Mostrar el progreso ("Subiendo 3 de 12…"). Si una foto falla, poder reintentar solo esa.
+- **Fotos HEIC/HEIF de iPhone** (requisito agregado por el usuario, ver sección 8).
+  El bucket solo acepta JPEG, PNG y WebP, así que:
+  - Antes de subir, cada foto que **no** sea JPEG, PNG o WebP (por ejemplo HEIC/HEIF)
+    se **convierte a JPEG en el navegador** y se reduce de tamaño, igual que las demás.
+  - Si una foto no se puede convertir, se muestra un **mensaje claro en español**
+    (qué foto falló y qué hacer) y se **siguen subiendo las demás**. No se pierde el
+    resto de la selección.
+  - Debe funcionar en **iPhone (Safari y Chrome)** y en **Android**.
+  - **Orden de preferencia:** primero usar lo que ya trae el navegador (por ejemplo,
+    decodificar la imagen en un `<canvas>` y exportarla como JPEG). **Solo si eso no
+    basta**, proponerle al usuario una librería de conversión HEIC.
+  - 🚫 **No instalar ninguna librería de HEIC sin permiso.** Antes, explicarle al usuario
+    qué hace, cuánto pesa y por qué hace falta.
 
 **Cómo comprobar:** en Storage, las fotos están en la carpeta con el id de la visita,
-y la tabla `fotos` tiene una fila por foto.
+y la tabla `fotos` tiene una fila por foto. Además, se sube **una foto HEIC real tomada
+con un iPhone** y queda guardada como JPEG. Si se mezcla con una foto que no se puede
+convertir, las demás se suben igual y aparece el mensaje de error.
 
 ### Fase 6 — Ver fotos de una visita
 **Objetivo:** ver lo subido y agregar más.
@@ -320,3 +335,15 @@ y la tabla `fotos` tiene una fila por foto.
 **Cómo comprobar:** con el link de Vercel, en **un iPhone y un Android reales**, se
 puede hacer el flujo completo: crear visita → ubicación → subir fotos → ver fotos.
 Revisar especialmente que las fotos de iPhone (formato HEIC) se suban bien.
+
+---
+
+## 8. Fuente y supuestos
+
+**Fuente:** la reunión grabada en `docs/transcript.txt`. Todo lo demás son decisiones
+nuestras (del usuario y los agentes), no vienen de la grabación. Se anotan aquí para
+que se sepa de dónde salió cada una.
+
+| Decisión / supuesto | Origen | Dónde aplica |
+|---|---|---|
+| Las fotos HEIC/HEIF de iPhone se convierten a JPEG en el navegador antes de subirlas. Primero se intenta con lo que trae el navegador (canvas) y solo si no basta se propone una librería, con permiso del usuario. Si una foto no se puede convertir, se avisa y se suben las demás. | Decisión nuestra (2026-11-18), **no viene de la grabación**. Motivo: el bucket solo acepta JPEG, PNG y WebP, y parte del equipo usa iPhone. | Fase 5 |

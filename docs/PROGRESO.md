@@ -29,6 +29,11 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
       `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
       confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
+- [ ] **Fotos HEIC de iPhone (Fase 5).** Convertirlas a JPEG en el navegador antes de
+      subirlas, porque el bucket solo acepta JPEG, PNG y WebP. Primero con canvas; una
+      librería solo con permiso del usuario. La prueba de la Fase 5 debe incluir una foto
+      HEIC real de iPhone. Es una decisión nuestra, no viene de la grabación (ver PLAN
+      Fase 5 y sección 8).
 
 ---
 
