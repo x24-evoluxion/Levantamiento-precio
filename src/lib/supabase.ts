@@ -6,20 +6,20 @@ import { createClient } from "@supabase/supabase-js";
 // Next.js las reemplaza por su valor al construir la app. Si se leen de otra
 // forma (por ejemplo process.env[nombre]), en el navegador llegan vacías.
 //
-// Solo se usa la llave pública "anon". La protección la dan las reglas RLS de
+// Solo se usa la llave pública "publishable". La protección la dan las reglas RLS de
 // Supabase. NUNCA pongas aquí la llave service_role / secret.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error(
     "Faltan variables de entorno de Supabase. Revisa que .env.local tenga " +
-      "NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY (ver .env.example) " +
+      "NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (ver .env.example) " +
       "y reinicia `npm run dev`.",
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   // Sin login: no hace falta guardar sesiones en el navegador.
   auth: { persistSession: false, autoRefreshToken: false },
 });

@@ -27,7 +27,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **Markdown de referencia del jefe.** No está disponible todavía. Si llega,
       ponerlo en `docs/` y revisar si cambia algo del plan.
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
-      `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` (iguales al PLAN).
+      `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
+      confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
 
 ---
 
@@ -131,7 +132,9 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - `src/app/globals.css`, `src/app/favicon.ico` — los que trae la plantilla
 
 **Pasos que hizo el usuario a mano:**
-- Confirmó que sus variables se llaman `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- Confirmó que sus variables se llaman `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+  **Corrección:** al principio dijo `NEXT_PUBLIC_SUPABASE_ANON_KEY` por error; se cambió en
+  `src/lib/supabase.ts`, `.env.example`, `PLAN.md` y aquí, en un commit aparte.
 
 **Cómo probarlo:**
 1. `npm run dev`

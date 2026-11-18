@@ -207,7 +207,7 @@ valor.** Nombres esperados:
 | Variable | Qué es |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | La dirección del proyecto de Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | La llave pública ("anon" o "publishable"). Es pública a propósito, porque la protección la dan las reglas RLS |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | La llave pública ("anon" o "publishable"). Es pública a propósito, porque la protección la dan las reglas RLS |
 
 ⚠️ El agente de la Fase 1 debe **preguntarle al usuario** si sus variables se llaman
 exactamente así. Si se llaman diferente, se usa el nombre que tenga el usuario y se
