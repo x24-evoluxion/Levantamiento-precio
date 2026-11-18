@@ -34,9 +34,6 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       librería solo con permiso del usuario. La prueba de la Fase 5 debe incluir una foto
       HEIC real de iPhone. Es una decisión nuestra, no viene de la grabación (ver PLAN
       Fase 5 y sección 8).
-- [ ] **Prueba de la Fase 3 con datos reales.** El agente comprobó build, lint y que las
-      pantallas cargan, pero no creó visitas para no ensuciar la base de datos. Falta que
-      el usuario cree una visita y la vea en la lista y en Supabase (ver "Cómo probarlo" de la Fase 3).
 
 ---
 
@@ -248,7 +245,8 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - `src/app/EstadoConexion.tsx` — borrado
 
 **Pasos que hizo el usuario a mano:**
-- Ninguno durante la fase. Falta su prueba con datos reales (ver "Pendientes").
+- Probó el flujo con datos reales: creó una visita, la vio en la lista y en la tabla
+  `visitas` de Supabase. Salió bien.
 
 **Cómo probarlo:**
 1. `npm run dev` y abrir `http://localhost:3000`.
