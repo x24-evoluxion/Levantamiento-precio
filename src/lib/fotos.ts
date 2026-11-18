@@ -7,6 +7,9 @@
 //     Si el navegador no sabe abrir ese formato, se lanza ErrorFoto con un mensaje
 //     en español que se le muestra al usuario.
 
+import { supabase } from "./supabase";
+import { BUCKET_FOTOS } from "./tipos";
+
 export const LADO_MAXIMO_PX = 2000;
 export const CALIDAD_JPEG = 0.8;
 /** Límite del bucket "fotos" (ver supabase/001_esquema.sql). */
@@ -155,6 +158,14 @@ export function nuevoUuid(): string {
 /** Ruta dentro del bucket: visitas/<visita_id>/<uuid-nuevo>.<ext> */
 export function rutaFoto(visitaId: string, extension: string): string {
   return `visitas/${visitaId}/${nuevoUuid()}.${extension}`;
+}
+
+/**
+ * Dirección pública (URL) de una foto del bucket. El bucket es público para leer,
+ * así que no hace falta pedir permiso: la URL se arma sin consultar al servidor.
+ */
+export function urlFoto(ruta: string): string {
+  return supabase.storage.from(BUCKET_FOTOS).getPublicUrl(ruta).data.publicUrl;
 }
 
 /** Convierte un error de Supabase (Storage o tabla) en un mensaje en español. */

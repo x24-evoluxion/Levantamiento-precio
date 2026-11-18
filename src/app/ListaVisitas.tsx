@@ -2,6 +2,7 @@
 
 // Lista de visitas (la más reciente primero). Se lee desde el navegador cada vez
 // que se abre la página, para que siempre salgan las visitas nuevas.
+// "fotos(count)" le pide a Supabase el número de fotos de cada visita en la misma consulta.
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -12,7 +13,14 @@ type FilaVisita = {
   id: string;
   created_at: string;
   competidores: { nombre: string } | null;
+  fotos: { count: number }[];
 };
+
+function textoFotos(visita: FilaVisita): string {
+  const n = visita.fotos[0]?.count ?? 0;
+  if (n === 0) return "Sin fotos";
+  return n === 1 ? "📷 1 foto" : `📷 ${n} fotos`;
+}
 
 type Estado =
   | { tipo: "cargando" }
@@ -29,7 +37,7 @@ export default function ListaVisitas() {
     async function cargar() {
       const { data, error } = await supabase
         .from("visitas")
-        .select("id, created_at, competidores(nombre)")
+        .select("id, created_at, competidores(nombre), fotos(count)")
         .order("created_at", { ascending: false });
 
       if (cancelado) return;
@@ -91,6 +99,7 @@ export default function ListaVisitas() {
               {v.competidores?.nombre ?? "Competidor desconocido"}
             </p>
             <p className="mt-1 text-base text-zinc-600">{formatearFecha(v.created_at)}</p>
+            <p className="mt-1 text-base font-semibold text-zinc-800">{textoFotos(v)}</p>
           </Link>
         </li>
       ))}

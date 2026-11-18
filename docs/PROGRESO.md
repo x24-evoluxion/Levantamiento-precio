@@ -14,7 +14,7 @@
 | 3 | Lista de visitas y nueva visita | ✅ |
 | 4 | Ubicación | ✅ |
 | 5 | Subir fotos | ✅ |
-| 6 | Ver fotos de una visita | ⬜ |
+| 6 | Ver fotos de una visita | 🟡 (falta la prueba del usuario) |
 | 7 | Pulido móvil y despliegue | ⬜ |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
@@ -29,6 +29,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
       `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
       confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
+- [ ] **Prueba de la Fase 6.** El agente comprobó build y lint, pero no puede abrir la app
+      con datos reales. Falta que el usuario siga "Cómo probarlo" de la Fase 6.
 - [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
@@ -416,3 +418,66 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   Si eso resulta común en la prueba real, se puede proponer una librería HEIC (con permiso).
 
 **Commit:** ver `git log` — `Fase 5: subir fotos comprimidas a la carpeta de la visita`
+
+---
+
+## Fase 6 — Ver fotos de una visita (2026-11-18)
+
+**Qué se hizo:**
+- En `/visitas/[id]`, debajo de la zona de subir fotos, una **galería de miniaturas** (3 por
+  fila, la más reciente primero) con el título "N fotos guardadas". Si no hay, dice
+  "Esta visita todavía no tiene fotos". Mensajes de cargando y error con "Reintentar".
+- Al tocar una miniatura se abre **grande en pantalla completa** (fondo negro), con
+  "Foto 3 de 12", la fecha en que se subió y botones grandes **✕ Cerrar**, **← Anterior** y
+  **Siguiente →**. En computadora también sirven Escape y las flechas del teclado.
+- **Las fotos nuevas aparecen sin recargar:** cada vez que `SubirFotos` guarda una foto, la
+  pasa a la galería y se ve de inmediato.
+- En la lista `/`, cada visita muestra **"📷 N fotos"** (o "Sin fotos").
+
+**Archivos creados o cambiados:**
+- `src/app/visitas/[id]/FotosVisita.tsx` — **nuevo**. Sección "Fotos": lee las fotos de la
+  visita y junta la subida con la galería
+- `src/app/visitas/[id]/GaleriaFotos.tsx` — **nuevo**. Miniaturas y foto en grande (`<dialog>`)
+- `src/app/visitas/[id]/SubirFotos.tsx` — nueva prop `alSubir`; el `insert` ahora devuelve la
+  fila (`.select().single()`); el título "Fotos" pasó a `FotosVisita`
+- `src/app/visitas/[id]/DetalleVisita.tsx` — usa `FotosVisita` en lugar de `SubirFotos`
+- `src/app/ListaVisitas.tsx` — pide `fotos(count)` y muestra el número de fotos
+- `src/lib/fotos.ts` — nueva función `urlFoto(ruta)` (URL pública de una foto)
+
+**Pasos que hizo el usuario a mano:**
+- Ninguno todavía. Falta su prueba (ver "Pendientes").
+
+**Cómo probarlo:**
+1. `npm run dev` y abrir `http://localhost:3000`.
+2. En la lista, cada visita dice "📷 N fotos" o "Sin fotos". El número debe coincidir con las
+   filas de esa visita en Supabase → Table Editor → `fotos`.
+3. Entrar a una visita **vieja** que ya tenga fotos (de la Fase 5): se ven las miniaturas.
+4. Tocar una: se abre grande. Probar "Siguiente →", "← Anterior" y "✕ Cerrar".
+5. En esa misma visita, tocar "Toca para elegir fotos" y elegir 2 o 3: cada una aparece en
+   la galería en cuanto termina, **sin recargar**, y el título sube de número.
+6. "← Volver a la lista": el número de fotos de esa visita ya está actualizado.
+7. Abrir una visita sin fotos: dice "Esta visita todavía no tiene fotos".
+
+**Decisiones tomadas (y por qué):**
+- **`<img>` normal en lugar de `<Image>` de Next.js.** Las fotos ya están reducidas (~2000 px,
+  casi siempre < 1 MB). `<Image>` obligaría a configurar el dominio de Supabase y usaría la
+  optimización de imágenes de Vercel, que tiene un límite en el plan gratis. Se desactivó el
+  aviso de ESLint `no-img-element` solo en `GaleriaFotos.tsx`, con un comentario.
+- **Miniaturas con la misma foto, con `loading="lazy"`** (solo se descargan al verse en
+  pantalla). Supabase puede generar miniaturas más ligeras ("Image Transformations"), pero
+  es una función de pago; no hace falta por ahora. Si las visitas llegan a tener muchísimas
+  fotos y la galería carga lento en datos móviles, se puede revisar.
+- **Foto en grande con `<dialog>`**, que ya trae el navegador (sin librerías nuevas).
+- **La foto abierta se recuerda por su id, no por su posición**, para que no cambie si llega
+  una foto nueva mientras la estás viendo.
+- **La fila nueva viene del mismo `insert`** (`.select().single()`), así no hay que volver a
+  leer toda la lista por cada foto. Si el `insert` dice "ya existe" (un intento anterior la
+  guardó), no trae la fila y entonces sí se vuelve a leer la lista.
+- **El conteo usa `fotos(count)`** en la misma consulta de la lista: una sola consulta, sin
+  cambiar la base de datos.
+
+**Problemas encontrados / pendientes para la siguiente fase:**
+- Fase 7: revisar en celulares reales que la foto en grande ocupe bien la pantalla
+  (se usa `h-dvh`, el alto real visible, para que la barra del navegador no tape los botones).
+
+**Commit:** ver `git log` — `Fase 6: galería de fotos y conteo en la lista`

@@ -5,10 +5,11 @@
 // crea una fila en la tabla "fotos".
 //
 // Si una foto falla, las demás se siguen subiendo, y esa se puede reintentar sola.
+// Cada foto que queda guardada se avisa con "alSubir" para que aparezca en la galería.
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { BUCKET_FOTOS } from "@/lib/tipos";
+import { BUCKET_FOTOS, type Foto } from "@/lib/tipos";
 import { ErrorFoto, mensajeErrorSubida, prepararFoto, rutaFoto, type FotoPreparada } from "@/lib/fotos";
 
 type EstadoFoto = "esperando" | "preparando" | "subiendo" | "guardando" | "listo" | "error";
@@ -41,7 +42,13 @@ const TEXTO_ESTADO: Record<EstadoFoto, string> = {
 
 let contador = 0;
 
-export default function SubirFotos({ visitaId }: { visitaId: string }) {
+type Props = {
+  visitaId: string;
+  /** Se llama con la fila nueva de "fotos", o con null si hay que volver a leer la lista. */
+  alSubir: (foto: Foto | null) => void;
+};
+
+export default function SubirFotos({ visitaId, alSubir }: Props) {
   const [items, setItems] = useState<ItemFoto[]>([]);
   const [progreso, setProgreso] = useState<{ actual: number; total: number } | null>(null);
   const avances = useRef(new Map<string, Avance>());
@@ -86,16 +93,21 @@ export default function SubirFotos({ visitaId }: { visitaId: string }) {
 
     // 3) Registrar la foto en la tabla "fotos".
     actualizar(clave, { estado: "guardando", mensaje: undefined });
-    const { error } = await supabase.from("fotos").insert({
-      visita_id: visitaId,
-      ruta: av.ruta!,
-      nombre_original: av.archivo.name || null,
-      tamano_bytes: av.preparada.blob.size,
-    });
+    const { data, error } = await supabase
+      .from("fotos")
+      .insert({
+        visita_id: visitaId,
+        ruta: av.ruta!,
+        nombre_original: av.archivo.name || null,
+        tamano_bytes: av.preparada.blob.size,
+      })
+      .select()
+      .single();
     // 23505 = ruta repetida: un intento anterior ya la registró.
     if (error && error.code !== "23505") throw error;
 
     actualizar(clave, { estado: "listo", mensaje: undefined });
+    alSubir(data ?? null);
   }
 
   async function procesar(claves: string[]) {
@@ -134,9 +146,7 @@ export default function SubirFotos({ visitaId }: { visitaId: string }) {
   const fallidos = items.filter((it) => it.estado === "error").length;
 
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-2xl font-bold">Fotos</h2>
-
+    <div className="flex flex-col gap-3">
       <label
         className={`flex flex-col items-center justify-center gap-1 rounded-2xl border-4 border-dashed px-4 py-10 text-center ${
           ocupado
@@ -200,6 +210,6 @@ export default function SubirFotos({ visitaId }: { visitaId: string }) {
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }

@@ -1,13 +1,13 @@
 "use client";
 
-// Datos de una visita y la zona para subir fotos (la galería llega en la Fase 6).
+// Datos de una visita, la zona para subir fotos y la galería de fotos.
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatearFecha } from "@/lib/fechas";
 import type { Visita } from "@/lib/tipos";
 import { enlaceMapa, formatearPrecision } from "@/lib/ubicacion";
-import SubirFotos from "./SubirFotos";
+import FotosVisita from "./FotosVisita";
 
 type VisitaConCompetidor = Visita & { competidores: { nombre: string } | null };
 
@@ -129,7 +129,7 @@ export default function DetalleVisita({ id }: { id: string }) {
         </div>
       </dl>
 
-      <SubirFotos visitaId={v.id} />
+      <FotosVisita visitaId={v.id} />
     </section>
   );
 }
