@@ -11,7 +11,7 @@
 | 0 | Plan | ✅ |
 | 1 | Esqueleto del proyecto | ✅ |
 | 2 | Base de datos y Storage | ✅ |
-| 3 | Lista de visitas y nueva visita | ⬜ |
+| 3 | Lista de visitas y nueva visita | ✅ |
 | 4 | Ubicación | ⬜ |
 | 5 | Subir fotos | ⬜ |
 | 6 | Ver fotos de una visita | ⬜ |
@@ -34,6 +34,9 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       librería solo con permiso del usuario. La prueba de la Fase 5 debe incluir una foto
       HEIC real de iPhone. Es una decisión nuestra, no viene de la grabación (ver PLAN
       Fase 5 y sección 8).
+- [ ] **Prueba de la Fase 3 con datos reales.** El agente comprobó build, lint y que las
+      pantallas cargan, pero no creó visitas para no ensuciar la base de datos. Falta que
+      el usuario cree una visita y la vea en la lista y en Supabase (ver "Cómo probarlo" de la Fase 3).
 
 ---
 
@@ -219,3 +222,61 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   para obtener el id y navegar a `/visitas/[id]`.
 
 **Commit:** ver `git log` — `Fase 2: esquema de base de datos, Storage y tipos`
+
+---
+
+## Fase 3 — Lista de visitas y nueva visita (2026-11-18)
+
+**Qué se hizo:**
+- `/`: botón grande "Nueva visita" y lista de visitas (la más reciente primero) con
+  competidor y fecha en hora de México. Cada visita abre su pantalla.
+- `/visitas/nueva`: un botón grande por cada competidor **activo**, ordenados por `orden`.
+  Al tocar uno se guarda en memoria `competidor_elegido_at`. "Guardar visita" hace el
+  `insert` y lleva a `/visitas/[id]`. Mensajes de cargando, guardando y error con reintento.
+- `/visitas/[id]`: competidor, fecha en que se guardó y fecha en que se eligió el
+  competidor. Mensaje claro si la visita no existe.
+- Se borró `EstadoConexion.tsx` (era provisional).
+
+**Archivos creados o cambiados:**
+- `src/app/page.tsx` — inicio con botón y lista
+- `src/app/ListaVisitas.tsx` — lista de visitas (componente de cliente)
+- `src/app/visitas/nueva/page.tsx` — pantalla de nueva visita
+- `src/app/visitas/nueva/FormularioNuevaVisita.tsx` — selector de competidor y guardado
+- `src/app/visitas/[id]/page.tsx` — pantalla de una visita (lee el `id` dentro de `<Suspense>`)
+- `src/app/visitas/[id]/DetalleVisita.tsx` — lee y muestra la visita
+- `src/lib/fechas.ts` — `formatearFecha()`: UTC → hora de México (`America/Mexico_City`)
+- `src/app/EstadoConexion.tsx` — borrado
+
+**Pasos que hizo el usuario a mano:**
+- Ninguno durante la fase. Falta su prueba con datos reales (ver "Pendientes").
+
+**Cómo probarlo:**
+1. `npm run dev` y abrir `http://localhost:3000`.
+2. Si no hay visitas, sale "Todavía no hay visitas".
+3. Tocar "Nueva visita", elegir un competidor (se pone azul con ✓) y tocar "Guardar visita".
+4. Debe abrir la pantalla de la visita con el competidor y las fechas.
+5. "← Volver a la lista": la visita aparece arriba de todo.
+6. En Supabase → Table Editor → `visitas` está la fila con `competidor_id`,
+   `competidor_elegido_at` y `created_at` llenos (`latitud`/`longitud` vacías hasta la Fase 4).
+
+**Decisiones tomadas (y por qué):**
+- **Los datos se leen en componentes de cliente** (`useEffect`), como se decidió en la
+  Fase 1, para que siempre salgan datos frescos sin pelear con el caché de `cacheComponents`.
+- **`/visitas/[id]` lee `params` dentro de `<Suspense>`**, porque con `cacheComponents` el
+  `id` solo se conoce al abrir la página (doc: `03-file-conventions/dynamic-routes.md`,
+  "With Cache Components"). Sin eso, el build falla.
+- **Competidores como botones grandes**, no como `<select>`: son pocos y se tocan mejor
+  con el pulgar.
+- **Si el id de la dirección no tiene forma de UUID**, se muestra "Esta visita no existe"
+  sin consultar, porque Postgres daría un error técnico.
+- **El número de fotos en la lista NO se agregó**: es de la Fase 6. Con la relación ya
+  definida en los tipos, se puede pedir con `.select("..., fotos(count)")`.
+
+**Problemas encontrados / pendientes para la siguiente fase:**
+- Fase 4: la ubicación va en `FormularioNuevaVisita.tsx`. Agregar `latitud`, `longitud`,
+  `precision_metros` y `ubicacion_at` al objeto `nueva`, y desactivar "Guardar visita"
+  hasta tener ubicación. `DetalleVisita.tsx` puede mostrar la ubicación y el enlace al mapa.
+- Fase 5: la zona de fotos reemplaza el texto "Aquí se podrán subir las fotos
+  (próximamente)" en `DetalleVisita.tsx`.
+
+**Commit:** ver `git log` — `Fase 3: lista y creación de visitas`
