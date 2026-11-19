@@ -15,7 +15,7 @@
 | 4 | Ubicación | ✅ |
 | 5 | Subir fotos | ✅ |
 | 6 | Ver fotos de una visita | ✅ |
-| 7 | Pulido móvil y despliegue | 🟡 |
+| 7 | Pulido móvil y despliegue | ✅ |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 
@@ -483,7 +483,9 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 
 ---
 
-## Fase 7 — Pulido móvil y despliegue (2026-11-18) — 🟡 falta desplegar y probar en celulares
+## Fase 7 — Pulido móvil y despliegue (2026-11-18) — ✅ confirmada 2026-11-19
+
+**App publicada:** https://levantamiento-precio.vercel.app/
 
 **Qué se hizo:**
 - **Siempre modo claro.** Antes, si el celular estaba en modo oscuro, el fondo se ponía negro
@@ -510,7 +512,8 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - `docs/PLAN.md` — sección 8: decisión del noindex
 
 **Pasos que hizo el usuario a mano:**
-- (Pendiente) Desplegar en Vercel y probar en un iPhone y un Android reales.
+- Desplegó la app en Vercel: https://levantamiento-precio.vercel.app/
+- Probó la app en un iPhone y un Android reales (2026-11-19): salió bien.
 
 **Cómo probarlo:**
 1. `npm run build` y `npx next start`; abrir `http://localhost:3000`.
@@ -533,8 +536,7 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   sin login). Solo evita que salga en Google.
 
 **Problemas encontrados / pendientes:**
-- Desplegar en Vercel y hacer la prueba en celulares reales (ver arriba). Al confirmarla,
-  cambiar la Fase 7 a ✅.
-- En la prueba, revisar que la foto en grande no quede tapada por la barra del navegador (Fase 6).
+- ~~Desplegar en Vercel y hacer la prueba en celulares reales.~~ Hecho el 2026-11-19: la
+  prueba en iPhone y Android salió bien. Fase 7 cambiada a ✅.
 
 **Commit:** ver `git log` — `Fase 7: pulido móvil, ícono y noindex`
