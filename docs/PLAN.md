@@ -122,6 +122,11 @@ qué sirve y espera a que diga que sí.
 
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
+>
+> **Cambios planeados en la Etapa 2, Fase E2-1** (ver `docs/PLAN_ETAPA2.md`): se quita
+> `visitas.competidor_elegido_at` y se agregan `fotos.capturada_at` y
+> `fotos.capturada_origen` (hora en que se tomó la foto), con migraciones nuevas. El agente
+> de E2-1 actualiza estas tablas cuando se ejecuten.
 
 ### 4.2 Storage
 

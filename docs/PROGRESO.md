@@ -22,12 +22,15 @@
 
 | Fase | Nombre | Estado |
 |---|---|---|
-| E2-0 | Plan | ✅ |
-| E2-1 | Base de datos de la Etapa 2 | ⬜ |
-| E2-2 | Leer una foto | ⬜ |
-| E2-3 | Evaluación (modelo y tamaño de foto) | ⬜ |
-| E2-4 | Lotes y guardado | ⬜ |
-| E2-5 | Corrida completa y consultas | ⬜ |
+| E2-0 | Plan (actualizado el 2026-11-19) | ✅ |
+| E2-1 | Ajuste de la Etapa 1: fechas y fotos | ⬜ |
+| E2-2 | Base de datos de lecturas | ⬜ |
+| E2-3 | Catálogo propio | ⬜ |
+| E2-4 | Leer una foto | ⬜ |
+| E2-5 | Evaluación (modelo, confianza y tamaño de foto) | ⬜ |
+| E2-6 | Lotes y guardado | ⬜ |
+| E2-7 | Equivalencias y comparación | ⬜ |
+| E2-8 | Corrida completa y consultas | ⬜ |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 
@@ -659,3 +662,45 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - [ ] Confirmar los nombres `ANTHROPIC_API_KEY` y `SUPABASE_SECRET_KEY`.
 
 **Commit:** ver `git log` — `Etapa 2, Fase 0: plan`
+
+---
+
+## Etapa 2 — Fase 0 (actualización): Plan ampliado (2026-11-19)
+
+**Qué se hizo:**
+- `docs/PLAN_ETAPA2.md` reescrito con el **objetivo final** (inteligencia de precios de la
+  competencia: leer, comparar contra nuestro catálogo y analizar por competidor, zona y
+  fecha) y las 9 decisiones nuevas del usuario.
+- Tablas nuevas planeadas: `catalogo_propio`, `lecturas_precio` (con confianza por artículo,
+  presentación y precio, y estados `propuesta` / `por_revisar` / `aprobada` / `corregida` /
+  `descartada`), `equivalencias`, vista `comparacion_precios` normalizada por 100 g /
+  100 ml / pieza con SQL. Propuestas del agente: `articulos_competencia`, columna `piezas`,
+  historial de precios propios y `zonas`.
+- Calidad y motivo por foto; no se reprocesan las fotos `procesada`.
+- Revisión de la documentación vigente de visión: Sonnet 5.5 y Haiku 5.5 aprovechan hasta
+  2576 px y 4 784 tokens por imagen; propuesta 2200 px, JPEG 0.85, sin tope de 1 MB. Guía de
+  campo para fotografiar etiquetas.
+- Nueva Fase E2-1 (ajuste de la Etapa 1): hora de captura (EXIF) en `fotos`, quitar
+  `competidor_elegido_at`, con orden seguro para no romper la app publicada.
+- Fases renumeradas (E2-1 a E2-8). Nota en `PLAN.md` sección 4.1.
+- `.gitignore`: carpeta `/datos_privados/` para la lista de precios original.
+
+**Archivos creados o cambiados:**
+- `docs/PLAN_ETAPA2.md`, `docs/PLAN.md`, `docs/PROGRESO.md`, `.gitignore`
+
+**Pasos que hizo el usuario a mano:**
+- Ninguno.
+
+**Cómo probarlo:**
+- No aplica (no hay código). `git check-ignore datos_privados/x.csv` confirma que la carpeta
+  está ignorada.
+
+**Pendientes antes de la Fase E2-1:**
+- [ ] Confirmar la opción A (script local) para disparar el proceso (sección 8).
+- [ ] Decir qué columnas trae la lista de precios propia (Excel o CSV) — necesario antes de E2-3.
+- [ ] Confirmar `articulos_competencia`, `piezas`, historial de precios y `zonas` (sección 12).
+- [ ] Aprobar el cambio de tamaño de foto (2200 px / 0.85 / sin tope de 1 MB) y quitar
+      `competidor_elegido_at` (cambian la app publicada).
+- [ ] Confirmar los nombres `ANTHROPIC_API_KEY` y `SUPABASE_SECRET_KEY` (E2-2).
+
+**Commit:** ver `git log` — `Etapa 2, Fase 0: plan ampliado (objetivo, catálogo, equivalencias)`

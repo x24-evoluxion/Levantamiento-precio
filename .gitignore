@@ -41,3 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Datos privados (lista de precios propia, fotos de prueba en tamaño original): nunca se suben
+/datos_privados/
