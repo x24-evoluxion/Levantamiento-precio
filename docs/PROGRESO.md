@@ -16,7 +16,7 @@
 | 5 | Subir fotos | ✅ |
 | 6 | Ver fotos de una visita | ✅ |
 | 7 | Pulido móvil y despliegue | ✅ |
-| — | Ajuste visual (tema oscuro) | 🟡 en revisión del usuario |
+| — | Ajuste visual (tema oscuro) | ✅ |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 
@@ -544,7 +544,7 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 
 ---
 
-## Ajuste visual — Tema oscuro negro, gris y rojo (2026-11-19)
+## Ajuste visual — Tema oscuro negro, gris y rojo (2026-11-19) — ✅ aprobado por el usuario 2026-11-19
 
 **Qué se hizo (solo visual, sin cambiar la lógica):**
 - **La app ahora es siempre oscura**, aunque el celular esté en modo claro. Reemplaza el
