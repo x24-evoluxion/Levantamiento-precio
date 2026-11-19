@@ -4,7 +4,7 @@
  * ============================================================================
  *  COLORES DE LA APP — este es el ÚNICO lugar donde se definen.
  * ============================================================================
- * La app siempre se ve oscura (fondo negro, texto blanco, detalles en gris y
+ * La app siempre se ve oscura (fondo gris grafito, texto blanco, detalles en gris y
  * rojo), aunque el celular esté en modo claro.
  *
  * Cada "--color-xxx" crea clases de Tailwind con ese nombre: bg-xxx, text-xxx,
@@ -17,39 +17,39 @@
  */
 @theme {
   /* Base */
-  --color-fondo: #0a0a0a; /* fondo de la página */
-  --color-tarjeta: #1a1a1a; /* tarjetas, cajas y botones de la lista */
-  --color-tarjeta-presionada: #262626; /* tarjeta al tocarla */
-  --color-borde: #3f3f3f; /* bordes de tarjetas y cajas */
+  --color-fondo: #2a2a2a; /* fondo de la página (gris grafito) */
+  --color-tarjeta: #363636; /* tarjetas, cajas y botones de la lista */
+  --color-tarjeta-presionada: #424242; /* tarjeta al tocarla */
+  --color-borde: #5a5a5a; /* bordes de tarjetas y cajas */
   --color-texto: #ffffff; /* texto principal */
-  --color-texto-suave: #a3a3a3; /* fechas, ayudas, textos secundarios */
+  --color-texto-suave: #b8b8b8; /* fechas, ayudas, textos secundarios */
 
   /* Rojo de marca */
   --color-marca: #dc2626; /* botones principales, elegido, acentos */
   --color-marca-presionada: #b91c1c; /* botón rojo al presionarlo */
   --color-sobre-marca: #ffffff; /* texto encima del rojo */
-  --color-enlace: #f87171; /* enlaces: rojo más claro para que se lea sobre negro */
+  --color-enlace: #fca5a5; /* enlaces: rojo claro para que se lea sobre el gris */
 
   /* Botones grises (acciones secundarias, como "Reintentar") */
-  --color-gris: #3f3f3f;
-  --color-gris-presionado: #525252;
+  --color-gris: #4a4a4a;
+  --color-gris-presionado: #5c5c5c;
 
   /* Botones desactivados */
-  --color-desactivado: #262626;
-  --color-texto-desactivado: #a3a3a3;
+  --color-desactivado: #333333;
+  --color-texto-desactivado: #b8b8b8;
 
   /* Mensajes de error: recuadro rojo claro + ícono. Distinto del rojo de marca. */
-  --color-error-fondo: #2a1212;
-  --color-error-borde: #fca5a5;
+  --color-error-fondo: #3d1f1f;
+  --color-error-borde: #f87171;
   --color-error-texto: #fecaca;
 
   /* Mensajes de éxito */
-  --color-exito-fondo: #0f2417;
+  --color-exito-fondo: #1c3324;
   --color-exito-borde: #4ade80;
   --color-exito-texto: #bbf7d0;
 
   /* Avisos (algo no está del todo bien, pero no es un error) */
-  --color-aviso-fondo: #2a2108;
+  --color-aviso-fondo: #3a3115;
   --color-aviso-borde: #facc15;
   --color-aviso-texto: #fef08a;
 

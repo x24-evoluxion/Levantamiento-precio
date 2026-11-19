@@ -604,3 +604,14 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - La galería en grande usa el fondo de la app (`#0A0A0A`), casi negro puro.
 
 **Commit:** ver `git log` — `Ajuste visual: tema oscuro negro, gris y rojo`
+
+**Cambio pedido después (2026-11-19): fondo gris grafito en lugar de negro.**
+- Fondo `#2A2A2A` (también la barra del navegador). Para que las tarjetas sigan viéndose
+  más claras que el fondo, subieron también: tarjetas `#363636`, tarjeta presionada `#424242`,
+  bordes `#5A5A5A`, botón gris `#4A4A4A` / `#5C5C5C` y desactivado `#333333`.
+- Texto secundario `#B8B8B8` (antes `#A3A3A3`): sobre las tarjetas nuevas daba 4.8:1; ahora 6.1:1.
+- Enlaces `#FCA5A5` (antes `#F87171`): sobre las tarjetas nuevas daba 4.4:1, menos del mínimo
+  4.5:1; ahora 6.4:1. El borde de los errores pasó a `#F87171` para no ser igual a los enlaces.
+- Fondos de error, éxito y aviso un poco más claros, para que combinen con el gris.
+- Solo cambiaron `src/app/globals.css`, `src/lib/colores.ts` y un comentario de `layout.tsx`.
+- **Commit:** `Ajuste visual: fondo gris grafito`
