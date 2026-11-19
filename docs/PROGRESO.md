@@ -18,6 +18,17 @@
 | 7 | Pulido móvil y despliegue | ✅ |
 | — | Ajuste visual (tema oscuro) | ✅ |
 
+### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
+
+| Fase | Nombre | Estado |
+|---|---|---|
+| E2-0 | Plan | ✅ |
+| E2-1 | Base de datos de la Etapa 2 | ⬜ |
+| E2-2 | Leer una foto | ⬜ |
+| E2-3 | Evaluación (modelo y tamaño de foto) | ⬜ |
+| E2-4 | Lotes y guardado | ⬜ |
+| E2-5 | Corrida completa y consultas | ⬜ |
+
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 
 ## Pendientes y dudas abiertas
@@ -615,3 +626,36 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - Fondos de error, éxito y aviso un poco más claros, para que combinen con el gris.
 - Solo cambiaron `src/app/globals.css`, `src/lib/colores.ts` y un comentario de `layout.tsx`.
 - **Commit:** `Ajuste visual: fondo gris grafito`
+
+---
+
+## Etapa 2 — Fase 0: Plan (2026-11-19)
+
+**Qué se hizo:**
+- `docs/PLAN_ETAPA2.md` no existía; con permiso del usuario se escribió desde cero con sus
+  8 decisiones: API de Claude solo en servidor, inserción directa con la secret key, tabla
+  cerrada a `anon`, estado/confianza/motivo por lectura, vista de análisis sin descartadas,
+  estado de procesamiento por foto, una llamada por foto con JSON validado y lotes, disparador
+  no público, fase de evaluación y riesgos.
+- Nota en `PLAN.md` sección 6: excepción de la secret key solo para el servidor.
+
+**Archivos creados o cambiados:**
+- `docs/PLAN_ETAPA2.md` — plan de la Etapa 2 (nuevo)
+- `docs/PLAN.md` — nota de la excepción en la sección 6
+- `docs/PROGRESO.md` — tabla de estado de la Etapa 2 y esta sección
+
+**Pasos que hizo el usuario a mano:**
+- Ninguno todavía.
+
+**Cómo probarlo:**
+- No aplica (no hay código).
+
+**Decisiones tomadas (y por qué):**
+- Ver `PLAN_ETAPA2.md` secciones 2 y 12.
+
+**Pendientes antes de la Fase E2-1:**
+- [ ] Confirmar la opción A (script local) para disparar el proceso (PLAN_ETAPA2 sección 8).
+- [ ] Permiso para instalar `@anthropic-ai/sdk` (se pide en la Fase E2-2).
+- [ ] Confirmar los nombres `ANTHROPIC_API_KEY` y `SUPABASE_SECRET_KEY`.
+
+**Commit:** ver `git log` — `Etapa 2, Fase 0: plan`

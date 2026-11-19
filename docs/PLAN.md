@@ -215,6 +215,11 @@ actualiza esta tabla.
 
 🚫 **Nunca** se usa la llave `service_role` / `secret` en este proyecto.
 
+> **Excepción de la Etapa 2 (2026-11-19):** el proceso que lee precios con Claude usa
+> `SUPABASE_SECRET_KEY` y `ANTHROPIC_API_KEY`, **solo en código de servidor** y nunca con
+> `NEXT_PUBLIC_`. La app (el navegador) sigue usando solo la llave pública. Ver
+> `docs/PLAN_ETAPA2.md`, sección 4.
+
 ---
 
 ## 7. Fases
