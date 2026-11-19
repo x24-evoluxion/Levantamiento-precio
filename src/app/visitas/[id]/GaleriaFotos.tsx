@@ -52,7 +52,7 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
 
   if (fotos.length === 0) {
     return (
-      <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">Esta visita todavía no tiene fotos.</p>
+      <p className="caja-info">Esta visita todavía no tiene fotos.</p>
     );
   }
 
@@ -71,7 +71,7 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
             <button
               type="button"
               onClick={() => setAbiertaId(f.id)}
-              className="block aspect-square w-full overflow-hidden rounded-lg border-2 border-zinc-200 bg-zinc-100 active:opacity-70"
+              className="block aspect-square w-full overflow-hidden rounded-lg border-2 border-borde bg-tarjeta active:opacity-70"
               aria-label={`Ver foto ${i + 1} de ${fotos.length} en grande`}
             >
               <img
@@ -89,7 +89,7 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
       <dialog
         ref={dialogo}
         onClose={() => setAbiertaId(null)}
-        className="m-0 h-dvh max-h-none w-screen max-w-none bg-black p-0 text-white backdrop:bg-black"
+        className="m-0 h-dvh max-h-none w-screen max-w-none bg-fondo p-0 text-texto backdrop:bg-fondo"
         aria-label="Foto en grande"
       >
         {foto && abierta !== null && (
@@ -101,7 +101,7 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
               <button
                 type="button"
                 onClick={() => setAbiertaId(null)}
-                className="rounded-xl bg-white px-5 py-3 text-lg font-bold text-black active:bg-zinc-300"
+                className="boton-gris rounded-xl px-5 py-3 text-lg font-bold"
               >
                 ✕ Cerrar
               </button>
@@ -116,21 +116,21 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
               />
             </div>
 
-            <p className="px-3 pt-2 text-center text-base text-zinc-300">Subida {formatearFecha(foto.created_at)}</p>
+            <p className="px-3 pt-2 text-center text-base text-texto-suave">Subida {formatearFecha(foto.created_at)}</p>
 
             {varias && (
               <div className="grid grid-cols-2 gap-3 p-3">
                 <button
                   type="button"
                   onClick={() => irA(abierta - 1)}
-                  className="rounded-xl bg-zinc-800 px-4 py-4 text-lg font-semibold active:bg-zinc-700"
+                  className="boton-gris rounded-xl px-4 py-4 text-lg font-semibold"
                 >
                   ← Anterior
                 </button>
                 <button
                   type="button"
                   onClick={() => irA(abierta + 1)}
-                  className="rounded-xl bg-zinc-800 px-4 py-4 text-lg font-semibold active:bg-zinc-700"
+                  className="boton-gris rounded-xl px-4 py-4 text-lg font-semibold"
                 >
                   Siguiente →
                 </button>

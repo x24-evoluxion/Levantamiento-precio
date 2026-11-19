@@ -9,7 +9,7 @@ export default function Inicio() {
 
       <Link
         href="/visitas/nueva"
-        className="block rounded-2xl bg-blue-700 px-6 py-5 text-center text-2xl font-bold text-white active:bg-blue-800"
+        className="boton-primario block rounded-2xl px-6 py-5 text-center text-2xl font-bold"
       >
         + Nueva visita
       </Link>

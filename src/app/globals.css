@@ -1,25 +1,156 @@
 @import "tailwindcss";
 
 /*
- * La app siempre usa colores claros, aunque el celular esté en modo oscuro:
- * las tarjetas y mensajes tienen colores claros fijos y se leen mejor al sol.
- * "color-scheme: light" también le dice al navegador que dibuje claros sus
- * propios controles (selector de archivos, barras de desplazamiento, etc.).
+ * ============================================================================
+ *  COLORES DE LA APP — este es el ÚNICO lugar donde se definen.
+ * ============================================================================
+ * La app siempre se ve oscura (fondo negro, texto blanco, detalles en gris y
+ * rojo), aunque el celular esté en modo claro.
+ *
+ * Cada "--color-xxx" crea clases de Tailwind con ese nombre: bg-xxx, text-xxx,
+ * border-xxx, etc. Por ejemplo, --color-marca → bg-marca, text-marca.
+ * Para cambiar un color en toda la app, cámbialo solo aquí.
+ *
+ * Dos colores también se usan fuera de CSS (barra del navegador e ícono) y
+ * están copiados en src/lib/colores.ts: si cambias "fondo" o "marca", cámbialos
+ * también ahí.
  */
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-  color-scheme: light;
-}
+@theme {
+  /* Base */
+  --color-fondo: #0a0a0a; /* fondo de la página */
+  --color-tarjeta: #1a1a1a; /* tarjetas, cajas y botones de la lista */
+  --color-tarjeta-presionada: #262626; /* tarjeta al tocarla */
+  --color-borde: #3f3f3f; /* bordes de tarjetas y cajas */
+  --color-texto: #ffffff; /* texto principal */
+  --color-texto-suave: #a3a3a3; /* fechas, ayudas, textos secundarios */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  /* Rojo de marca */
+  --color-marca: #dc2626; /* botones principales, elegido, acentos */
+  --color-marca-presionada: #b91c1c; /* botón rojo al presionarlo */
+  --color-sobre-marca: #ffffff; /* texto encima del rojo */
+  --color-enlace: #f87171; /* enlaces: rojo más claro para que se lea sobre negro */
+
+  /* Botones grises (acciones secundarias, como "Reintentar") */
+  --color-gris: #3f3f3f;
+  --color-gris-presionado: #525252;
+
+  /* Botones desactivados */
+  --color-desactivado: #262626;
+  --color-texto-desactivado: #a3a3a3;
+
+  /* Mensajes de error: recuadro rojo claro + ícono. Distinto del rojo de marca. */
+  --color-error-fondo: #2a1212;
+  --color-error-borde: #fca5a5;
+  --color-error-texto: #fecaca;
+
+  /* Mensajes de éxito */
+  --color-exito-fondo: #0f2417;
+  --color-exito-borde: #4ade80;
+  --color-exito-texto: #bbf7d0;
+
+  /* Avisos (algo no está del todo bien, pero no es un error) */
+  --color-aviso-fondo: #2a2108;
+  --color-aviso-borde: #facc15;
+  --color-aviso-texto: #fef08a;
+
   --font-sans: var(--font-geist-sans);
 }
 
+/*
+ * "color-scheme: dark" le dice al navegador que dibuje oscuros sus propios
+ * controles (barras de desplazamiento, selector de archivos, etc.).
+ */
+:root {
+  color-scheme: dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--color-fondo);
+  color: var(--color-texto);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/*
+ * Piezas que se repiten en varias pantallas. Se pueden combinar con clases de
+ * Tailwind (por ejemplo, "caja-error mt-3").
+ */
+@layer components {
+  /* --- Cajas de mensaje --- */
+  .caja-info {
+    border-radius: 0.75rem;
+    border: 2px solid var(--color-borde);
+    background: var(--color-tarjeta);
+    color: var(--color-texto-suave);
+    padding: 1rem;
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
+
+  .caja-error,
+  .caja-exito,
+  .caja-aviso {
+    border-radius: 0.75rem;
+    border: 2px solid;
+    padding: 1rem;
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
+  .caja-error {
+    border-color: var(--color-error-borde);
+    background: var(--color-error-fondo);
+    color: var(--color-error-texto);
+  }
+  .caja-exito {
+    border-color: var(--color-exito-borde);
+    background: var(--color-exito-fondo);
+    color: var(--color-exito-texto);
+  }
+  .caja-aviso {
+    border-color: var(--color-aviso-borde);
+    background: var(--color-aviso-fondo);
+    color: var(--color-aviso-texto);
+  }
+
+  /* --- Botones --- */
+  .boton-primario {
+    background: var(--color-marca);
+    color: var(--color-sobre-marca);
+  }
+  .boton-primario:active {
+    background: var(--color-marca-presionada);
+  }
+
+  /* Contorno rojo: acción ya hecha que se puede repetir ("Actualizar ubicación"). */
+  .boton-contorno {
+    border: 2px solid var(--color-marca);
+    background: transparent;
+    color: var(--color-texto);
+  }
+  .boton-contorno:active {
+    background: var(--color-tarjeta-presionada);
+  }
+
+  .boton-gris {
+    background: var(--color-gris);
+    color: var(--color-texto);
+  }
+  .boton-gris:active {
+    background: var(--color-gris-presionado);
+  }
+
+  .boton-primario:disabled,
+  .boton-contorno:disabled,
+  .boton-gris:disabled {
+    border-color: var(--color-borde);
+    background: var(--color-desactivado);
+    color: var(--color-texto-desactivado);
+  }
+
+  /* --- Enlaces --- */
+  .enlace {
+    color: var(--color-enlace);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 }

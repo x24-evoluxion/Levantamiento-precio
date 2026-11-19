@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import type { Foto } from "@/lib/tipos";
 import SubirFotos from "./SubirFotos";
 import GaleriaFotos from "./GaleriaFotos";
+import TituloError from "@/components/TituloError";
 
 type Estado =
   | { tipo: "cargando" }
@@ -79,12 +80,12 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
       <SubirFotos visitaId={visitaId} alSubir={alSubir} />
 
       {estado.tipo === "cargando" && (
-        <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">Cargando fotos…</p>
+        <p className="caja-info">Cargando fotos…</p>
       )}
 
       {estado.tipo === "error" && (
-        <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-          <p className="font-semibold">❌ No se pudieron cargar las fotos</p>
+        <div className="caja-error">
+          <TituloError>No se pudieron cargar las fotos</TituloError>
           <p className="mt-1 text-base break-words">{estado.detalle}</p>
           <button
             type="button"
@@ -92,7 +93,7 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
               setEstado({ tipo: "cargando" });
               recargar();
             }}
-            className="mt-3 w-full rounded-xl bg-red-700 px-4 py-3 text-lg font-semibold text-white active:bg-red-800"
+            className="boton-gris mt-3 w-full rounded-xl px-4 py-3 text-lg font-semibold"
           >
             Reintentar
           </button>

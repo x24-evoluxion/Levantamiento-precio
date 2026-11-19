@@ -16,6 +16,7 @@
 | 5 | Subir fotos | ✅ |
 | 6 | Ver fotos de una visita | ✅ |
 | 7 | Pulido móvil y despliegue | ✅ |
+| — | Ajuste visual (tema oscuro) | 🟡 en revisión del usuario |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 
@@ -540,3 +541,66 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
   prueba en iPhone y Android salió bien. Fase 7 cambiada a ✅.
 
 **Commit:** ver `git log` — `Fase 7: pulido móvil, ícono y noindex`
+
+---
+
+## Ajuste visual — Tema oscuro negro, gris y rojo (2026-11-19)
+
+**Qué se hizo (solo visual, sin cambiar la lógica):**
+- **La app ahora es siempre oscura**, aunque el celular esté en modo claro. Reemplaza el
+  "siempre modo claro" de la Fase 7. Fondo negro, tarjetas gris oscuro, letras blancas y
+  detalles en rojo.
+- **Todos los colores están en un solo lugar:** el bloque `@theme` de `src/app/globals.css`.
+  Cada `--color-xxx` crea clases de Tailwind (`bg-xxx`, `text-xxx`, `border-xxx`). Ahí mismo
+  están las piezas que se repiten: cajas de mensaje (`caja-info`, `caja-error`, `caja-exito`,
+  `caja-aviso`), botones (`boton-primario`, `boton-contorno`, `boton-gris`) y `enlace`.
+- **Botones rojos** con texto blanco: "Nueva visita", "Guardar visita", "Guardar mi ubicación"
+  y el competidor elegido. "Actualizar ubicación" lleva contorno rojo. "Reintentar", "Cerrar",
+  "Anterior/Siguiente" son grises. Desactivados: gris oscuro con texto gris.
+- **Errores distintos del rojo de marca:** recuadro con fondo rojizo muy oscuro, borde rojo
+  claro, texto rosado claro e ícono de aviso (triángulo). Se quitaron los ❌. Éxito = borde
+  verde; aviso = borde amarillo; "cargando" = caja gris.
+- **Barra del navegador** en el celular: negra (`#0a0a0a`), y `color-scheme: dark`.
+- **Ícono:** "$" blanco sobre el rojo de marca (antes azul).
+- Se revisaron todas las pantallas y estados: lista (cargando, vacía, error, tarjetas), nueva
+  visita (competidores, ubicación con éxito/aviso/errores, guardar), detalle (datos, no existe,
+  error), zona de fotos (libre/ocupada, progreso, resumen, cada foto, reintentar) y galería.
+
+**Paleta (ajustes respecto a la propuesta del usuario):**
+- Se usó tal cual: fondo `#0A0A0A`, tarjetas `#1A1A1A`, bordes `#3F3F3F`, texto `#FFFFFF`,
+  texto secundario `#A3A3A3`, rojo `#DC2626` y `#B91C1C` al presionar.
+- **Enlaces ("Ver en el mapa", "← Volver a la lista") en `#F87171`** (rojo más claro): el
+  `#DC2626` como texto sobre negro da contraste 4.1:1 y sobre tarjeta 3.6:1, menos del mínimo
+  4.5:1. Con `#F87171` queda en 6.3–7.2:1.
+- Colores agregados: tarjeta presionada `#262626`, botón gris `#3F3F3F` / `#525252`,
+  desactivado `#262626`, y los de error / éxito / aviso.
+- Contraste revisado de cada combinación de texto: todas ≥ 4.8:1 (blanco sobre rojo = 4.8:1).
+
+**Archivos creados o cambiados:**
+- `src/app/globals.css` — colores (`@theme`), `color-scheme: dark` y clases compartidas
+- `src/lib/colores.ts` — **nuevo**. Copia de fondo y rojo para la barra y el ícono (no son CSS)
+- `src/components/TituloError.tsx` — **nuevo**. Ícono de aviso + título de los errores
+- `src/app/layout.tsx` — `themeColor` negro y `colorScheme: "dark"`
+- `src/lib/icono.tsx` — ícono rojo
+- `src/app/page.tsx`, `src/app/ListaVisitas.tsx`, `src/app/visitas/nueva/*.tsx`,
+  `src/app/visitas/[id]/*.tsx` — solo clases de color y el ícono de error
+
+**Cómo probarlo:**
+1. `npm run dev` y abrir `http://localhost:3000`: fondo negro, tarjetas grises, botón rojo.
+2. Poner el celular o la computadora en modo claro: la app sigue oscura.
+3. Recorrer: nueva visita → elegir competidor (se pone rojo con ✓) → ubicación → guardar →
+   subir fotos → ver foto en grande.
+4. Errores: bloquear la ubicación o quitar el internet al subir una foto: recuadro con borde
+   rojo claro y triángulo de aviso.
+5. La pestaña muestra el ícono rojo con "$". En el celular, la barra del navegador es negra.
+
+**Decisiones tomadas (y por qué):**
+- **Tokens en `@theme` de Tailwind** en lugar de variables sueltas: así se usan como clases
+  normales (`bg-tarjeta`) y quedan como variables CSS (`var(--color-tarjeta)`).
+- **"Reintentar" en gris, no en rojo**, para que dentro de un recuadro de error no parezca
+  otro error y el rojo quede para las acciones principales.
+- **Ícono de error como SVG propio** (sin librerías nuevas) en lugar de emoji, para que tome
+  el color del texto del error.
+- La galería en grande usa el fondo de la app (`#0A0A0A`), casi negro puro.
+
+**Commit:** ver `git log` — `Ajuste visual: tema oscuro negro, gris y rojo`

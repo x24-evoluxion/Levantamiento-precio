@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { BUCKET_FOTOS, type Foto } from "@/lib/tipos";
+import { IconoAlerta } from "@/components/TituloError";
 import { ErrorFoto, mensajeErrorSubida, prepararFoto, rutaFoto, type FotoPreparada } from "@/lib/fotos";
 
 type EstadoFoto = "esperando" | "preparando" | "subiendo" | "guardando" | "listo" | "error";
@@ -37,7 +38,7 @@ const TEXTO_ESTADO: Record<EstadoFoto, string> = {
   subiendo: "Subiendo…",
   guardando: "Guardando…",
   listo: "✅ Subida",
-  error: "❌ Error",
+  error: "Error",
 };
 
 let contador = 0;
@@ -150,21 +151,21 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
       <label
         className={`flex flex-col items-center justify-center gap-1 rounded-2xl border-4 border-dashed px-4 py-10 text-center ${
           ocupado
-            ? "cursor-not-allowed border-zinc-300 bg-zinc-100 text-zinc-500"
-            : "cursor-pointer border-blue-400 bg-blue-50 text-blue-900 active:bg-blue-100"
+            ? "cursor-not-allowed border-borde bg-desactivado text-texto-desactivado"
+            : "cursor-pointer border-marca bg-tarjeta text-texto active:bg-tarjeta-presionada"
         }`}
       >
         <span className="text-5xl" aria-hidden>
           🖼️
         </span>
         <span className="text-xl font-bold">{ocupado ? "Espera a que terminen…" : "Toca para elegir fotos"}</span>
-        <span className="text-base">Se abre tu galería. Puedes elegir varias.</span>
+        <span className="text-base text-texto-suave">Se abre tu galería. Puedes elegir varias.</span>
         {/* Sin "capture": no queremos abrir la cámara, solo la galería. */}
         <input type="file" accept="image/*" multiple disabled={ocupado} onChange={alElegir} className="sr-only" />
       </label>
 
       {progreso && (
-        <p role="status" className="rounded-xl bg-blue-100 p-4 text-lg font-semibold text-blue-900">
+        <p role="status" className="caja-info font-semibold text-texto">
           ⏳ Subiendo {progreso.actual} de {progreso.total}… No cierres esta pantalla.
         </p>
       )}
@@ -172,13 +173,12 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
       {!progreso && items.length > 0 && (
         <p
           role="status"
-          className={`rounded-xl p-4 text-lg font-semibold ${
-            fallidos > 0 ? "bg-red-100 text-red-900" : "bg-green-100 text-green-900"
-          }`}
+          className={`flex items-start gap-2 font-semibold ${fallidos > 0 ? "caja-error" : "caja-exito"}`}
         >
+          {fallidos > 0 && <IconoAlerta className="mt-0.5" />}
           {fallidos === 0
             ? `✅ Listo: ${listos} ${listos === 1 ? "foto subida" : "fotos subidas"}.`
-            : `${listos} ${listos === 1 ? "foto subida" : "fotos subidas"}. ❌ ${fallidos} con error (revisa abajo).`}
+            : `${listos} ${listos === 1 ? "foto subida" : "fotos subidas"}. ${fallidos} con error (revisa abajo).`}
         </p>
       )}
 
@@ -188,20 +188,27 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
             <li
               key={it.clave}
               className={`rounded-xl border-2 p-3 ${
-                it.estado === "error" ? "border-red-300 bg-red-50" : "border-zinc-200 bg-white"
+                it.estado === "error" ? "border-error-borde bg-error-fondo" : "border-borde bg-tarjeta"
               }`}
             >
               <div className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate text-base text-zinc-800">{it.nombre}</span>
-                <span className="shrink-0 text-base font-semibold text-zinc-900">{TEXTO_ESTADO[it.estado]}</span>
+                <span className="min-w-0 truncate text-base text-texto-suave">{it.nombre}</span>
+                <span
+                  className={`flex shrink-0 items-center gap-1 text-base font-semibold ${
+                    it.estado === "error" ? "text-error-texto" : "text-texto"
+                  }`}
+                >
+                  {it.estado === "error" && <IconoAlerta className="h-5 w-5" />}
+                  {TEXTO_ESTADO[it.estado]}
+                </span>
               </div>
-              {it.mensaje && <p className="mt-1 text-base text-red-900">{it.mensaje}</p>}
+              {it.mensaje && <p className="mt-1 text-base text-error-texto">{it.mensaje}</p>}
               {it.estado === "error" && it.reintentable && (
                 <button
                   type="button"
                   disabled={ocupado}
                   onClick={() => procesar([it.clave])}
-                  className="mt-2 w-full rounded-xl bg-red-700 px-4 py-3 text-lg font-semibold text-white active:bg-red-800 disabled:bg-zinc-400"
+                  className="boton-gris mt-2 w-full rounded-xl px-4 py-3 text-lg font-semibold"
                 >
                   Reintentar esta foto
                 </button>

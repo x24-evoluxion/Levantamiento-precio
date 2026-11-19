@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import type { Competidor, NuevaVisita } from "@/lib/tipos";
 import type { Ubicacion } from "@/lib/ubicacion";
 import BotonUbicacion from "./BotonUbicacion";
+import TituloError from "@/components/TituloError";
 
 type OpcionCompetidor = Pick<Competidor, "id" | "nombre">;
 
@@ -94,14 +95,14 @@ export default function FormularioNuevaVisita() {
 
   if (lista.tipo === "cargando") {
     return (
-      <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">Cargando competidores…</p>
+      <p className="caja-info">Cargando competidores…</p>
     );
   }
 
   if (lista.tipo === "error") {
     return (
-      <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-        <p className="font-semibold">❌ No se pudieron cargar los competidores</p>
+      <div className="caja-error">
+        <TituloError>No se pudieron cargar los competidores</TituloError>
         <p className="mt-1 text-base break-words">{lista.detalle}</p>
         <button
           type="button"
@@ -109,7 +110,7 @@ export default function FormularioNuevaVisita() {
             setLista({ tipo: "cargando" });
             setIntento((n) => n + 1);
           }}
-          className="mt-3 w-full rounded-xl bg-red-700 px-4 py-3 text-lg font-semibold text-white active:bg-red-800"
+          className="boton-gris mt-3 w-full rounded-xl px-4 py-3 text-lg font-semibold"
         >
           Reintentar
         </button>
@@ -122,7 +123,7 @@ export default function FormularioNuevaVisita() {
       <fieldset className="flex flex-col gap-3" disabled={guardando}>
         <legend className="mb-3 text-xl font-semibold">1. ¿Qué tienda visitas?</legend>
         {lista.competidores.length === 0 && (
-          <p className="rounded-xl bg-yellow-100 p-4 text-lg text-yellow-900">
+          <p className="caja-aviso">
             No hay competidores activos. Revisa supabase/seed_competidores.sql.
           </p>
         )}
@@ -136,8 +137,8 @@ export default function FormularioNuevaVisita() {
               aria-pressed={activo}
               className={`rounded-xl border-2 px-4 py-4 text-left text-xl font-semibold ${
                 activo
-                  ? "border-blue-700 bg-blue-700 text-white"
-                  : "border-zinc-300 bg-white text-zinc-900 active:bg-zinc-100"
+                  ? "border-marca bg-marca text-sobre-marca"
+                  : "border-borde bg-tarjeta text-texto active:bg-tarjeta-presionada"
               }`}
             >
               {activo ? "✓ " : ""}
@@ -157,8 +158,8 @@ export default function FormularioNuevaVisita() {
       />
 
       {errorGuardar && (
-        <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-          <p className="font-semibold">❌ No se pudo guardar la visita</p>
+        <div className="caja-error">
+          <TituloError>No se pudo guardar la visita</TituloError>
           <p className="mt-1 text-base break-words">{errorGuardar}</p>
           <p className="mt-1 text-base">Revisa tu conexión a internet y vuelve a intentar.</p>
         </div>
@@ -168,12 +169,12 @@ export default function FormularioNuevaVisita() {
         type="button"
         onClick={guardar}
         disabled={!elegido || !ubicacion || guardando}
-        className="rounded-2xl bg-green-700 px-6 py-5 text-2xl font-bold text-white active:bg-green-800 disabled:bg-zinc-400"
+        className="boton-primario rounded-2xl px-6 py-5 text-2xl font-bold"
       >
         {guardando ? "Guardando…" : "Guardar visita"}
       </button>
       {(!elegido || !ubicacion) && (
-        <p className="-mt-3 text-center text-base text-zinc-600">
+        <p className="-mt-3 text-center text-base text-texto-suave">
           {!elegido && !ubicacion
             ? "Primero elige una tienda y guarda tu ubicación."
             : !elegido

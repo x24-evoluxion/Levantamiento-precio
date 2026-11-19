@@ -13,6 +13,7 @@ import {
   type MotivoFallo,
   type Ubicacion,
 } from "@/lib/ubicacion";
+import TituloError from "@/components/TituloError";
 
 type Props = {
   ubicacion: Ubicacion | null;
@@ -47,18 +48,18 @@ export default function BotonUbicacion({ ubicacion, onUbicacion, desactivado }: 
       <h2 className="text-xl font-semibold">2. ¿Dónde estás?</h2>
 
       {ubicacion && (
-        <div className="rounded-xl bg-green-100 p-4 text-lg text-green-900">
+        <div className="caja-exito">
           <p className="font-semibold">✅ Ubicación guardada ({formatearPrecision(ubicacion.precision_metros)})</p>
           <a
             href={enlaceMapa(ubicacion.latitud, ubicacion.longitud)}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-1 inline-block font-semibold text-blue-700 underline"
+            className="enlace mt-1 inline-block"
           >
             Ver en el mapa
           </a>
           {ubicacion.precision_metros > PRECISION_DUDOSA_METROS && (
-            <p className="mt-2 text-base text-yellow-900">
+            <p className="mt-2 text-base text-aviso-texto">
               ⚠️ La ubicación es poco exacta. Si estás dentro de la tienda, acércate a la
               entrada o a una ventana y toca &quot;Actualizar ubicación&quot;.
             </p>
@@ -67,7 +68,7 @@ export default function BotonUbicacion({ ubicacion, onUbicacion, desactivado }: 
       )}
 
       {buscando && (
-        <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">
+        <p className="caja-info">
           Buscando tu ubicación… Puede tardar unos segundos. Si el celular te pregunta,
           toca <strong>Permitir</strong>.
         </p>
@@ -79,10 +80,10 @@ export default function BotonUbicacion({ ubicacion, onUbicacion, desactivado }: 
         type="button"
         onClick={buscar}
         disabled={buscando || desactivado}
-        className={`rounded-xl px-4 py-4 text-xl font-semibold disabled:bg-zinc-400 disabled:text-white ${
+        className={`rounded-xl px-4 py-4 text-xl font-semibold ${
           ubicacion && !fallo
-            ? "border-2 border-blue-700 bg-white text-blue-700 active:bg-blue-50"
-            : "bg-blue-700 text-white active:bg-blue-800"
+            ? "boton-contorno"
+            : "boton-primario"
         }`}
       >
         {textoBoton}
@@ -94,8 +95,8 @@ export default function BotonUbicacion({ ubicacion, onUbicacion, desactivado }: 
 function MensajeFallo({ motivo }: { motivo: MotivoFallo }) {
   if (motivo === "sin-https") {
     return (
-      <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-        <p className="font-semibold">❌ No se puede pedir la ubicación en esta dirección</p>
+      <div className="caja-error">
+        <TituloError>No se puede pedir la ubicación en esta dirección</TituloError>
         <p className="mt-1 text-base">
           La ubicación solo funciona si la dirección empieza con <strong>https://</strong>.
           Abre la app con el link oficial.
@@ -106,8 +107,8 @@ function MensajeFallo({ motivo }: { motivo: MotivoFallo }) {
 
   if (motivo === "no-soportado") {
     return (
-      <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-        <p className="font-semibold">❌ Este navegador no puede dar la ubicación</p>
+      <div className="caja-error">
+        <TituloError>Este navegador no puede dar la ubicación</TituloError>
         <p className="mt-1 text-base">Abre el link en Safari (iPhone) o en Chrome (Android).</p>
       </div>
     );
@@ -115,14 +116,14 @@ function MensajeFallo({ motivo }: { motivo: MotivoFallo }) {
 
   const titulo =
     motivo === "sin-permiso"
-      ? "❌ No diste permiso para usar tu ubicación"
+      ? "No diste permiso para usar tu ubicación"
       : motivo === "tardo-mucho"
-        ? "❌ El GPS tardó demasiado"
-        : "❌ No se pudo encontrar tu ubicación";
+        ? "El GPS tardó demasiado"
+        : "No se pudo encontrar tu ubicación";
 
   return (
-    <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-      <p className="font-semibold">{titulo}</p>
+    <div className="caja-error">
+      <TituloError>{titulo}</TituloError>
       {motivo !== "sin-permiso" && (
         <p className="mt-1 text-base">
           Revisa que la ubicación del celular esté encendida. Si estás dentro de la tienda,

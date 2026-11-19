@@ -1,8 +1,9 @@
-// Dibujo del ícono de la app: un "$" blanco sobre el azul de los botones.
+// Dibujo del ícono de la app: un "$" blanco sobre el rojo de marca.
 // Lo usan src/app/icon.tsx (pestaña del navegador) y src/app/apple-icon.tsx
 // (pantalla de inicio del iPhone). next/og lo convierte en PNG al construir.
 
 import { ImageResponse } from "next/og";
+import { COLOR_MARCA, COLOR_SOBRE_MARCA } from "./colores";
 
 export function dibujarIcono(lado: number, redondeado: boolean) {
   return new ImageResponse(
@@ -14,8 +15,8 @@ export function dibujarIcono(lado: number, redondeado: boolean) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#1d4ed8",
-          color: "white",
+          background: COLOR_MARCA,
+          color: COLOR_SOBRE_MARCA,
           fontSize: lado * 0.72,
           fontWeight: 700,
           // iPhone redondea las esquinas solo; la pestaña se ve mejor redondeada.

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { formatearFecha } from "@/lib/fechas";
+import TituloError from "@/components/TituloError";
 
 type FilaVisita = {
   id: string;
@@ -60,18 +61,18 @@ export default function ListaVisitas() {
   }
 
   if (estado.tipo === "cargando") {
-    return <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">Cargando visitas…</p>;
+    return <p className="caja-info">Cargando visitas…</p>;
   }
 
   if (estado.tipo === "error") {
     return (
-      <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-        <p className="font-semibold">❌ No se pudieron cargar las visitas</p>
+      <div className="caja-error">
+        <TituloError>No se pudieron cargar las visitas</TituloError>
         <p className="mt-1 text-base break-words">{estado.detalle}</p>
         <button
           type="button"
           onClick={reintentar}
-          className="mt-3 w-full rounded-xl bg-red-700 px-4 py-3 text-lg font-semibold text-white active:bg-red-800"
+          className="boton-gris mt-3 w-full rounded-xl px-4 py-3 text-lg font-semibold"
         >
           Reintentar
         </button>
@@ -81,7 +82,7 @@ export default function ListaVisitas() {
 
   if (estado.visitas.length === 0) {
     return (
-      <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">
+      <p className="caja-info">
         Todavía no hay visitas. Toca &quot;Nueva visita&quot; para registrar la primera.
       </p>
     );
@@ -93,13 +94,13 @@ export default function ListaVisitas() {
         <li key={v.id}>
           <Link
             href={`/visitas/${v.id}`}
-            className="block rounded-xl border-2 border-zinc-200 bg-white p-4 text-zinc-900 active:bg-zinc-100"
+            className="block rounded-xl border-2 border-borde bg-tarjeta p-4 text-texto active:bg-tarjeta-presionada"
           >
             <p className="text-xl font-semibold">
               {v.competidores?.nombre ?? "Competidor desconocido"}
             </p>
-            <p className="mt-1 text-base text-zinc-600">{formatearFecha(v.created_at)}</p>
-            <p className="mt-1 text-base font-semibold text-zinc-800">{textoFotos(v)}</p>
+            <p className="mt-1 text-base text-texto-suave">{formatearFecha(v.created_at)}</p>
+            <p className="mt-1 text-base font-semibold text-texto">{textoFotos(v)}</p>
           </Link>
         </li>
       ))}

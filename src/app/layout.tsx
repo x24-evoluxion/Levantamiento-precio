@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
+import { COLOR_FONDO } from "@/lib/colores";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,15 +22,17 @@ export const metadata: Metadata = {
   appleWebApp: { title: "Precios" },
 };
 
-// Color de la barra del navegador en el celular (el mismo azul de los botones).
+// Barra del navegador en el celular: del mismo negro que el fondo.
+// colorScheme "dark": la app siempre es oscura, aunque el celular esté en modo claro.
 export const viewport: Viewport = {
-  themeColor: "#1d4ed8",
+  themeColor: COLOR_FONDO,
+  colorScheme: "dark",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="es" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-fondo text-texto">{children}</body>
     </html>
   );
 }

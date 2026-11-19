@@ -8,6 +8,7 @@ import { formatearFecha } from "@/lib/fechas";
 import type { Visita } from "@/lib/tipos";
 import { enlaceMapa, formatearPrecision } from "@/lib/ubicacion";
 import FotosVisita from "./FotosVisita";
+import TituloError from "@/components/TituloError";
 
 type VisitaConCompetidor = Visita & { competidores: { nombre: string } | null };
 
@@ -57,12 +58,12 @@ export default function DetalleVisita({ id }: { id: string }) {
   }, [id, intento]);
 
   if (estado.tipo === "cargando") {
-    return <p className="rounded-xl bg-zinc-100 p-4 text-lg text-zinc-700">Cargando visita…</p>;
+    return <p className="caja-info">Cargando visita…</p>;
   }
 
   if (estado.tipo === "no-existe") {
     return (
-      <div className="rounded-xl bg-yellow-100 p-4 text-lg text-yellow-900">
+      <div className="caja-aviso">
         <p className="font-semibold">⚠️ Esta visita no existe</p>
         <p className="mt-1 text-base">Regresa a la lista y elige otra.</p>
       </div>
@@ -71,8 +72,8 @@ export default function DetalleVisita({ id }: { id: string }) {
 
   if (estado.tipo === "error") {
     return (
-      <div className="rounded-xl bg-red-100 p-4 text-lg text-red-900">
-        <p className="font-semibold">❌ No se pudo cargar la visita</p>
+      <div className="caja-error">
+        <TituloError>No se pudo cargar la visita</TituloError>
         <p className="mt-1 text-base break-words">{estado.detalle}</p>
         <button
           type="button"
@@ -80,7 +81,7 @@ export default function DetalleVisita({ id }: { id: string }) {
             setEstado({ tipo: "cargando" });
             setIntento((n) => n + 1);
           }}
-          className="mt-3 w-full rounded-xl bg-red-700 px-4 py-3 text-lg font-semibold text-white active:bg-red-800"
+          className="boton-gris mt-3 w-full rounded-xl px-4 py-3 text-lg font-semibold"
         >
           Reintentar
         </button>
@@ -93,24 +94,24 @@ export default function DetalleVisita({ id }: { id: string }) {
     <section className="flex flex-col gap-4">
       <h1 className="text-3xl font-bold">{v.competidores?.nombre ?? "Competidor desconocido"}</h1>
 
-      <dl className="flex flex-col gap-3 rounded-xl border-2 border-zinc-200 bg-white p-4 text-zinc-900">
+      <dl className="flex flex-col gap-3 rounded-xl border-2 border-borde bg-tarjeta p-4 text-texto">
         <div>
-          <dt className="text-base text-zinc-600">Visita guardada</dt>
+          <dt className="text-base text-texto-suave">Visita guardada</dt>
           <dd className="text-lg font-semibold">{formatearFecha(v.created_at)}</dd>
         </div>
         <div>
-          <dt className="text-base text-zinc-600">Competidor elegido</dt>
+          <dt className="text-base text-texto-suave">Competidor elegido</dt>
           <dd className="text-lg font-semibold">{formatearFecha(v.competidor_elegido_at)}</dd>
         </div>
         <div>
-          <dt className="text-base text-zinc-600">Ubicación</dt>
+          <dt className="text-base text-texto-suave">Ubicación</dt>
           {v.latitud != null && v.longitud != null ? (
             <dd className="text-lg">
               <span className="font-semibold">
                 {v.precision_metros != null ? formatearPrecision(v.precision_metros) : "Precisión desconocida"}
               </span>
               {v.ubicacion_at && (
-                <span className="block text-base text-zinc-600">
+                <span className="block text-base text-texto-suave">
                   Guardada {formatearFecha(v.ubicacion_at)}
                 </span>
               )}
@@ -118,13 +119,13 @@ export default function DetalleVisita({ id }: { id: string }) {
                 href={enlaceMapa(v.latitud, v.longitud)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 inline-block font-semibold text-blue-700 underline"
+                className="enlace mt-1 inline-block"
               >
                 Ver en el mapa
               </a>
             </dd>
           ) : (
-            <dd className="text-lg font-semibold text-zinc-500">Sin ubicación</dd>
+            <dd className="text-lg font-semibold text-texto-suave">Sin ubicación</dd>
           )}
         </div>
       </dl>
