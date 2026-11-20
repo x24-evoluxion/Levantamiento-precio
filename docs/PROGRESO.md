@@ -20,19 +20,30 @@
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
-| Fase | Nombre | Estado |
-|---|---|---|
-| E2-0 | Plan (actualizado el 2026-11-19) | ✅ |
-| E2-1 | Ajuste de la Etapa 1: fechas y fotos | ⬜ |
-| E2-2 | Base de datos de lecturas | ⬜ |
-| E2-3 | Catálogo propio | ⬜ |
-| E2-4 | Leer una foto | ⬜ |
-| E2-5 | Evaluación (modelo, confianza y tamaño de foto) | ⬜ |
-| E2-6 | Lotes y guardado | ⬜ |
-| E2-7 | Equivalencias y comparación | ⬜ |
-| E2-8 | Corrida completa y consultas | ⬜ |
+| Fase | Tipo | Nombre | Estado |
+|---|---|---|---|
+| E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
+| E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ⬜ |
+| E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ⬜ |
+| E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ⬜ |
+| E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
+| E2-5 | 🤖 agentes | Leer una foto | ⬜ |
+| E2-6 | 🤖 agentes | Lotes y guardado | ⬜ |
+| E2-7 | 🤖 agentes | Método de equivalencias | ⬜ |
+| E2-8 | 🤖 agentes | Corrida completa y consultas | ⬜ |
+| E2-9 | 🤖 agentes | Evaluación (al final) | ⬜ |
 
 Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
+
+> **Alcance actual: solo fases 🧱 base.** Las fases 🤖 agentes (y cualquier llamada a la
+> API de Anthropic) **no empiezan sin que el usuario lo pida**. Al terminar E2-4, el agente
+> se detiene y reporta. Ver `docs/PLAN_ETAPA2.md`, secciones 2.1 y 11.
+
+### Permisos de datos
+
+| Fecha | Quién autorizó | Qué se permite |
+|---|---|---|
+| 2026-11-20 | Responsable de los datos | (a) Cargar catálogo y promociones en Supabase. (b) Enviar a la API de Anthropic las **descripciones** de nuestros artículos, **sin precios**. (c) Enviar a la API las **fotos de anaqueles** de la competencia. **Regla: a la API NUNCA se envían precios propios** (ni datos de venta). |
 
 ## Pendientes y dudas abiertas
 
@@ -48,6 +59,13 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
       nuevas). No se hizo porque no lo pide el plan.
+- [ ] **(Etapa 2, segunda iteración) Ubicación → plaza.** Las visitas guardan latitud y
+      longitud, no plaza. Hay que definir cómo se traduce una ubicación a una plaza para
+      poder aplicar nuestras promociones regionales (PLAN_ETAPA2 5.8).
+- [ ] **(Etapa 2, fase de agentes) Método de equivalencias.** No está definido; se decide en
+      E2-7 (PLAN_ETAPA2 5.7).
+- [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
+      se agrega a la evaluación (E2-9) como muestra adicional.
 
 ---
 
@@ -737,3 +755,51 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - [ ] Preguntar a la consultora si comparte su levantamiento anterior verificado (9.1).
 
 **Commit:** ver `git log` — `Etapa 2, Fase 0: diseño del catálogo con la lista de precios real`
+
+---
+
+## Etapa 2 — Fase 0 (actualización 3): alcance base, permiso y decisiones (2026-11-20)
+
+**Qué se hizo:**
+- **Alcance:** las fases se separan en **🧱 base** (E2-1 a E2-4: ajustes de la Etapa 1,
+  estructura de tablas, carga del catálogo, estructura de equivalencias y vista de
+  comparación) y **🤖 agentes** (E2-5 a E2-9). Por ahora solo se construye la base, sin
+  agentes ni llamadas a la API de Anthropic. Ninguna fase 🤖 empieza sin pedido explícito.
+- **Permiso** del responsable de los datos registrado arriba (tabla "Permisos de datos").
+  Se quitó el bloqueo ⛔ de E2-3. Regla explícita en el plan: **a la API nunca se envían
+  precios propios**.
+- **Índice:** columna `indice_vs_competencia_pct`, signo de la consultora (positivo =
+  nosotros más caros), documentado en el plan y como `comment on column` en la vista.
+- **Equivalencias:** se quitaron todas las reglas y pasos de códigos de barras (incluida la
+  aprobación automática por código) y el procedimiento de propuesta. En la base solo queda
+  la tabla con `tipo` (`mismo_articulo`, `otra_presentacion`, `sin_equivalente`) y `estado`
+  (`propuesta`, `aprobada`, `rechazada`). El método se decide en E2-7.
+- **Zonas:** no se crea la tabla. La comparación usa el precio regular (no depende de la
+  zona); promociones regionales en una segunda iteración. Conteo: **7 tablas**.
+- **Evaluación:** pasa al final (E2-9), con 20–30 fotos reales de la app verificadas a mano.
+- **Calidad del catálogo:** reporte en `datos-privados/` al importar, sin correcciones
+  silenciosas; en docs solo conteos.
+- Fases renumeradas: la estructura de equivalencias y la vista pasan a E2-4 (base);
+  leer una foto E2-5, lotes E2-6, método de equivalencias E2-7, corrida completa E2-8,
+  evaluación E2-9.
+
+**Archivos creados o cambiados:**
+- `docs/PLAN_ETAPA2.md`, `docs/PROGRESO.md`
+
+**Pasos que hizo el usuario a mano:**
+- Obtuvo el permiso del responsable de los datos (2026-11-20).
+
+**Cómo probarlo:**
+- No aplica (no hay código ni cambios en Supabase). `git check-ignore` confirma que
+  `datos-privados/` y `.env.local` siguen ignorados.
+
+**Pendientes antes de la Fase E2-1:**
+- [ ] Confirmar la opción A (script local) para disparar el proceso (PLAN_ETAPA2 sección 8).
+- [ ] Aprobar el cambio de tamaño de foto (2200 px / 0.85 / sin tope de 1 MB) y quitar
+      `competidor_elegido_at` (cambian la app publicada).
+- [ ] Confirmar `clave` como llave de `catalogo_propio`, `articulos_competencia` y `piezas`
+      (PLAN_ETAPA2 sección 12).
+
+**Siguiente fase:** E2-1 (🧱 base).
+
+**Commit:** ver `git log` — `Etapa 2, Fase 0: alcance base, permiso de datos y decisiones`

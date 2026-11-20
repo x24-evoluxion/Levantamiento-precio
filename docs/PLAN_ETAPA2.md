@@ -11,6 +11,18 @@
 > commit, porque se suben a GitHub. En pantalla, solo encabezados, conteos y como máximo 5
 > filas de muestra. Los archivos originales no se modifican ni se mueven, y nunca se hace
 > `git add` de esa carpeta.
+>
+> **🧱 Alcance actual (2026-11-20): solo la BASE.** Por ahora se construyen únicamente las
+> fases marcadas **🧱 base** en la sección 11: ajustes de la Etapa 1, estructura de tablas y
+> carga del catálogo. **No se implementan agentes ni se hace ninguna llamada a la API de
+> Anthropic** hasta las fases **🤖 agentes** (lectura de fotos en adelante). **Ningún
+> agente empieza una fase 🤖 sin que el usuario lo pida de forma explícita**, aunque todas
+> las fases 🧱 estén terminadas.
+>
+> **🔒 Regla de la API (sin excepciones): a la API de Anthropic NUNCA se envían precios
+> propios** (ni regulares, ni de promoción, ni de mayoreo), ni datos de venta. Solo se
+> permite enviar las **descripciones** de nuestros artículos y las **fotos** de anaqueles
+> de la competencia (permiso del responsable de los datos, 2026-11-20; sección 2.1).
 
 ---
 
@@ -18,7 +30,8 @@
 
 **Un sistema de inteligencia de precios de la competencia.** Los agentes leen las fotos de
 anaquel, identifican **artículo, presentación y precio**, lo comparan contra **nuestro
-catálogo** y permiten analizar las diferencias **por competidor, zona y fecha**.
+catálogo** y permiten analizar las diferencias **por competidor y fecha** (por zona, en una
+segunda iteración: sección 5.8).
 
 Las decisiones de diseño de este plan deben **facilitar mejoras futuras**: tableros,
 alertas (ej. "el competidor X bajó 10 % el aceite") y tendencias. Por eso:
@@ -51,11 +64,16 @@ la hora de captura y fotos un poco más nítidas — Fase E2-1):
    **confianza** en cada parte.
 4. El proceso valida el JSON e inserta las lecturas en **`lecturas_precio`**, cada una con
    su **estado** (`propuesta` o `por_revisar` o `descartada`).
-5. Cada lectura se liga a un **artículo de la competencia** (`articulos_competencia`). Para
-   los artículos nuevos, un segundo paso le pide a Claude **proponer la equivalencia** con
-   un artículo de **nuestro catálogo** (`catalogo_propio`). Una persona la aprueba.
+5. Cada lectura se liga a un **artículo de la competencia** (`articulos_competencia`), y
+   ese artículo se relaciona con uno de **nuestro catálogo** (`catalogo_propio`) en la
+   tabla `equivalencias`. **El método para decidir esa relación aún no está definido**: se
+   decide en la fase de agentes (5.7).
 6. La vista **`comparacion_precios`** une todo y calcula, con SQL, el precio por 100 g /
-   100 ml / pieza de la competencia y el nuestro, con competidor, zona y fecha.
+   100 ml / pieza de la competencia y el nuestro (**precio regular**), con competidor y
+   fecha, y el índice `indice_vs_competencia_pct` (5.9).
+
+Los pasos 2–5 son de las fases **🤖 agentes**; la base (🧱) deja listas las tablas, el
+catálogo cargado y la vista, que se llenan después.
 
 ### Fuera de alcance de la Etapa 2 (no lo hagas)
 - Una pantalla en la app para revisar lecturas o equivalencias. Por ahora se revisa en
@@ -64,6 +82,8 @@ la hora de captura y fotos un poco más nítidas — Fase E2-1):
 - Un agente autónomo con herramientas. Es **una llamada por foto** (sección 6).
 - Cambiar el flujo de la app publicada, salvo el ajuste pequeño de la Fase E2-1.
 - Login de usuarios.
+- **Tabla `zonas`, comparación por zona y promociones regionales** (segunda iteración,
+  5.8).
 
 ---
 
@@ -78,8 +98,20 @@ la hora de captura y fotos un poco más nítidas — Fase E2-1):
 | 5 | Nuestra lista de precios se carga con un **script de importación**. Los archivos originales **no se suben a GitHub**: viven en `datos-privados/` (ignorada por `.gitignore`). ~~Se pregunta al usuario qué columnas trae~~ **Ya se conocen (2026-11-20):** es un paquete de CSV con artículos y promociones, descrito **solo en su estructura** en la sección 5.10. | Secciones 5.6 y 5.10 |
 | 6 | **Fase previa de ajuste de la Etapa 1** (pequeña, con migraciones SQL **nuevas**, sin editar los archivos viejos): conservar `created_at` y la hora de ubicación, **quitar `competidor_elegido_at`**, y guardar en `fotos` la **hora de captura**, leída del archivo **antes** de comprimirlo. | Sección 11, Fase E2-1 |
 | 7 | **Tamaño de foto** revisado contra la documentación vigente de visión, con propuesta de tamaño y calidad JPEG para las fotos nuevas y **guía corta** para el equipo de campo. | Sección 3 |
-| 8 | **Evaluación** con 20–30 fotos verificadas a mano: Sonnet 5.5 (`claude-sonnet-5-5`) vs Haiku 5.5 (`claude-haiku-5-5`) en acierto de artículo, presentación y precio, **calibración** de la confianza y costo. | Sección 9 |
+| 8 | **Evaluación** con 20–30 fotos verificadas a mano: Sonnet 5.5 (`claude-sonnet-5-5`) vs Haiku 5.5 (`claude-haiku-5-5`) en acierto de artículo, presentación y precio, **calibración** de la confianza y costo. *(2026-11-20: queda como **última** fase; ver 2.1.)* | Sección 9 |
 | 9 | Riesgos documentados: etiquetas ilegibles, varios precios en una etiqueta, regular y promoción juntos, presentaciones que cambian, personas en las fotos, costo por lote, información comercial sensible del catálogo. | Sección 10 |
+
+### 2.1 Decisiones del 2026-11-20 (confirmadas por el usuario, NO cambiar)
+
+| # | Decisión | Detalle en |
+|---|---|---|
+| 10 | **Alcance:** por ahora solo la **base** (🧱): ajustes de la Etapa 1, estructura de tablas y carga del catálogo. **Sin agentes ni llamadas a la API de Anthropic** hasta las fases de lectura de fotos (🤖). Ninguna fase 🤖 empieza sin que el usuario lo pida. | Sección 11 |
+| 11 | **Permiso del responsable de los datos (2026-11-20):** (a) cargar catálogo y promociones en Supabase; (b) enviar a la API de Anthropic las **descripciones** de nuestros artículos, **sin precios**; (c) enviar a la API las **fotos de anaqueles** de la competencia. Se quita el bloqueo de E2-3. **Regla: a la API NUNCA se envían precios propios** (ni datos de venta). | Secciones 10 y 11 |
+| 12 | **Índice con el signo de la consultora:** columna `indice_vs_competencia_pct`; **positivo = nosotros más caros**. Documentado en el plan y en la vista (`comment on column`). | Sección 5.9 |
+| 13 | **Equivalencias:** el **método** para decidir cuándo un artículo de la competencia equivale a uno nuestro **no está definido**; se decide en la fase de agentes. En la base solo existe la **estructura** (tabla con `tipo` y `estado`), sin lógica de llenado. Sin reglas de códigos de barras. | Sección 5.7 |
+| 14 | **Sin tabla `zonas` en esta versión.** La comparación usa el **precio regular**, que no depende de la zona. Promociones regionales: **segunda iteración**. Pregunta abierta: cómo se traduce la latitud/longitud de una visita a una plaza. | Sección 5.8 |
+| 15 | **Evaluación al final**, con una muestra de **20–30 fotos reales de la app verificadas a mano**. Aún no hay datos del levantamiento de octubre; si llegan, se agregan después. | Sección 9 |
+| 16 | **Calidad del catálogo:** los problemas (mayoreo ≥ regular, descuentos negativos, precios en 0, descripciones repetidas…) se registran en un **reporte dentro de `datos-privados/`** al importar, **sin corregirlos en silencio**. En pantalla y en los docs, solo conteos. | Secciones 5.6.5 y 5.10.4 |
 
 **Cambio respecto a la Etapa 1:** `PLAN.md` sección 6 decía "nunca se usa la llave
 `service_role` / `secret`". Eso **sigue valiendo para la app** (el navegador). La única
@@ -148,8 +180,9 @@ mayor no aporta nada** y solo agrega una segunda reducción.
   de 2200 × 1650 a 0.85 suele pesar 0.8–1.8 MB, así que la librería ya **no bajará la
   calidad** salvo en casos extremos.
 - Igual para la ruta de HEIC con `<canvas>` (usa las mismas constantes).
-- La Fase E2-5 (evaluación) **confirma** con fotos reales que 2200 / 0.85 lee mejor que
-  2000 / 0.8 / 1 MB. Si no hubiera diferencia, se puede regresar a 2000 px para ahorrar.
+- La Fase E2-9 (evaluación, al final) **confirma** con fotos reales que 2200 / 0.85 lee
+  mejor que 2000 / 0.8 / 1 MB. Si no hubiera diferencia, se puede regresar a 2000 px para
+  ahorrar.
 - ⚠️ Cambia la app publicada: el agente de E2-1 lo muestra antes de desplegar.
 
 ### 3.4 Guía corta para el equipo de campo (para compartir por WhatsApp)
@@ -191,12 +224,12 @@ mayor no aporta nada** y solo agrega una segunda reducción.
 
 ```
 scripts/etapa2/                 ← SOLO servidor (tu computadora)
-├── importar-catalogo.ts        ← carga nuestra lista de precios (E2-3)
-├── leer-una-foto.ts            ← prueba con una foto, sin guardar (E2-4)
-├── evaluar.ts                  ← compara modelos contra fotos verificadas (E2-5)
-├── crear-lote.ts               ← paso 1 del lote (E2-6)
-├── recoger-lote.ts             ← paso 2 del lote (E2-6)
-└── proponer-equivalencias.ts   ← equivalencias propuestas por el agente (E2-7)
+├── importar-catalogo.ts        ← 🧱 carga nuestra lista de precios (E2-3)
+├── leer-una-foto.ts            ← 🤖 prueba con una foto, sin guardar (E2-5)
+├── crear-lote.ts               ← 🤖 paso 1 del lote (E2-6)
+├── recoger-lote.ts             ← 🤖 paso 2 del lote (E2-6)
+├── (equivalencias)             ← 🤖 nombre y forma según el método que se defina (E2-7)
+└── evaluar.ts                  ← 🤖 compara modelos contra fotos verificadas (E2-9)
 src/lib/etapa2/                 ← piezas compartidas de servidor: instrucciones (prompt),
                                   esquemas JSON, validación, cálculo de estado
 datos-privados/                 ← archivos originales (lista de precios, fotos de prueba
@@ -213,7 +246,7 @@ datos-privados/                 ← archivos originales (lista de precios, fotos
 
 | Librería | Fase | Por qué | Alternativa sin librería |
 |---|---|---|---|
-| `@anthropic-ai/sdk` | E2-4 | Oficial de Anthropic. Ya trae lotes (crear, consultar, leer resultados línea por línea), reintentos automáticos ante saturación (429/5xx), tipos de TypeScript y errores por tipo. Solo servidor: no pesa en el celular | `fetch` a mano: habría que escribir y mantener todo eso |
+| `@anthropic-ai/sdk` | E2-5 (🤖; **no** se instala en la base) | Oficial de Anthropic. Ya trae lotes (crear, consultar, leer resultados línea por línea), reintentos automáticos ante saturación (429/5xx), tipos de TypeScript y errores por tipo. Solo servidor: no pesa en el celular | `fetch` a mano: habría que escribir y mantener todo eso |
 | ~~Lector de Excel~~ | — | **Ya no hace falta:** el paquete viene en CSV UTF-8. Ojo: algunas descripciones van **entre comillas porque traen comas**, así que el lector propio debe respetar comillas (nunca `linea.split(',')`). ~30 líneas en `src/lib/etapa2/csv.ts` | — |
 | `exifr` | E2-1 | **Solo si** el lector propio de EXIF (sección 11, E2-1) no alcanza (ej. fotos HEIC en Android) | Lector propio de ~80 líneas para JPEG |
 
@@ -233,7 +266,10 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/003_quitar_competidor_elegido_at.sql` | E2-1 | Quita la columna, **después** de desplegar la app nueva |
 | `supabase/004_etapa2_lecturas.sql` | E2-2 | Estado y calidad en `fotos`, `lotes_proceso`, `articulos_competencia`, `lecturas_precio`, `guardar_lecturas` |
 | `supabase/005_catalogo_propio.sql` | E2-3 | `catalogo_propio`, `catalogo_propio_cortes`, `promociones_propias`, función `importar_corte` y vista `precio_propio_vigente` (5.6) |
-| `supabase/006_equivalencias_comparacion.sql` | E2-7 | `equivalencias`, `zonas` (opcional) y vista `comparacion_precios` |
+| `supabase/006_equivalencias_comparacion.sql` | E2-4 | `equivalencias` (solo estructura, 5.7) y vista `comparacion_precios` (5.9). **Sin** `zonas` |
+
+Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
+equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (`007_...`).
 
 Todos se ejecutan **a mano** en el SQL Editor, se pueden ejecutar varias veces, y el agente
 **avisa y explica cada bloque antes** de que el usuario los ejecute.
@@ -305,7 +341,7 @@ nada útil); su calidad y motivo sirven para retroalimentar al equipo de campo.
 | Columna | Tipo | Notas |
 |---|---|---|
 | `id` | `text`, PK | El id que devuelve Anthropic (`msgbatch_...`) |
-| `tipo` | `text` no nulo | `lectura_fotos` o `equivalencias` |
+| `tipo` | `text` no nulo | `lectura_fotos` (y otros tipos si el método de equivalencias de E2-7 usa lotes) |
 | `modelo` | `text` no nulo | |
 | `estado` | `text` no nulo | `en_proceso`, `recogido`, `cancelado` |
 | `total` / `ok` / `con_error` | `int` | |
@@ -326,12 +362,12 @@ heredan la equivalencia. También es la base para ver la **tendencia** de un art
 | `marca` | `text` | |
 | `articulo` | `text` no nulo | Nombre limpio, ej. "Refresco Coca-Cola" |
 | `cantidad`, `unidad`, `piezas` | como en 5.1 | + `unidad_base` y `contenido_base` generadas |
-| `ean` | `text` | **Nuevo (2026-11-20).** Código de barras completo (sin `?`) si alguna lectura lo trajo. Índice. Permite el match por código con nuestro catálogo (5.7) |
+| `ean` | `text` | Código de barras, si alguna lectura lo trajo. Solo se guarda: **cómo (o si) se usa** se decide con el método de equivalencias (5.7) |
 | `clave_normalizada` | `text` no nulo, **único** | Generada: minúsculas, sin acentos ni espacios dobles, de `marca + articulo + cantidad + unidad + piezas`. Evita duplicados. *(Antes se llamaba `clave`; se renombra para no confundirla con `catalogo_propio.clave`, que es el código del SCA)* |
 | `created_at` | `timestamptz` | |
 
-El proceso, al guardar una lectura, busca el artículo **primero por `ean`** (si la lectura
-trae uno completo) y si no por `clave_normalizada`; si no existe, lo crea.
+El proceso, al guardar una lectura, busca el artículo por `clave_normalizada`; si no
+existe, lo crea.
 Una persona puede **fusionar** duplicados cambiando el `articulo_competencia_id` de las
 lecturas (se documentará la consulta).
 
@@ -351,7 +387,7 @@ Una fila por **cada producto visto** en una foto (una foto puede tener 0, 1 o mu
 | `unidad` | `text` | `g`, `kg`, `ml`, `l`, `pieza` |
 | `piezas` | `int` no nulo, default 1 | 5.1 |
 | `unidad_base`, `contenido_base` | generadas | 5.1 |
-| `ean` | `text` | **Nuevo (2026-11-20).** Código de barras tal como se lee, solo dígitos; un dígito ilegible = `?`. **No se completa** (ni con el dígito de control ni con nuestro catálogo). Permite el match por código (5.7) |
+| `ean` | `text` | Código de barras, si la etiqueta lo trae. Solo se guarda; **cómo se lee y si se usa** se decide en la fase de agentes |
 | `codigo_interno` | `text` | **Nuevo.** Código del competidor que no es de barras |
 | `precio` | `numeric(10,2)` | Precio **regular** por pieza, con impuestos. En "antes / ahora" es el **antes**. Vacío si la etiqueta no lo dice (**no** se toma de otro cartel) |
 | `promo_tipo` | `text` no nulo, default `'ninguna'` | **Nuevo.** Lista cerrada, la misma del formato de la consultora (5.10): `ninguna`, `precio_rebajado`, `n_por_precio`, `nxm`, `n_al_porcentaje`, `combo`, `mayoreo`, `otro` |
@@ -391,7 +427,7 @@ Claude a hacer cuentas, que es justo lo que el plan prohíbe.)*
 
 **Confianza en niveles y no en números:** los números de un modelo de lenguaje no están
 calibrados (un "0.87" no significa 87 %). Tres niveles con reglas claras se revisan mejor,
-y la Fase E2-5 mide si están **calibrados** (sección 9.3).
+y la Fase E2-9 mide si están **calibrados** (sección 9.3).
 
 **Estados y quién los pone:**
 
@@ -431,9 +467,7 @@ catalogo_propio (1 fila por artículo, llave: clave)
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| `clave` | `text`, **PK** | Clave del artículo en el SCA, en mayúsculas. Casi siempre es el código de barras, pero hay **claves internas** con letras (ej. inventado `Z123`). Es la misma llave que usa la consultora (`clave_x24`), así los datos se pueden juntar |
-| `clave_es_ean` | `boolean` no nulo | `true` = es un código de barras válido (8, 12 o 13 dígitos con dígito de control correcto) |
-| `ean13` | `text`, **generada** | Si `clave_es_ean`: la clave con ceros a la izquierda hasta 13 dígitos (los de 12 dígitos son UPC y en la etiqueta pueden salir con un `0` delante). Índice. Sirve para el match por código (5.7) |
+| `clave` | `text`, **PK** | Clave del artículo en el SCA, en mayúsculas. Casi siempre es el código de barras, pero hay **claves internas** con letras (ej. inventado `Z123`). Es la misma llave que usa la consultora (`clave_x24`), así los datos se pueden juntar. Se guarda **tal cual**: ninguna columna ni regla derivada del código de barras en la base |
 | `descripcion` | `text` no nulo | Ej. inventado "REFRESCO COLA 600 ML". Viene en mayúsculas y puede traer acentos y comas |
 | `area_id`, `area` | `int`, `text` | Área de nuestro catálogo |
 | `depto_id`, `departamento` | `int`, `text` | Departamento. Hay un departamento especial de "productos de baja" |
@@ -503,19 +537,20 @@ datos de la promoción (descripción, fechas…) se repiten en cada artículo; s
 Índice único para no duplicar al reimportar: `(fecha_corte, origen, coalesce(id_promocion,
 0), coalesce(id_grupo, 0), clave)`.
 
-#### 5.6.4 Vista / función `precio_propio_vigente` (nuestro precio en una fecha y plaza)
+#### 5.6.4 Vista / función `precio_propio_vigente` (nuestro precio regular en una fecha)
 
-Responde: **"¿cuánto costaba este artículo nuestro en esta fecha, en esta plaza?"** La usa
-`comparacion_precios` (5.9). Recibe `clave`, `fecha` y `plaza` (de la zona, 5.8).
+Responde: **"¿cuál era el precio regular de este artículo nuestro en esta fecha?"** La usa
+`comparacion_precios` (5.9). Recibe `clave` y `fecha`. **No recibe plaza**: el precio
+regular es el mismo en toda la cadena (5.6.2), así que no depende de la zona.
 
 - **Regular:** `precio_regular` del **corte más reciente con `fecha_corte ≤ fecha`**. Si la
   foto es anterior al primer corte, el del corte más cercano, marcado `corte_posterior`.
-- **Promoción:** el `precio_promo_pieza` **más bajo** de `promociones_propias` con
-  `fecha_inicio ≤ fecha ≤ fecha_fin`, `activa`, **no combo**, y `regiones` vacía o que
-  incluya la plaza. Se toma del **corte más reciente** para no contar dos veces la misma
-  promoción que aparece en varios cortes.
-- **Mínimo:** el menor entre regular y promoción.
 - El mayoreo **no** cuenta.
+- **Promociones propias: segunda iteración.** Se cargan y guardan desde ahora
+  (`promociones_propias`), pero **no** entran a la comparación de esta versión, porque
+  algunas son regionales y aún no se sabe en qué plaza cae cada visita (5.8). Cuando se
+  agreguen: el `precio_promo_pieza` más bajo vigente en la fecha, `activa`, no combo, de
+  toda la cadena o de la plaza de la visita, del corte más reciente.
 
 #### 5.6.5 Script `npm run catalogo:importar -- datos-privados/<carpeta_del_paquete>`
 
@@ -525,9 +560,24 @@ hasta que confirmas.**
 1. **Revisa el archivo:** UTF-8 (quita el BOM inicial), separador coma, saltos de línea
    CRLF, lector que **respeta comillas**; encabezados **exactos y en el mismo orden** que
    `diccionario.csv` (si cambian, se detiene: significa que el SCA cambió el formato).
-2. **Valida cada fila:** tipos (fechas `aaaa-mm-dd`, punto decimal, 0/1), llaves
-   únicas, `precio_regular > 0` en artículos que no son servicio, `sin_impuestos` cuadra con
-   las tasas, `promo_grupo = piezas × pieza`, `fecha_inicio ≤ fecha_fin`.
+2. **Valida cada fila** en dos niveles:
+   - **Errores de formato (detienen la importación):** tipos (fechas `aaaa-mm-dd`, punto
+     decimal, 0/1), llaves únicas, columnas obligatorias vacías.
+   - **Problemas de calidad (no detienen y NO se corrigen en silencio):** se importan
+     **tal como vienen** y se registran en el **reporte de calidad** (abajo). Como mínimo:
+     mayoreo ≥ precio regular, descuento negativo, precio regular en 0 (o ≤ 0) en
+     artículos que no son servicio, descripciones repetidas con claves distintas,
+     `sin_impuestos` que no cuadra con las tasas, `promo_grupo ≠ piezas × pieza`,
+     `fecha_inicio > fecha_fin`, promo por pieza ≥ regular sin ser combo, claves de
+     promoción sin artículo.
+
+   **Reporte de calidad:** `datos-privados/reporte_calidad_<fecha_corte>.csv` (**nunca**
+   en `docs/` ni en git). Trae una fila por problema encontrado (tipo de problema, archivo,
+   renglón y la llave de la fila, para poder revisarla) y al final el conteo por tipo. En
+   **pantalla**, en `docs/`, en `PROGRESO.md` y en los commits se reportan **solo conteos
+   por tipo de problema**, sin claves, descripciones ni precios. Las reglas de la base
+   (vistas) ya excluyen lo que no debe compararse (precio 0 = no activo, mayoreo no se usa);
+   el reporte sirve para que una persona decida si se corrige en el SCA.
 3. **Contenido:** copia `contenido_pieza` / `unidad_contenido` a `cantidad` / `unidad` con
    `contenido_origen = archivo`. Si viene vacío: `sin_dato`, y el script lista esos
    artículos en `datos-privados/revision_contenido_<fecha>.csv` (nunca en `docs/`), con una
@@ -535,123 +585,116 @@ hasta que confirmas.**
    persona puede corregirlos en Supabase (`contenido_origen = manual`) y el script **ya no
    los toca**.
 4. **Resumen y confirmación:** artículos nuevos, con precio cambiado, sin cambio,
-   promociones nuevas, filas con error, claves de promoción sin artículo, artículos sin
-   contenido. Solo **conteos** en pantalla (sin nombres ni precios), y el detalle en un CSV
-   dentro de `datos-privados/`. Pregunta `¿Importar? s/n`.
+   promociones nuevas, filas con error, artículos sin contenido y **conteo por tipo de
+   problema de calidad**. Solo **conteos** en pantalla (sin nombres, claves ni precios), y
+   el detalle en los CSV dentro de `datos-privados/`. Pregunta `¿Importar? s/n`.
 5. **Escribe todo o nada:** manda las filas a una función de Postgres `importar_corte(...)`
    (solo `service_role`) que en **una sola transacción** hace *upsert* en
    `catalogo_propio`, inserta el corte en `catalogo_propio_cortes` y `promociones_propias`.
    Si algo falla, no queda nada a medias. **Importar el mismo corte dos veces no duplica**
    (las llaves de 5.6.2 y 5.6.3 lo impiden y el corte se reemplaza completo).
-6. **Comprueba:** compara `precio_promo_pieza_min_al_corte` del archivo contra lo que da
-   `precio_propio_vigente` en la fecha de corte; si no cuadra, lo avisa.
+6. **Comprueba:** los conteos guardados en la base coinciden con los del archivo, y el
+   regular de `precio_propio_vigente` en la fecha de corte es el del archivo; si no cuadra,
+   lo avisa (solo conteos).
+
+**Este script no llama a la API de Anthropic** (es una fase 🧱 base).
 
 **`lev_tiendas` y `lev_precios` no se importan** (vienen vacías; ver 5.10.3).
 
-### 5.7 Tabla `equivalencias`
+### 5.7 Tabla `equivalencias` (solo estructura, fase 🧱 E2-4)
 
-Artículo de la competencia ↔ artículo propio. **Actualizado el 2026-11-20** para usar
-`clave` y los mismos tipos de match que la consultora (así los dos levantamientos se pueden
-juntar).
+Relaciona **un artículo de la competencia** con **uno nuestro**. **Actualizado el
+2026-11-20:** el **método** para decidir cuándo un artículo de la competencia equivale a uno
+nuestro **no está definido todavía**; se decide en la fase de agentes (E2-7). En la base
+solo se crea la tabla, **sin ninguna lógica de cómo se llena** (ni scripts, ni funciones,
+ni reglas automáticas). Mientras tanto, solo una persona puede escribir en ella desde el
+SQL Editor, si quisiera probar la vista.
 
 | Columna | Tipo | Notas |
 |---|---|---|
 | `id` | `bigint` identity, PK | |
-| `articulo_competencia_id` | `bigint` no nulo, FK | |
-| `clave_propia` | `text`, FK → `catalogo_propio.clave` | Nulo solo si `sin_equivalente` o `no_aplica` |
-| `tipo` | `text` no nulo | `codigo`, `mismo_articulo`, `variante_sabor`, `presentacion_distinta`, `sin_equivalente`, `no_aplica` |
-| `dudoso` | `boolean` no nulo, default `false` | El match no es seguro (pide foto del empaque o código nítido) |
-| `estado` | `text` no nulo | `propuesta`, `aprobada`, `rechazada` |
-| `propuesta_por` | `text` no nulo | `codigo` (automático), `agente` o `persona` |
-| `confianza` | `text` | `alta`/`media`/`baja` (si la propuso el agente) |
-| `motivo` | `text` | Por qué se propone |
-| `modelo` | `text` | Si la propuso el agente |
-| `aprobada_por`, `aprobada_at` | | |
+| `articulo_competencia_id` | `bigint` no nulo, FK → `articulos_competencia.id` | |
+| `clave_propia` | `text`, FK → `catalogo_propio.clave` | **Nulo solo** si `tipo = 'sin_equivalente'` (`check`) |
+| `tipo` | `text` no nulo, `check` | `mismo_articulo` (el mismo artículo), `otra_presentacion` (mismo producto, otro contenido), `sin_equivalente` (no tenemos uno equivalente) |
+| `estado` | `text` no nulo, default `'propuesta'`, `check` | `propuesta`, `aprobada`, `rechazada` |
 | `created_at` | `timestamptz` | |
+| `actualizado_at` | `timestamptz` | |
 
 - Máximo **una equivalencia `aprobada`** por artículo de la competencia (índice único
-  parcial `where estado = 'aprobada'`).
-- **Qué significa cada tipo:**
-  - `codigo`: el código de barras de la etiqueta coincide con nuestra `clave` (5.6.1).
-  - `mismo_articulo`: misma marca, producto, variante y presentación (contenido igual o
-    hasta **3 %** distinto), aunque el código difiera.
-  - `variante_sabor`: misma marca, línea y presentación, otro sabor.
-  - `presentacion_distinta`: mismo producto, otro contenido (ej. 500 ml vs 600 ml) → se
-    compara **aparte**, por 100 g / 100 ml, y solo si los dos contenidos son confiables.
-  - `sin_equivalente`: no manejamos esa marca o producto. `no_aplica`: no comparable.
-- **Reglas:** una **marca distinta nunca** es equivalente. Preferir artículos activos y con
-  venta. Si nuestro precio difiere más de **40 %**, revisar que sea el mismo producto
-  (`dudoso`).
+  parcial `where estado = 'aprobada'`). Es una regla de integridad, no de método.
+- Cerrada a `anon` como todo lo de la Etapa 2 (5.0).
+- **Lo que se decide en la fase de agentes (E2-7), no antes:** cómo se proponen (por
+  persona, por agente o combinación), qué datos se usan para decidir, si hacen falta más
+  tipos, y las columnas de quién/cómo la propuso (ej. motivo, confianza, modelo, quién la
+  aprobó). Esas columnas se agregan con un archivo SQL **nuevo**. Las reglas de match de la
+  consultora (`LEEME.md` del paquete) son **un insumo** para esa decisión, **no** están
+  adoptadas.
 
-**Cómo se proponen (E2-7, `npm run equivalencias:proponer`):**
-1. **Primero por código, sin Claude:** si el `ean` del artículo de la competencia está
-   completo (sin `?`), SQL lo busca en `catalogo_propio.ean13` (con y sin el `0` de
-   adelante). Si lo encuentra → `tipo codigo`, `propuesta_por codigo`, `estado aprobada`
-   (*a confirmar con el usuario si se aprueban solas*). Esto ahorra costo y es lo más seguro.
-2. Para el resto, SQL saca los **10 candidatos** más parecidos de `catalogo_propio` (por
-   marca y nombre, con la misma `unidad_base`, prefiriendo activos), con la extensión
-   `pg_trgm` de Postgres (se pedirá permiso).
-3. Manda a Claude el artículo y los 10 candidatos — **solo descripción y presentación,
-   nunca nuestros precios ni ventas** (sección 10). Claude elige uno o `sin_equivalente`,
-   con tipo, confianza y motivo (JSON validado; en lote si son muchos).
-4. Se guarda como `propuesta` / `agente`. Una persona la aprueba o rechaza en Supabase.
-   Una persona también puede crearla directo (`persona`, `aprobada`).
+### 5.8 Zonas: **no** se crean en esta versión
 
-### 5.8 Tabla `zonas` *(propuesta, a confirmar)*
+**Decisión del 2026-11-20:** **no** se crea la tabla `zonas`.
 
-Hoy solo hay latitud y longitud por visita. Para analizar "por zona" **y para saber qué
-promociones regionales nuestras aplican** (5.6.3, `regiones`):
+- La comparación usa el **precio regular**, que es el mismo en toda la cadena (5.6.2), así
+  que **no depende de la zona**.
+- Las **promociones regionales** (`promociones_propias.regiones`) se cargan, pero su uso en
+  la comparación queda para una **segunda iteración**.
+- El análisis de esta versión es **por competidor y fecha** (y por ubicación cruda:
+  `latitud` / `longitud` de la visita están en la vista).
 
-| Columna | Tipo |
-|---|---|
-| `id`, `nombre` (ej. "Centro", "Norte") | |
-| `latitud`, `longitud`, `radio_metros` | Centro y radio de la zona |
-| `plaza` | **Nuevo.** Nombre de la plaza tal como aparece en `regiones` de nuestras promociones. Sin plaza → solo aplican las promociones de toda la cadena |
-
-La vista asigna a cada visita la **zona más cercana dentro de su radio** con una fórmula de
-distancia en SQL (sin PostGIS ni librerías). Sin zona → `"Sin zona"`. Alternativa más
-simple: el usuario da la lista de zonas o sucursales y se decide al llegar a E2-7.
-⚠️ **Sin esta tabla, la comparación de promociones no sabe qué promociones regionales
-aplican**; mientras no exista, se usan solo las de toda la cadena y se avisa.
+❓ **Pregunta abierta (para la segunda iteración):** las visitas guardan **latitud y
+longitud, no plaza**. Hay que definir **cómo se traduce una ubicación a una plaza** (por
+ejemplo: lista de plazas con su área, la tienda más cercana nuestra, o que el personal elija
+la plaza en la app). Sin esa respuesta no se pueden aplicar las promociones regionales.
 
 ### 5.9 Vistas
 
 **`lecturas_analisis`** (E2-2): lectura + foto + visita + competidor. Excluye
 `descartada`. Para revisar y para consultas rápidas.
 
-**`comparacion_precios`** (E2-7), una fila por lectura con equivalencia aprobada:
+**`comparacion_precios`** (🧱 E2-4; queda vacía hasta que haya lecturas y equivalencias
+aprobadas), una fila por lectura con equivalencia aprobada:
 
 | Grupo | Columnas |
 |---|---|
 | Cuándo | `fecha_observacion` = `capturada_at` de la foto, o `created_at` de la visita si no hay; `fecha_origen` |
-| Dónde | `competidor`, `zona`, `plaza`, `latitud`, `longitud`, `visita_id`, `foto_id`, `ruta` |
-| Competencia | `articulo`, `marca`, `ean`, `cantidad`, `unidad`, `piezas`, `precio_regular_comp`, `promo_tipo`, `texto_promocion`, `precio_promo_pieza_comp` (calculado, 5.5; nulo si vencida o no comparable), `precio_minimo_comp`, `estado_lectura` |
-| Nuestro | `clave`, `descripcion`, cantidad / unidad, `precio_regular_propio`, `precio_promo_propio`, `precio_minimo_propio` (de `precio_propio_vigente` en `fecha_observacion` y `plaza`), `fecha_corte_usada`, `venta_12m_sin_impuestos`, `nacs_categoria`, `activo` |
-| Equivalencia | `tipo_equivalencia`, `dudoso` |
-| Calculado por SQL | `indice_regular` y `indice_minimo` (abajo), `en_linea`, `unidad_comparacion` ("100 g" / "100 ml" / "pieza") y precios normalizados de los dos lados |
+| Dónde | `competidor`, `latitud`, `longitud`, `visita_id`, `foto_id`, `ruta` (**sin** zona ni plaza en esta versión, 5.8) |
+| Competencia | `articulo`, `marca`, `ean`, `cantidad`, `unidad`, `piezas`, `precio_regular_comp`, `promo_tipo`, `texto_promocion`, `precio_promo_pieza_comp` (calculado, 5.5; informativo, no entra al índice), `estado_lectura` |
+| Nuestro | `clave`, `descripcion`, cantidad / unidad, `precio_regular_propio` (de `precio_propio_vigente` en `fecha_observacion`), `fecha_corte_usada`, `venta_12m_sin_impuestos`, `nacs_categoria`, `activo` |
+| Equivalencia | `tipo_equivalencia` |
+| Calculado por SQL | `indice_vs_competencia_pct` (abajo), `en_linea`, `unidad_comparacion` ("100 g" / "100 ml" / "pieza") y precios regulares normalizados de los dos lados |
 
-**Índices** (la misma receta que usa la consultora, para poder comparar resultados):
-- `indice_regular = precio_regular_propio ÷ precio_regular_comp − 1`
-- `indice_minimo` = lo mismo con el **menor entre regular y promoción** de cada lado.
-- **Positivo = nosotros más caros.** Entre −3 % y +3 % → `en_linea = true`.
-- ⚠️ **Cambio a confirmar:** el borrador anterior decía `diferencia_pct` "positivo = la
-  competencia está más cara" (el signo contrario). Se propone el de la consultora.
+**Índice (signo de la consultora, decidido el 2026-11-20):**
+
+```
+indice_vs_competencia_pct = (precio_regular_propio ÷ precio_regular_comp − 1) × 100
+```
+
+- **Positivo = nosotros más caros.** Negativo = nosotros más baratos. Ej. inventado: nuestro
+  $11, competencia $10 → **+10**.
+- Entre −3 y +3 → `en_linea = true`.
+- Se compara **solo precio regular contra precio regular**. El índice con promociones
+  (`indice_minimo`) queda para la segunda iteración (5.6.4, 5.8).
+- El signo se documenta **también dentro de la base**: `comment on view
+  comparacion_precios` y `comment on column comparacion_precios.indice_vs_competencia_pct is
+  'Porcentaje. Positivo = nosotros más caros que la competencia; negativo = más baratos.'`
+- *(El borrador anterior tenía `diferencia_pct` con el signo contrario; ya no existe.)*
 
 Reglas:
-- Solo equivalencias `aprobada`. Entran a promedios **solo misma presentación**: `codigo`,
-  `mismo_articulo`, `variante_sabor`. `presentacion_distinta` se compara **por 100 g /
-  100 ml** en columnas aparte y solo si nuestro `contenido_origen` no es `sin_dato`.
+- Solo equivalencias `aprobada`. Entran a promedios **solo** `mismo_articulo`.
+  `otra_presentacion` se compara **por 100 g / 100 ml** en columnas aparte y solo si
+  nuestro `contenido_origen` no es `sin_dato`. `sin_equivalente` no aparece.
 - Lecturas `propuesta`, `aprobada` y `corregida` (con `estado_lectura` para filtrar);
   **nunca** `por_revisar` ni `descartada`.
-- **Fuera:** servicios, obsoletos, de baja, sin venta en el último corte.
+- **Fuera:** servicios, obsoletos, de baja, sin venta en el último corte, precio regular
+  ≤ 0 en cualquiera de los dos lados.
 - **Agregar** (en las consultas de E2-8, no en la vista): por artículo, promedio entre
   tiendas y luego entre competidores; por competidor o categoría NACS, **ponderado por
   `venta_12m_sin_impuestos`**. Un competidor con menos de **10 artículos** comparados se
   reporta pero no se saca conclusión.
-- Pensada para que un tablero futuro haga `group by competidor, zona, date_trunc('week',
-  fecha_observacion)` sin más cálculos.
+- Pensada para que un tablero futuro haga `group by competidor, date_trunc('week',
+  fecha_observacion)` sin más cálculos (por zona, en la segunda iteración).
 
-**`exportar_lev_precios`** *(opcional, E2-8)*: nuestras lecturas en el **formato de
+**`exportar_lev_precios`** *(opcional, 🤖 E2-8)*: nuestras lecturas en el **formato de
 `lev_precios`** de la consultora (5.10.3), para juntar los dos levantamientos. La
 confianza en niveles se traduce a su `fidelidad` 0–100 (ej. `alta` → 95, `media` → 85,
 `baja` → 60, y con `baja` el dato va vacío, como su regla).
@@ -720,23 +763,27 @@ completo**.
 
 #### 5.10.4 Problemas de calidad encontrados (2026-11-20, solo tipos y magnitudes)
 
+**Regla (2026-11-20):** ninguno de estos problemas se corrige en silencio. El script de
+importación los cuenta y los escribe en el **reporte de calidad** dentro de
+`datos-privados/` (5.6.5). Aquí y en cualquier documento del repositorio se describen
+**solo con conteos o magnitudes**, nunca con claves, nombres ni precios.
+
 | Problema | Magnitud | Qué hace el plan |
 |---|---|---|
 | Artículos **sin contenido** (`contenido_pieza` vacío) | ~1 de cada 4; la mayoría dice "N PZ" en la descripción, otros no traen medida | `contenido_origen = sin_dato`; reporte para corrección manual; no entran a la comparación por 100 g / 100 ml |
 | **Paquetes** con contenido incompleto | La mayoría de los que parecen paquete no traen contenido | Mismo reporte; revisión manual |
-| Claves **no EAN** | ~3 de cada 10 (internas o códigos sin dígito de control válido) | Solo match por descripción |
-| Claves EAN de **12 dígitos** (UPC) | Una parte de los EAN | `ean13` con cero a la izquierda |
-| **Descripción repetida** con claves distintas | Unos pocos casos, algunos con precio distinto | Se reportan; cada clave sigue siendo un artículo |
-| **Precio regular 0** | Un par de artículos, sin venta | Excluidos (no activos) |
-| **Mayoreo ≥ precio regular** | Algunas decenas | Se guarda; no se usa |
+| Claves **no EAN** | ~3 de cada 10 (internas o códigos sin dígito de control válido) | Sin efecto en la base: la clave se guarda tal cual. Se toma en cuenta al definir el método de equivalencias (E2-7) |
+| **Descripción repetida** con claves distintas | Unos pocos casos, algunos con precio distinto | **Reporte de calidad**; cada clave sigue siendo un artículo |
+| **Precio regular 0** | Un par de artículos, sin venta | **Reporte de calidad**; se importan tal cual; excluidos de la comparación (no activos) |
+| **Mayoreo ≥ precio regular** | Algunas decenas | **Reporte de calidad**; se guarda tal cual; no se usa |
 | Artículos **de baja** y **obsoletos** | ~1 de cada 4 de baja; cerca de 200 obsoletos (se traslapan) | Excluidos de promedios |
 | Categoría **NACS vacía** | Casi todos son de baja | Sin efecto en lo activo |
 | Promociones **combo** con precio por pieza **0** | Unos pocos renglones, todos combo | Los combos nunca se comparan |
-| **Descuento negativo** (promo más cara que el normal registrado) | ~1 % de renglones | Se guarda; el script lo reporta |
-| Promo por pieza ≥ regular al inicio (sin combo) | Más de una decena de renglones | Reporte; la vista toma el **mínimo** y nunca uno mayor que el regular |
+| **Descuento negativo** (promo más cara que el normal registrado) | ~1 % de renglones | **Reporte de calidad**; se guarda tal cual |
+| Promo por pieza ≥ regular al inicio (sin combo) | Más de una decena de renglones | **Reporte de calidad**; se guarda tal cual (las promociones no entran a la comparación de esta versión) |
 | Regular al inicio ≠ normal registrado por la caja | ~1 de cada 10 renglones | Se usa el regular del corte (5.6.4) |
-| Misma clave con **varias promociones a la vez** (fechas traslapadas) | Decenas de claves | La vista toma la **más baja**, como la regla de la consultora |
-| Claves de promoción **sin artículo** | Un par | Se reportan (por eso no hay FK estricta) |
+| Misma clave con **varias promociones a la vez** (fechas traslapadas) | Decenas de claves | Se guarda tal cual; se resuelve en la segunda iteración (promociones) |
+| Claves de promoción **sin artículo** | Un par | **Reporte de calidad** (por eso no hay FK estricta) |
 | Origen `catalogo` sin `id_promocion` ni descripción | Pocos renglones | Llave técnica `id` (5.6.3) |
 
 **Sin problemas:** no hay llaves duplicadas, ni filas repetidas, ni espacios sobrantes,
@@ -747,24 +794,28 @@ promoción cuadran con sus grupos.
 
 | # | Tabla | Archivo SQL | Fase |
 |---|---|---|---|
-| 1 | `lotes_proceso` | 004 | E2-2 |
-| 2 | `articulos_competencia` | 004 | E2-2 |
-| 3 | `lecturas_precio` | 004 | E2-2 |
-| 4 | `catalogo_propio` | 005 | E2-3 |
-| 5 | `catalogo_propio_cortes` | 005 | E2-3 |
-| 6 | `promociones_propias` | 005 | E2-3 |
-| 7 | `equivalencias` | 006 | E2-7 |
-| 8 | `zonas` *(opcional, recomendada por las promociones regionales)* | 006 | E2-7 |
+| 1 | `lotes_proceso` | 004 | 🧱 E2-2 |
+| 2 | `articulos_competencia` | 004 | 🧱 E2-2 |
+| 3 | `lecturas_precio` | 004 | 🧱 E2-2 |
+| 4 | `catalogo_propio` | 005 | 🧱 E2-3 |
+| 5 | `catalogo_propio_cortes` | 005 | 🧱 E2-3 |
+| 6 | `promociones_propias` | 005 | 🧱 E2-3 |
+| 7 | `equivalencias` (solo estructura) | 006 | 🧱 E2-4 |
 
-**Para nuestro catálogo: 3 tablas** (5.6). **En toda la Etapa 2: 7 + 1 opcional**, más las
-vistas `lecturas_analisis`, `precio_propio_vigente`, `comparacion_precios` y
-`exportar_lev_precios` (opcional), y las funciones `guardar_lecturas` e `importar_corte`.
-La tabla `precios_propios_historial` del borrador **ya no hace falta**: los cortes la
+**Para nuestro catálogo: 3 tablas** (5.6). **En toda la Etapa 2: 7 tablas**, todas creadas
+en fases 🧱 base, más las vistas `lecturas_analisis`, `precio_propio_vigente`,
+`comparacion_precios` y `exportar_lev_precios` (opcional, 🤖), y las funciones
+`guardar_lecturas` e `importar_corte`. **`zonas` no se crea en esta versión** (5.8). La
+tabla `precios_propios_historial` del borrador **ya no hace falta**: los cortes la
 reemplazan. Todas cerradas a `anon` (5.0).
 
 ---
 
-## 6. La llamada a Claude (una por foto)
+## 6. La llamada a Claude (una por foto) — 🤖 solo en fases de agentes
+
+> Nada de esta sección se implementa en las fases 🧱 base. **Nunca se envían precios
+> propios a la API** (sección 2.1): a la lectura de fotos solo va la foto y las
+> instrucciones.
 
 ### 6.1 Qué se manda
 - **Instrucciones fijas** (system prompt) en español: listar **cada producto con precio
@@ -772,9 +823,9 @@ reemplazan. Todas cerradas a `anon` (5.0).
   regular y promoción; cantidad y unidad por separado (convertir "1 lt" → `1`, `l`); no
   calcular precios de "2x$30" (solo copiar el texto y sus números: `promo_piezas 2`,
   `promo_precio_total 30`); con varios niveles, el de **menos piezas**; el precio regular
-  **solo de la misma etiqueta**; copiar el código de barras dígito por dígito con `?` en
-  los ilegibles, **sin completarlo**; **ignorar personas**; calificar la
-  calidad de la foto y de cada etiqueta; cuándo usar `alta`/`media`/`baja`.
+  **solo de la misma etiqueta**; **ignorar personas**; calificar la
+  calidad de la foto y de cada etiqueta; cuándo usar `alta`/`media`/`baja`. Si se pide o
+  no el código de barras, y cómo, se decide junto con el método de equivalencias (E2-7).
 - **La foto** por su URL pública de Supabase (el bucket ya es público para lectura). Si en
   la evaluación la URL diera problemas, se manda en base64.
 - **`output_config.format`** con el esquema JSON (6.2). Sin herramientas, sin conversación.
@@ -824,13 +875,15 @@ reemplazan. Todas cerradas a `anon` (5.0).
   a `error`.
 
 ### 6.3 Parámetros
-- `model`: el que gane en E2-5 (`claude-sonnet-5-5` o `claude-haiku-5-5`).
-- `max_tokens`: 16 000 (se ajusta en E2-5).
-- `output_config.effort`: se decide en E2-5 (probar `low` y `medium`). Pensamiento
-  adaptativo (encendido por defecto en ambos modelos).
+- `model`: **provisional**, lo elige el usuario en E2-5 tras la prueba con pocas fotos
+  (`claude-sonnet-5-5` o `claude-haiku-5-5`); la evaluación final (E2-9) lo confirma o lo
+  cambia.
+- `max_tokens`: 16 000 (se ajusta en E2-9).
+- `output_config.effort`: provisional en E2-5; se decide en E2-9 (probar `low` y
+  `medium`). Pensamiento adaptativo (encendido por defecto en ambos modelos).
 - Sin `temperature` / `top_p` (estos modelos los rechazan).
 - *Fallbacks* (reintentar con otro modelo si Claude se niega): **no existen en lotes**. Una
-  negativa se trata como `error` y se reintenta. En los scripts sin lote (E2-4, E2-5) con
+  negativa se trata como `error` y se reintenta. En los scripts sin lote (E2-5, E2-9) con
   Sonnet 5.5 se puede activar `fallbacks: "default"` (beta) para no perder la prueba.
 
 ---
@@ -870,7 +923,7 @@ la foto no esté `procesada` (si lo está, no hace nada → **no hay duplicados*
 lecturas de un intento a medias, inserta las nuevas y marca la foto `procesada`. Correr el
 paso 2 dos veces no duplica nada.
 
-El mismo flujo de dos pasos se reusa para las equivalencias (`tipo = 'equivalencias'`).
+Si el método de equivalencias (E2-7) usa la API en lote, puede reusar este mismo flujo de dos pasos.
 
 ---
 
@@ -896,27 +949,26 @@ al día no es carga. Si después se quiere automatizar, se agrega B reusando
 
 ---
 
-## 9. Evaluación (Fase E2-5)
+## 9. Evaluación (Fase E2-9, 🤖, la última)
+
+**Decisión del 2026-11-20:** la evaluación queda **al final** de la Etapa 2. Hasta entonces,
+modelo, effort y tamaño de foto son **provisionales** (6.3, 3.3).
 
 ### 9.1 Muestra
-- **25 fotos** (20–30) que cubran: etiqueta simple, foto con muchos precios, regular +
-  promoción, "2x$30", varios precios en una etiqueta (ej. pieza y caja), paquete
-  ("6 × 355 ml"), presentación rara (ej. "1.5 l" escrito "1500ml"), foto borrosa, con
-  reflejo, lejana, HEIC convertida y una foto **sin** precios.
-- Al menos **5 fotos nuevas** tomadas ya con la configuración de la Fase E2-1 (2200 px /
-  0.85), y **5 en tamaño original** guardadas en `datos-privados/fotos_prueba/` para comparar
-  tamaños.
-- El usuario escribe **a mano** la respuesta correcta: por foto, la calidad y por cada
-  producto artículo, marca, código, cantidad, unidad, piezas, precio, promoción.
-  **Actualizado 2026-11-20:** se propone capturarla en el **formato de `lev_precios`**
-  (5.10.3, con `verificacion = confirmado`) en `datos-privados/evaluacion/esperado.csv`
-  (no en `docs/`, porque puede llevar nuestras claves). Así la muestra también sirve para
-  la consultora.
-- **`lev_precios` y `lev_tiendas` del paquete vienen vacías**, así que **no** sirven como
-  muestra verificada. **Pendiente para el usuario:** preguntar a la consultora si puede
-  compartir su levantamiento anterior **ya verificado** (sus `lev_precios` llenas + las
-  fotos). Si llega, sería una muestra mucho mayor y ya revisada; se guardaría en
-  `datos-privados/` y la evaluación se correría contra sus renglones `confirmado`.
+- **20 a 30 fotos reales tomadas con la app** (del bucket de Supabase), **verificadas a
+  mano** por una persona del equipo. Que cubran, en lo posible: etiqueta simple, foto con
+  muchos precios, regular + promoción, "2x$30", varios precios en una etiqueta (ej. pieza
+  y caja), paquete ("6 × 355 ml"), presentación rara (ej. "1.5 l" escrito "1500ml"), foto
+  borrosa, con reflejo, lejana y una foto **sin** precios.
+- Si se quiere comparar tamaños de foto (9.2), algunas se guardan además en tamaño
+  original en `datos-privados/fotos_prueba/`.
+- La persona escribe **a mano** la respuesta correcta: por foto, la calidad y por cada
+  producto artículo, marca, cantidad, unidad, piezas, precio, promoción. Se propone
+  capturarla en el **formato de `lev_precios`** (5.10.3, con `verificacion = confirmado`)
+  en `datos-privados/evaluacion/esperado.csv` (no en `docs/`).
+- **Levantamiento de octubre de la consultora:** **aún no hay datos** (las plantillas
+  `lev_precios` y `lev_tiendas` del paquete vienen vacías). Si llega, se agrega **después**
+  como muestra adicional (en `datos-privados/`), sin bloquear esta fase.
 
 ### 9.2 Qué se compara (`npm run evaluar`, API normal sin lote)
 - `claude-sonnet-5-5` vs `claude-haiku-5-5`, con effort `low` y `medium` (4
@@ -950,7 +1002,7 @@ usuario elige.** Resultado en `docs/evaluacion/RESULTADOS.md`.
 - **Costo:** casi duplica el costo por foto (con Haiku sigue siendo centavos por cientos de
   fotos) y complica emparejar productos entre las dos lecturas (se emparejan por artículo +
   presentación + precio parecidos).
-- **Cómo se decide:** en E2-5 se mide cuántos errores con `alta` atraparía. **Si la
+- **Cómo se decide:** en E2-9 se mide cuántos errores con `alta` atraparía. **Si la
   confianza ya está bien calibrada, no se activa.** Si no, se activa (todas las fotos o
   solo las de artículos clave). Queda como interruptor en el código (`SEGUNDA_LECTURA`).
 
@@ -960,15 +1012,15 @@ usuario elige.** Resultado en `docs/evaluacion/RESULTADOS.md`.
 
 | Riesgo | Qué puede pasar | Cómo se mitiga |
 |---|---|---|
-| **Etiquetas ilegibles** (borrosas, reflejo, lejos, cortadas) | Precios **inventados** que parecen reales | "No adivines" en las instrucciones; `calidad` por foto y por etiqueta; confianza baja → `por_revisar`; sin precio → `descartada`; E2-5 mide inventados. Fotos de 2200 px sin tope de 1 MB (3.3) y guía de campo (3.4) |
+| **Etiquetas ilegibles** (borrosas, reflejo, lejos, cortadas) | Precios **inventados** que parecen reales | "No adivines" en las instrucciones; `calidad` por foto y por etiqueta; confianza baja → `por_revisar`; sin precio → `descartada`; E2-9 mide inventados. Fotos de 2200 px sin tope de 1 MB (3.3) y guía de campo (3.4) |
 | **Varios precios en una etiqueta** (pieza / caja, por kg / por pieza, precio socio) | Se guarda el que no es, o se mezclan | Instrucción: una lectura por precio de **producto y presentación**; si una etiqueta tiene dos presentaciones, dos lecturas (con `piezas`); si no es claro cuál es el precio de venta → `confianza_precio` media y `por_revisar` |
 | **Regular y promoción juntos** | Se guarda la promoción como regular, o se calcula mal "2x$30" | Columnas separadas `precio`, `promo_tipo`, `promo_piezas`, `promo_precio_total`, `texto_promocion`; Claude solo copia números y SQL calcula el precio por pieza (5.5); promoción ≥ regular → `por_revisar`; promoción vencida o con condición (tarjeta, app) no se compara |
-| **Promociones nuestras regionales o combo** | Comparar contra una promoción que no aplica en esa tienda, o contra un precio de combo repartido | La vista solo toma promociones **no combo** y de toda la cadena o de la **plaza** de la zona (5.6.4, 5.8) |
-| **Presentaciones que cambian** (600 ml → 500 ml, "contenido especial") | Comparar artículos que ya no son iguales; perder la tendencia | La presentación es parte de la `clave_normalizada` del artículo de la competencia → una presentación nueva es un artículo nuevo con su propia equivalencia (`presentacion_distinta`); la comparación es **por unidad** (100 ml), así que sigue siendo justa |
+| **Promociones nuestras regionales o combo** | Comparar contra una promoción que no aplica en esa tienda, o contra un precio de combo repartido | En esta versión la comparación usa **solo precio regular** (no depende de la zona). Promociones: segunda iteración, cuando se defina cómo pasar de ubicación a plaza (5.6.4, 5.8) |
+| **Presentaciones que cambian** (600 ml → 500 ml, "contenido especial") | Comparar artículos que ya no son iguales; perder la tendencia | La presentación es parte de la `clave_normalizada` del artículo de la competencia → una presentación nueva es un artículo nuevo con su propia equivalencia (`otra_presentacion`); la comparación es **por unidad** (100 ml), así que sigue siendo justa |
 | **Personas en las fotos** | Privacidad; el bucket de fotos es **público** para leer (Etapa 1) | Guía: sin personas. Instrucción a Claude: ignorar personas y no describirlas (además Claude no identifica personas). Nunca se guardan descripciones de personas. **Pendiente para el usuario:** valorar más adelante hacer el bucket privado (cambia la app publicada; no es de esta etapa) |
 | **Costo por lote** | Un lote grande, o fotos basura (la app es abierta, sin login) | Tope de fotos por lote, estimado y confirmación antes de crear, costo real en `lotes_proceso`, llave propia con **límite de gasto**, no se reprocesan fotos `procesada`, máximo 3 intentos |
-| **Información comercial sensible del catálogo** | Que nuestros precios se filtren | `catalogo_propio`, cortes, promociones, equivalencias y las vistas cerradas a `anon`; los archivos originales en `datos-privados/` (ignorada por git, verificado con `git status` y `git check-ignore`); **nunca** se mandan nuestros precios ni ventas a Claude (solo descripción y presentación para equivalencias); el script imprime solo conteos; llaves solo en `.env.local`; opción A (sin URL pública). **Nunca** se copian datos reales (precios, artículos, códigos, tiendas, plazas) a `docs/`, comentarios ni commits: solo estructura con ejemplos inventados |
-| **Acuerdo de confidencialidad del paquete** ⛔ | El `LEEME.md` del paquete dice que las tablas de artículos y promociones **no se suben a servicios de terceros**. Supabase es un servicio de terceros, y las equivalencias mandan descripciones de nuestros artículos a Claude | **Bloqueante para E2-3 y E2-7:** el usuario confirma por escrito con quien corresponda (dueño de los datos / consultora) que se permite guardarlos en nuestro Supabase y mandar descripciones (sin precios) a la API de Claude. Si no se permite: alternativa de guardar solo lo mínimo (clave, descripción, contenido, precio del corte) o hacer la comparación en local |
+| **Información comercial sensible del catálogo** | Que nuestros precios se filtren | `catalogo_propio`, cortes, promociones, equivalencias y las vistas cerradas a `anon`; los archivos originales en `datos-privados/` (ignorada por git, verificado con `git status` y `git check-ignore`); **nunca** se mandan nuestros precios ni ventas a la API (regla de la sección 2.1; solo descripciones de artículos y fotos de la competencia); el script imprime solo conteos; llaves solo en `.env.local`; opción A (sin URL pública). **Nunca** se copian datos reales (precios, artículos, códigos, tiendas, plazas) a `docs/`, comentarios ni commits: solo estructura con ejemplos inventados |
+| **Acuerdo de confidencialidad del paquete** ✅ resuelto | El `LEEME.md` del paquete dice que las tablas de artículos y promociones **no se suben a servicios de terceros** | **Permiso del responsable de los datos (2026-11-20):** se permite (a) cargar catálogo y promociones en Supabase, (b) enviar a la API las descripciones de nuestros artículos **sin precios**, (c) enviar a la API las fotos de anaqueles de la competencia. Ya **no** bloquea E2-3. Cualquier uso fuera de esos tres (ej. mandar precios propios a la API) **no** está permitido |
 | Negativa del modelo (`refusal`) | Una foto no se procesa | `error` y reintento; tras 3 intentos queda para revisión |
 | Lote no recogido a tiempo | Resultados borrados a los 29 días | El paso 2 avisa de lotes `en_proceso` con más de 7 días |
 | Hora de captura falsa o faltante | Fecha equivocada en tendencias | `capturada_origen`; la vista usa la hora de la visita si falta; se marca sospechosa si es posterior a la subida o > 7 días antes de la visita |
@@ -976,7 +1028,7 @@ usuario elige.** Resultado en `docs/evaluacion/RESULTADOS.md`.
 
 **Estimado de costo por foto con lotes** (50 % de descuento; foto de 2200 × 1650 ≈ 4 700
 tokens + ~1 800 de instrucciones = ~6 500 de entrada, ~3 000 de salida con pensamiento).
-**Se reemplaza con lo medido en E2-5:**
+**Se reemplaza con lo medido en E2-9:**
 
 | Modelo | Normal (entrada / salida por millón) | Lote | ≈ por foto | ≈ 1 000 fotos |
 |---|---|---|---|---|
@@ -994,10 +1046,20 @@ lint, `PROGRESO.md`, un commit, **sin push**, `git status` sin `.env.local` ni
 `datos-privados/`). **Antes de ejecutar cualquier cosa en Supabase, el agente avisa y
 explica.**
 
+**Dos tipos de fase (2026-11-20):**
+
+| Tipo | Fases | Qué incluye | ¿Llama a la API de Anthropic? |
+|---|---|---|---|
+| **🧱 Base** | E2-1, E2-2, E2-3, E2-4 | Ajustes de la Etapa 1, estructura de tablas, carga del catálogo, estructura de equivalencias y vista de comparación | **No.** Ni se instala el SDK ni se crea la llave |
+| **🤖 Agentes** | E2-5, E2-6, E2-7, E2-8, E2-9 | Lectura de fotos, lotes, método de equivalencias, corrida completa y evaluación | Sí, desde E2-5 |
+
+⛔ **Ninguna fase 🤖 empieza sin que el usuario lo pida de forma explícita**, aunque la base
+esté terminada. Al terminar E2-4, el agente se detiene y reporta.
+
 ### Fase E2-0 — Plan ✅
 Este archivo. Sin código.
 
-### Fase E2-1 — Ajuste de la Etapa 1: fechas y fotos
+### Fase E2-1 — 🧱 Ajuste de la Etapa 1: fechas y fotos
 
 **Campos de fecha y hora que hay hoy:**
 
@@ -1052,75 +1114,107 @@ Este archivo. Sin código.
 `capturada_origen = exif` (iPhone y Android); una captura de pantalla queda `sin_dato`; las
 fotos nuevas miden 2200 px de lado mayor; `competidor_elegido_at` ya no existe.
 
-### Fase E2-2 — Base de datos de lecturas
+### Fase E2-2 — 🧱 Base de datos de lecturas (solo estructura)
 - `supabase/004_etapa2_lecturas.sql`: columnas de estado y calidad en `fotos`,
-  `lotes_proceso`, función de normalización (5.1), `articulos_competencia` (con `ean`),
-  `lecturas_precio` (con `ean` y las columnas de promoción de 5.5), `guardar_lecturas`, vista `lecturas_analisis`, permisos (5.0).
+  `lotes_proceso`, función de normalización (5.1), `articulos_competencia`,
+  `lecturas_precio` (con las columnas de promoción de 5.5), `guardar_lecturas`, vista
+  `lecturas_analisis`, permisos (5.0). Las tablas quedan **vacías**: las llenan las fases 🤖.
 - Tipos de servidor en `src/lib/etapa2/tipos.ts`; solo las columnas nuevas de `fotos` en
   `src/lib/tipos.ts`.
-- `.env.example` con los nombres de 4.1. Guiar al usuario para crear la llave de Anthropic
-  (con límite de gasto) y copiar la secret key de Supabase a `.env.local`.
+- `.env.example` con los nombres de 4.1. Guiar al usuario para copiar la **secret key de
+  Supabase** a `.env.local` (la necesita la importación del catálogo). La llave de
+  Anthropic **no** se crea todavía (se hace en E2-5).
+- **Sin** `@anthropic-ai/sdk` y **sin** llamadas a la API.
 
 **Cómo comprobar:** la app publicada funciona igual; fotos viejas `pendiente`; con la llave
 pública, `select` sobre `lecturas_precio`, `articulos_competencia`, `lotes_proceso` y
 `lecturas_analisis` **falla**; probar en el SQL Editor que `contenido_base` de "6 × 355 ml"
 da 2130.
 
-### Fase E2-3 — Catálogo propio
-- ⛔ **Antes de nada:** confirmar que el acuerdo de confidencialidad permite subir el
-  paquete a Supabase (sección 10). Sin esa confirmación, esta fase **no empieza**.
+### Fase E2-3 — 🧱 Catálogo propio (tablas y carga)
+- ✅ **Permiso confirmado** (responsable de los datos, 2026-11-20; sección 2.1): se puede
+  cargar catálogo y promociones en Supabase. Ya no hay bloqueo.
 - Las columnas ya se conocen (5.10). Leer el `LEEME.md` del paquete completo.
 - `supabase/005_catalogo_propio.sql`: `catalogo_propio`, `catalogo_propio_cortes`,
-  `promociones_propias`, `importar_corte`, `precio_propio_vigente` (5.6).
+  `promociones_propias`, `importar_corte`, `precio_propio_vigente` (5.6; solo precio
+  regular).
 - `src/lib/etapa2/csv.ts` (lector que respeta comillas, sin librería) y
-  `scripts/etapa2/importar-catalogo.ts` + `npm run catalogo:importar` (5.6.5).
+  `scripts/etapa2/importar-catalogo.ts` + `npm run catalogo:importar` (5.6.5), con el
+  **reporte de calidad** en `datos-privados/` (sin corregir nada en silencio).
+- **Sin** llamadas a la API de Anthropic.
 - Verificar con `git status` y `git check-ignore` que nada de `datos-privados/` aparece.
 
 **Cómo comprobar:** el resumen del script cuadra con los conteos del archivo; con la llave
 pública, `select` sobre las 3 tablas y la vista **falla**; correr la importación dos veces
-no duplica; `precio_propio_vigente` en la fecha de corte coincide con
-`precio_promo_pieza_min_al_corte` del archivo; el reporte de artículos sin contenido se
-genera dentro de `datos-privados/`.
+no duplica; `precio_propio_vigente` en la fecha de corte da el regular del archivo; el
+reporte de calidad y el de artículos sin contenido se generan dentro de `datos-privados/`
+y sus conteos por tipo coinciden con 5.10.4; `PROGRESO.md` solo lleva conteos.
 
-### Fase E2-4 — Leer una foto
+### Fase E2-4 — 🧱 Equivalencias (estructura) y vista de comparación
+- `supabase/006_equivalencias_comparacion.sql`: tabla `equivalencias` **solo estructura**
+  (5.7: `tipo` y `estado` con `check`, índice único parcial de `aprobada`, sin lógica de
+  llenado) y vista `comparacion_precios` (5.9) con `indice_vs_competencia_pct` y su
+  `comment on column` explicando el signo. **Sin** `zonas`.
+- **Sin** scripts que propongan equivalencias y **sin** llamadas a la API.
+
+**Cómo comprobar:** con la llave pública, `select` sobre `equivalencias` y
+`comparacion_precios` **falla**; los `check` rechazan un `tipo` o `estado` inventado y una
+equivalencia sin `clave_propia` que no sea `sin_equivalente`; no se pueden aprobar dos
+equivalencias del mismo artículo; con **datos de prueba inventados** (insertados en el SQL
+Editor dentro de una transacción que se deshace con `rollback`), un caso nuestro $11 vs
+competencia $10 da `indice_vs_competencia_pct = +10`; `col_description(...)` sobre la
+columna devuelve el comentario del signo.
+
+**Con E2-4 termina la base.** Las fases siguientes son 🤖 y **no empiezan sin que el
+usuario lo pida**.
+
+### Fase E2-5 — 🤖 Leer una foto *(no empezar sin que el usuario lo pida)*
+- Guiar al usuario para crear la llave de Anthropic (con límite de gasto) en `.env.local`.
 - Pedir permiso para `@anthropic-ai/sdk` (4.3).
 - `src/lib/etapa2/`: instrucciones, esquema JSON, validación y cálculo de estado.
 - `scripts/etapa2/leer-una-foto.ts <foto_id>`: llama a la API (sin lote), valida e
-  **imprime**. No guarda nada.
+  **imprime**. No guarda nada. A la API solo va la foto y las instrucciones.
+- El usuario elige un modelo y effort **provisionales** (6.3).
 
 **Cómo comprobar:** con 3 fotos reales, lo impreso coincide con lo que se ve.
 
-### Fase E2-5 — Evaluación
-- Sección 9 completa. **El usuario elige** modelo, effort, tamaño de foto y si se activa la
-  segunda lectura. Actualizar el estimado de costo de la sección 10.
-
-### Fase E2-6 — Lotes y guardado
-- `crear-lote.ts` y `recoger-lote.ts` (sección 7) con el modelo elegido. Primera corrida
-  real con **20 fotos**.
+### Fase E2-6 — 🤖 Lotes y guardado *(no empezar sin que el usuario lo pida)*
+- `crear-lote.ts` y `recoger-lote.ts` (sección 7) con el modelo provisional. Primera
+  corrida real con **20 fotos**.
 
 **Cómo comprobar:** las 20 fotos pasan a `procesada` (o `error` con motivo) con su calidad;
 hay lecturas y artículos de la competencia; el costo queda en `lotes_proceso`; correr
 `lote:recoger` otra vez **no duplica**; una foto `procesada` **no** entra a un lote nuevo;
 una en `error` sí.
 
-### Fase E2-7 — Equivalencias y comparación
-- Decidir con el usuario lo de `zonas` (5.8).
-- `supabase/006_equivalencias_comparacion.sql`: `equivalencias`, `zonas` (si se aprueba),
-  vista `comparacion_precios`. Pedir permiso para `pg_trgm`.
-- `scripts/etapa2/proponer-equivalencias.ts`: primero match por código (sin Claude), luego candidatos + Claude (5.7).
+### Fase E2-7 — 🤖 Método de equivalencias *(no empezar sin que el usuario lo pida)*
+- **Primero se define con el usuario el método** para decidir cuándo un artículo de la
+  competencia equivale a uno nuestro (5.7). Nada de esto está decidido hoy.
+- Según el método: columnas nuevas en `equivalencias` (archivo SQL nuevo), script para
+  proponerlas y librerías o extensiones que hagan falta (con permiso).
+- Si el método manda algo a la API: **solo descripciones** de nuestros artículos, **nunca
+  precios propios** ni ventas (sección 2.1).
 - El usuario aprueba una muestra de equivalencias en Supabase.
 
-**Cómo comprobar:** la vista muestra precio por 100 g / 100 ml / pieza de los dos lados con
-competidor, zona y fecha; una equivalencia `presentacion_distinta` se compara bien (por 100 g / 100 ml, aparte de los promedios); una con `tipo codigo` se crea sola desde el `ean`; nuestro precio usado es el del corte y la promoción vigentes en la fecha de la foto; con la llave
-pública la vista **falla**; ningún precio nuestro aparece en las peticiones a Claude (se
-revisa el texto que se manda).
+**Cómo comprobar:** se define al elegir el método. Siempre: `comparacion_precios` muestra
+filas con precio por 100 g / 100 ml / pieza de los dos lados, competidor y fecha; nuestro
+precio usado es el regular del corte vigente en la fecha de la foto; **ningún precio
+nuestro aparece en las peticiones a la API** (se revisa el texto que se manda).
 
-### Fase E2-8 — Corrida completa y consultas de ejemplo
-- Procesar todas las fotos pendientes (en lotes con tope) y proponer sus equivalencias.
-- `supabase/consultas_etapa2.sql`: diferencia promedio por competidor y zona, artículos
-  donde la competencia está más barata, evolución semanal de un artículo, lecturas
-  `por_revisar`, fotos con `error` y fotos por calidad (para retroalimentar al equipo).
+### Fase E2-8 — 🤖 Corrida completa y consultas de ejemplo *(no empezar sin que el usuario lo pida)*
+- Procesar todas las fotos pendientes (en lotes con tope) y relacionarlas con nuestro
+  catálogo según el método de E2-7.
+- `supabase/consultas_etapa2.sql`: índice promedio por competidor, artículos donde la
+  competencia está más barata, evolución semanal de un artículo, lecturas `por_revisar`,
+  fotos con `error` y fotos por calidad (para retroalimentar al equipo).
 - Revisar con el usuario una muestra de `por_revisar` para ajustar las instrucciones.
+
+### Fase E2-9 — 🤖 Evaluación (al final) *(no empezar sin que el usuario lo pida)*
+- Sección 9 completa, con **20–30 fotos reales de la app verificadas a mano**. **El
+  usuario elige** modelo, effort, tamaño de foto y si se activa la segunda lectura
+  (confirma o cambia lo provisional). Actualizar el estimado de costo de la sección 10.
+- Si para entonces llegó el levantamiento de octubre de la consultora, se agrega como
+  muestra adicional.
 
 ---
 
@@ -1134,15 +1228,18 @@ revisa el texto que se manda).
 | Tabla `articulos_competencia` (equivalencia una vez por artículo, no por lectura) | Propuesta del agente, **pendiente de confirmar** (5.4) |
 | Columna `piezas` para paquetes | Propuesta del agente, **pendiente de confirmar** (5.1) |
 | ~~Historial de precios propios~~ → reemplazado por los **cortes** del paquete (`catalogo_propio_cortes`) | Agente, 2026-11-20, al conocer el paquete (5.6) |
-| Tabla `zonas` (ahora también con `plaza` para promociones regionales) | Propuesta del agente, **pendiente de confirmar** (5.8) |
+| ~~Tabla `zonas`~~ → **no se crea en esta versión**; comparación con precio regular; promociones regionales en segunda iteración; pregunta abierta: ubicación → plaza | Usuario, 2026-11-20 (5.8) |
+| Alcance: solo fases 🧱 base; ninguna fase 🤖 sin pedido explícito | Usuario, 2026-11-20 (sección 11) |
+| Evaluación al final con 20–30 fotos reales de la app verificadas a mano; levantamiento de octubre si llega | Usuario, 2026-11-20 (9.1) |
+| Problemas de calidad del catálogo → reporte en `datos-privados/`, sin corregir en silencio; en docs solo conteos | Usuario, 2026-11-20 (5.6.5, 5.10.4) |
 | Columnas de `catalogo_propio` y promociones | **Conocidas el 2026-11-20** por el paquete de la consultora; diseño en 5.6, estructura en 5.10 |
-| Formato y reglas de la consultora (tipos de match, promoción por pieza, índices, ±3 %, ponderar por venta, mínimo 10 artículos) | `LEEME.md` y `diccionario.csv` del paquete (no se suben); adoptados para poder juntar levantamientos |
-| Signo del índice (positivo = nosotros más caros) | Propuesta del agente siguiendo a la consultora, **pendiente de confirmar** (5.9) |
+| Formato y reglas de la consultora (promoción por pieza, índice, ±3 %, ponderar por venta, mínimo 10 artículos) | `LEEME.md` y `diccionario.csv` del paquete (no se suben); adoptados para poder juntar levantamientos. **Sus reglas de match no están adoptadas** (5.7) |
+| Signo del índice (positivo = nosotros más caros), columna `indice_vs_competencia_pct` | **Usuario, 2026-11-20** (5.9) |
 | `clave` como llave de `catalogo_propio` (en vez de `id` + `codigo`) | Propuesta del agente, **pendiente de confirmar** (5.6.1) |
-| Equivalencias por código aprobadas solas | Propuesta del agente, **pendiente de confirmar** (5.7) |
-| Permiso de subir el paquete a Supabase según su acuerdo de confidencialidad | ⛔ **Pendiente del usuario** (sección 10) |
-| Tamaño 2200 px / JPEG 0.85 / sin tope de 1 MB | Propuesta del agente con la documentación de visión (3.3); se confirma en E2-5 |
+| ~~Equivalencias por código aprobadas solas~~ → **quitado**; el método de equivalencias se define en la fase de agentes; en la base solo estructura (`tipo`, `estado`) | Usuario, 2026-11-20 (5.7) |
+| Permiso del responsable de los datos: catálogo y promociones en Supabase; descripciones sin precios y fotos de la competencia a la API. **Nunca precios propios a la API** | ✅ **Usuario, 2026-11-20** (secciones 2.1 y 10) |
+| Tamaño 2200 px / JPEG 0.85 / sin tope de 1 MB | Propuesta del agente con la documentación de visión (3.3); se confirma en E2-9 |
 | Límites de visión (2576 px, 4 784 tokens, 10 MB, 28 × 28 px por token) | Documentación de Anthropic consultada el 2026-11-19 |
-| Precios de los modelos y lotes (50 %, 24 h, 29 días) | Documentación de Anthropic al 2026-11; revisar antes de E2-5 |
+| Precios de los modelos y lotes (50 %, 24 h, 29 días) | Documentación de Anthropic al 2026-11; revisar antes de E2-5 (primera fase 🤖) |
 | Comportamiento de EXIF en iPhone y Android | Comportamiento conocido; **se comprueba con celulares reales en E2-1** |
-| `@anthropic-ai/sdk`, `exifr`, `pg_trgm` (el lector de Excel ya no hace falta) | **Pendientes de permiso** en su fase |
+| `@anthropic-ai/sdk` (🤖), `exifr` (🧱 E2-1), otras según el método de equivalencias (el lector de Excel ya no hace falta) | **Pendientes de permiso** en su fase |
