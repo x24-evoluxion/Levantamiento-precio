@@ -155,13 +155,14 @@ Fuente: `platform.claude.com/docs/en/build-with-claude/vision`.
 **Revisión del 2026-11-20 (Fase E2-1):** los números de la tabla siguen iguales. La página
 define dos niveles: alta resolución para "Claude 4.7 y posteriores" (2576 px, 4 784 tokens) y
 estándar para los demás (1568 px, 1 568 tokens). No nombra a Sonnet 5.5 / Haiku 5.5 uno por
-uno; por ser posteriores a 4.7 se toma el nivel alto. Nuevo dato: si una sola petición lleva
+uno; por ser posteriores a 4.7 se **supone** el nivel alto. ⚠️ **Pendiente de verificar en la
+evaluación (E2-9)** (usuario, 2026-11-20): no está confirmado para estos dos modelos. Nuevo dato: si una sola petición lleva
 **más de 20 imágenes**, cada una debe medir ≤ 3000 px (no nos afecta: una foto por petición y
 2200 px). La página no trae tabla de tamaños por proporción; el cálculo de abajo es nuestro.
 
 | Dato | Valor |
 |---|---|
-| Nivel de resolución de `claude-sonnet-5-5` y `claude-haiku-5-5` | **Alta resolución** ("Claude 4.7 y posteriores") |
+| Nivel de resolución de `claude-sonnet-5-5` y `claude-haiku-5-5` | **Alta resolución** ("Claude 4.7 y posteriores") — **supuesto, pendiente de verificar en E2-9** |
 | Lado mayor máximo útil | **2576 px** |
 | Tope de "tokens visuales" por imagen | **4 784** (cada token = un cuadro de 28 × 28 px) |
 | Costo en tokens | `⌈ancho/28⌉ × ⌈alto/28⌉` |
@@ -992,6 +993,11 @@ modelo, effort y tamaño de foto son **provisionales** (6.3, 3.3).
 - `claude-sonnet-5-5` vs `claude-haiku-5-5`, con effort `low` y `medium` (4
   configuraciones).
 - Tamaño: original vs 2200 px / 0.85 vs 2000 px / 0.8 / 1 MB (con el mejor modelo).
+- **Verificar el nivel de resolución de visión** de `claude-sonnet-5-5` y `claude-haiku-5-5`
+  (pendiente desde E2-1, 3.2): mandar una foto de 2200 × 1650 a cada modelo y revisar los
+  tokens de entrada (`usage` o conteo de tokens). Alta resolución ≈ 4 661 tokens de imagen;
+  si sale ≈ 1 568, el modelo usa el nivel estándar (1568 px) y hay que revisar el tamaño de
+  foto (3.3) y el estimado de costo (10).
 
 ### 9.3 Métricas (por configuración)
 
@@ -1261,6 +1267,7 @@ nuestro aparece en las peticiones a la API** (se revisa el texto que se manda).
 | Permiso del responsable de los datos: catálogo y promociones en Supabase; descripciones sin precios y fotos de la competencia a la API. **Nunca precios propios a la API** | ✅ **Usuario, 2026-11-20** (secciones 2.1 y 10) |
 | Tamaño 2200 px / JPEG 0.85 / `maxSizeMB: 4` (sin tope de 1 MB), solo fotos nuevas | ✅ **Aprobado por el usuario, 2026-11-20**, tras revisar otra vez la documentación de visión (3.2, 3.3). Aplicado en E2-1; E2-9 lo confirma con fotos reales |
 | Límites de visión (2576 px, 4 784 tokens, 10 MB, 28 × 28 px por token) | Documentación de Anthropic consultada el 2026-11-19 y el 2026-11-20 |
+| Sonnet 5.5 y Haiku 5.5 usan el nivel de **alta resolución** | **Supuesto** (la documentación dice "4.7 y posteriores" sin nombrarlos); **pendiente de verificar en E2-9** (usuario, 2026-11-20; 9.2) |
 | Precios de los modelos y lotes (50 %, 24 h, 29 días) | Documentación de Anthropic al 2026-11; revisar antes de E2-5 (primera fase 🤖) |
 | Comportamiento de EXIF en iPhone y Android | Comportamiento conocido; **se comprueba con celulares reales en E2-1** |
 | `@anthropic-ai/sdk` (🤖), `exifr` (🧱 E2-1), otras según el método de equivalencias (el lector de Excel ya no hace falta) | **Pendientes de permiso** en su fase |

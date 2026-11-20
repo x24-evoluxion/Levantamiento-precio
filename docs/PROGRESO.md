@@ -23,7 +23,7 @@
 | Fase | Tipo | Nombre | Estado |
 |---|---|---|---|
 | E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
-| E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | 🟡 código listo; faltan pasos del usuario (ver su sección) |
+| E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
 | E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ⬜ |
 | E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ⬜ |
 | E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
@@ -64,8 +64,11 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       poder aplicar nuestras promociones regionales (PLAN_ETAPA2 5.8).
 - [ ] **(Etapa 2, fase de agentes) Método de equivalencias.** No está definido; se decide en
       E2-7 (PLAN_ETAPA2 5.7).
-- [ ] **(Etapa 2, E2-1) Pasos del usuario para cerrar la fase:** ejecutar `002`, desplegar,
-      probar en iPhone y Android, y **después** ejecutar `003` (ver la sección de E2-1).
+- [x] **(Etapa 2, E2-1) Pasos del usuario para cerrar la fase:** `002`, despliegue, prueba en
+      iPhone y Android, y `003`. Hecho el 2026-11-20.
+- [ ] **(Etapa 2, E2-9) Verificar el nivel de resolución de visión** de Sonnet 5.5 y Haiku 5.5.
+      Se supuso alta resolución (2576 px / 4 784 tokens) porque la documentación dice "Claude
+      4.7 y posteriores" sin nombrarlos. Se comprueba en la evaluación (PLAN_ETAPA2 3.2 y 9.2).
 - [ ] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
       Se necesitan antes de E2-2.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
@@ -810,7 +813,7 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 
 ---
 
-## Etapa 2 — Fase E2-1: Ajuste de la Etapa 1: fechas y fotos (2026-11-20) — 🟡 código listo
+## Etapa 2 — Fase E2-1: Ajuste de la Etapa 1: fechas y fotos (2026-11-20) — ✅ confirmada 2026-11-20
 
 **Respuestas del usuario a los pendientes (2026-11-20):**
 1. **Sí a la opción A (script local)** para disparar el proceso.
@@ -897,4 +900,16 @@ segunda reducción. Detalle en PLAN_ETAPA2 3.2 y 3.3.
 - Antes de E2-2: confirmar `articulos_competencia` y `piezas`.
 
 **Commit:** ver `git log` — `Etapa 2, Fase E2-1: hora de captura, tamaño de foto y sin competidor_elegido_at`
+
+**Cierre (2026-11-20), confirmado por el usuario:**
+- Se ejecutaron `002_fotos_hora_captura.sql` y, después de desplegar y probar,
+  `003_quitar_competidor_elegido_at.sql`.
+- Guardar visitas y subir fotos funciona en **iPhone y Android** con la app publicada.
+- Fase E2-1 cambiada a ✅.
+- **Queda pendiente para la evaluación (E2-9):** verificar que Sonnet 5.5 y Haiku 5.5 usan el
+  nivel de **alta resolución** de visión. El tamaño de 2200 px se calculó con ese supuesto;
+  si resultara el nivel estándar, se revisa el tamaño (PLAN_ETAPA2 3.2, 3.3 y 9.2).
+
+**Siguiente fase:** E2-2 (🧱 base). Antes: confirmar `articulos_competencia` y `piezas`.
+**No se empieza sin que el usuario lo pida.**
 
