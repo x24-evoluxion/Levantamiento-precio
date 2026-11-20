@@ -704,3 +704,36 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 - [ ] Confirmar los nombres `ANTHROPIC_API_KEY` y `SUPABASE_SECRET_KEY` (E2-2).
 
 **Commit:** ver `git log` — `Etapa 2, Fase 0: plan ampliado (objetivo, catálogo, equivalencias)`
+
+---
+
+## Etapa 2 — Fase 0 (actualización 2): diseño con la lista de precios real (2026-11-20)
+
+**Qué se hizo:**
+- Se revisó el paquete de precios en `datos-privados/` (ignorado por git): `LEEME.md`,
+  `diccionario.csv` y la estructura de cada CSV. **No se copió ningún dato real a los docs.**
+- `docs/PLAN_ETAPA2.md`: nueva sección 5.6 (catálogo en 3 tablas: `catalogo_propio`,
+  `catalogo_propio_cortes`, `promociones_propias`; vista `precio_propio_vigente`; script de
+  importación todo-o-nada), 5.10 (estructura del paquete y problemas de calidad, sin datos)
+  y 5.11 (resumen de tablas). `lecturas_precio` y `equivalencias` alineadas con el formato
+  de la consultora (promoción por pieza calculada por SQL, `ean`, tipos de match, índices).
+- Carpeta renombrada en el plan: `datos-privados/` (guion medio, la real).
+
+**Archivos creados o cambiados:**
+- `docs/PLAN_ETAPA2.md`, `docs/PROGRESO.md`
+
+**Pasos que hizo el usuario a mano:**
+- Colocó el paquete en `datos-privados/x24_precios_20261119/`.
+
+**Cómo probarlo:**
+- No aplica (no hay código). `git check-ignore -v datos-privados/x24_precios_20261119/LEEME.md`
+  confirma que la carpeta está ignorada.
+
+**Pendientes antes de la Fase E2-3:**
+- [ ] ⛔ Confirmar que el acuerdo de confidencialidad del paquete permite subirlo a Supabase y
+      mandar descripciones (sin precios) a Claude (PLAN_ETAPA2 sección 10).
+- [ ] Confirmar: `clave` como llave, signo del índice, equivalencias por código aprobadas
+      solas, tabla `zonas` con `plaza` (PLAN_ETAPA2 sección 12).
+- [ ] Preguntar a la consultora si comparte su levantamiento anterior verificado (9.1).
+
+**Commit:** ver `git log` — `Etapa 2, Fase 0: diseño del catálogo con la lista de precios real`
