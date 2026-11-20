@@ -1,4 +1,5 @@
-// Tipos de las tablas de la Etapa 2 (escritos a mano), según supabase/004_tablas_competencia.sql.
+// Tipos de las tablas de la Etapa 2 (escritos a mano), según supabase/004_tablas_competencia.sql
+// y supabase/006_equivalencias_comparacion.sql.
 // SOLO para código de servidor (scripts con la secret key). La app (navegador) no puede leer
 // estas tablas: están cerradas para "anon". Si cambias una tabla, cambia también este archivo.
 //
@@ -120,3 +121,78 @@ type ColumnasQueNoSeMandan =
 
 /** Un elemento de la lista p_lecturas de la función guardar_lecturas. */
 export type LecturaParaGuardar = Omit<LecturaPrecio, ColumnasQueNoSeMandan>;
+
+// ---------------------------------------------------------------------------
+// 006: equivalencias y vista comparacion_precios (E2-4). Solo estructura: nada
+// en el código las usa todavía (el método de equivalencias se decide en E2-7).
+// ---------------------------------------------------------------------------
+
+export type TipoEquivalencia = "mismo_articulo" | "otra_presentacion" | "sin_equivalente";
+export type EstadoEquivalencia = "propuesta" | "aprobada" | "rechazada";
+
+/** equivalencias: artículo de la competencia ↔ artículo nuestro. */
+export type Equivalencia = {
+  id: number;
+  articulo_competencia_id: number;
+  /** Clave de catalogo_propio (SIEMPRE texto). Nula solo si tipo = "sin_equivalente". */
+  clave_propia: string | null;
+  tipo: TipoEquivalencia;
+  estado: EstadoEquivalencia;
+  created_at: string;
+  actualizado_at: string; // lo pone la base al cambiar la fila
+};
+
+/** Motivo por el que no hay precio por unidad (null = sí hay). */
+export type MotivoSinPrecioUnidad =
+  | "sin_contenido_competencia"
+  | "sin_contenido_propio"
+  | "unidades_distintas";
+
+/** Una fila de la vista comparacion_precios (solo lectura). */
+export type ComparacionPrecio = {
+  fecha_observacion: string;
+  fecha_origen: "captura_foto" | "visita";
+  competidor_id: number;
+  competidor: string;
+  latitud: number | null;
+  longitud: number | null;
+  visita_id: string;
+  foto_id: string;
+  ruta: string;
+  lectura_id: string;
+  articulo_competencia_id: number;
+  articulo: string | null;
+  marca: string | null;
+  ean: string | null;
+  cantidad: number | null;
+  unidad: Unidad | null;
+  piezas: number;
+  precio_regular_comp: number;
+  promo_tipo: PromoTipo;
+  texto_promocion: string | null;
+  /** Informativo: NO entra al índice. */
+  precio_promo_pieza_comp: number | null;
+  estado_lectura: Extract<EstadoLectura, "propuesta" | "aprobada" | "corregida">;
+  clave: string;
+  descripcion: string;
+  cantidad_propia: number | null;
+  unidad_propia: Unidad | null;
+  contenido_origen_propio: "archivo" | "manual" | "sin_dato";
+  precio_regular_propio: number;
+  fecha_corte_usada: string;
+  corte_posterior: boolean;
+  nacs_categoria: string | null;
+  equivalencia_id: number;
+  tipo_equivalencia: Exclude<TipoEquivalencia, "sin_equivalente">;
+  base_indice: "precio_total" | "precio_por_unidad";
+  /** Porcentaje. Positivo = nosotros más caros; negativo = más baratos. */
+  indice_vs_competencia_pct: number;
+  /** Índice entre −3 y +3. */
+  en_linea: boolean;
+  /** Solo mismo_articulo entra a promedios. */
+  entra_a_promedios: boolean;
+  unidad_comparacion: "100 g" | "100 ml" | "pieza" | null;
+  precio_comp_por_unidad: number | null;
+  precio_propio_por_unidad: number | null;
+  motivo_sin_precio_unidad: MotivoSinPrecioUnidad | null;
+};

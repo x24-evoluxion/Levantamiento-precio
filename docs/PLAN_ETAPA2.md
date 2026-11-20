@@ -119,6 +119,7 @@ catálogo cargado y la vista, que se llenan después.
 | 21 | **Columnas que NO se cargan** (E2-3, 2026-11-20): mayoreo (`precio_mayoreo`, `mayoreo_desde_piezas`), impuestos (`tasa_iva`, `tasa_ieps`, `precio_regular_sin_impuestos`), `promos_vigentes_al_corte`, `precio_promo_pieza_min_al_corte`, `precio_normal_registrado`, `descuento_pct` y `clave_es_ean` (esta se agrega con un SQL nuevo cuando se defina el método de equivalencias). Las revisiones de calidad que las usan se hacen **leyendo el archivo**; el reporte privado dice qué revisión corrió y desde qué columnas | 5.6.5 |
 | 22 | **Activo** = aparece en el corte más reciente, no obsoleto, no de baja, no servicio y precio regular > 0 (sin datos de venta). Se calcula en la vista `catalogo_propio_actual` | 5.6.1 |
 | 23 | **Importación** (E2-3): un corte más viejo no pisa los datos de los artículos (solo guarda sus precios y promociones con su fecha); reimportar el mismo corte reemplaza sus precios y promociones; los artículos nunca se borran y el contenido `manual` no se toca. Escribe **solo con `--confirmar`**; sin él, simulación con conteos de insertar / actualizar / borrar | 5.6.5 |
+| 24 | **Vista de comparación y equivalencias** (E2-4, 2026-11-20): las filas que no se pueden comparar **no aparecen** (precio regular en 0 o vacío de cualquier lado, artículo nuestro no activo, `sin_equivalente`, equivalencia no aprobada, `otra_presentacion` sin contenido o con unidades distintas). **Un solo índice**: `mismo_articulo` precio total contra precio total; `otra_presentacion` por 100 g / 100 ml / pieza (`base_indice` dice cuál). En `mismo_articulo` sin contenido la fila sí aparece, con el precio por unidad vacío y `motivo_sin_precio_unidad`. **No se puede borrar** un artículo (nuestro o de la competencia) que tenga equivalencias (`on delete restrict`) | 5.7, 5.9 |
 
 **Cambio respecto a la Etapa 1:** `PLAN.md` sección 6 decía "nunca se usa la llave
 `service_role` / `secret`". Eso **sigue valiendo para la app** (el navegador). La única
@@ -291,6 +292,7 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/004_tablas_competencia.sql` | E2-2 | Estado y calidad en `fotos`, borrado en cascada `fotos` ← `visitas`, funciones de normalización, `lotes_proceso`, `articulos_competencia`, `lecturas_precio`, `guardar_lecturas`, vista `lecturas_analisis` |
 | `supabase/005_catalogo_propio.sql` | E2-3 | `catalogo_propio`, `catalogo_propio_cortes`, `promociones_propias`, función `importar_corte` y vista `precio_propio_vigente` (5.6) |
 | `supabase/006_equivalencias_comparacion.sql` | E2-4 | `equivalencias` (solo estructura, 5.7) y vista `comparacion_precios` (5.9). **Sin** `zonas` |
+| `supabase/pruebas/006_prueba_comparacion.sql` | E2-4 | Prueba con datos inventados; termina con `rollback` (no deja nada) |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
 equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (`007_...`).
@@ -671,6 +673,13 @@ SQL Editor, si quisiera probar la vista.
 
 - Máximo **una equivalencia `aprobada`** por artículo de la competencia (índice único
   parcial `where estado = 'aprobada'`). Es una regla de integridad, no de método.
+- `sin_equivalente` va **sin** `clave_propia` y los otros dos tipos **con** una (`check`).
+- **Al borrar** (decisión 24): `on delete restrict` en los dos lados. Borrar un artículo
+  nuestro o de la competencia que tenga equivalencias (de cualquier estado) da **error**;
+  primero se borra la equivalencia. El importador nunca borra artículos, así que no le
+  afecta. Para **fusionar duplicados** de la competencia (5.4) hay que mover o borrar sus
+  equivalencias antes de borrar el artículo duplicado.
+- `actualizado_at` lo pone un *trigger* al cambiar la fila.
 - Cerrada a `anon` como todo lo de la Etapa 2 (5.0).
 - **Lo que se decide en la fase de agentes (E2-7), no antes:** cómo se proponen (por
   persona, por agente o combinación), qué datos se usan para decidir, si hacen falta más
@@ -708,9 +717,9 @@ aprobadas), una fila por lectura con equivalencia aprobada:
 | Cuándo | `fecha_observacion` = `capturada_at` de la foto, o `created_at` de la visita si no hay; `fecha_origen` |
 | Dónde | `competidor`, `latitud`, `longitud`, `visita_id`, `foto_id`, `ruta` (**sin** zona ni plaza en esta versión, 5.8) |
 | Competencia | `articulo`, `marca`, `ean`, `cantidad`, `unidad`, `piezas`, `precio_regular_comp`, `promo_tipo`, `texto_promocion`, `precio_promo_pieza_comp` (calculado, 5.5; informativo, no entra al índice), `estado_lectura` |
-| Nuestro | `clave`, `descripcion`, cantidad / unidad, `precio_regular_propio` (de `precio_propio_vigente` en `fecha_observacion`), `fecha_corte_usada`, `nacs_categoria`, `activo` (de `catalogo_propio_actual`). **Sin** `venta_12m_sin_impuestos` (decisión 20) |
-| Equivalencia | `tipo_equivalencia` |
-| Calculado por SQL | `indice_vs_competencia_pct` (abajo), `en_linea`, `unidad_comparacion` ("100 g" / "100 ml" / "pieza") y precios regulares normalizados de los dos lados |
+| Nuestro | `clave`, `descripcion`, `cantidad_propia` / `unidad_propia`, `contenido_origen_propio`, `precio_regular_propio` (de `precio_propio_vigente` en la fecha de `fecha_observacion`, hora de México), `fecha_corte_usada`, `corte_posterior`, `nacs_categoria`. **Sin** columna `activo`: los no activos no aparecen (decisión 24). **Sin** `venta_12m_sin_impuestos` (decisión 20) |
+| Equivalencia | `equivalencia_id`, `tipo_equivalencia` |
+| Calculado por SQL | `base_indice` (`precio_total` / `precio_por_unidad`), `indice_vs_competencia_pct` (abajo), `en_linea`, `entra_a_promedios`, `unidad_comparacion` ("100 g" / "100 ml" / "pieza"), `precio_comp_por_unidad`, `precio_propio_por_unidad` y `motivo_sin_precio_unidad` (`sin_contenido_competencia`, `sin_contenido_propio`, `unidades_distintas`; vacío = sí hay precio por unidad) |
 
 **Índice (signo de la consultora, decidido el 2026-11-20):**
 
@@ -729,13 +738,21 @@ indice_vs_competencia_pct = (precio_regular_propio ÷ precio_regular_comp − 1)
 - *(El borrador anterior tenía `diferencia_pct` con el signo contrario; ya no existe.)*
 
 Reglas:
-- Solo equivalencias `aprobada`. Entran a promedios **solo** `mismo_articulo`.
-  `otra_presentacion` se compara **por 100 g / 100 ml** en columnas aparte y solo si
-  nuestro `contenido_origen` no es `sin_dato`. `sin_equivalente` no aparece.
+- Solo equivalencias `aprobada`. Entran a promedios **solo** `mismo_articulo`
+  (`entra_a_promedios`). `sin_equivalente` no aparece.
+- **Un solo índice** (decisión 24): en `mismo_articulo` se calcula con el precio total; en
+  `otra_presentacion`, con el precio por 100 g / 100 ml / pieza, y **solo** si los dos lados
+  tienen contenido en la misma unidad base; si no, la fila no aparece.
+- `mismo_articulo` sin contenido (o con unidades distintas): la fila **sí** aparece con su
+  índice; el precio por unidad queda vacío y `motivo_sin_precio_unidad` dice por qué. No se
+  inventan contenidos y ninguna división puede ser entre cero (filtro + `nullif`).
 - Lecturas `propuesta`, `aprobada` y `corregida` (con `estado_lectura` para filtrar);
   **nunca** `por_revisar` ni `descartada`.
-- **Fuera:** servicios, obsoletos, de baja, sin venta en el último corte, precio regular
-  ≤ 0 en cualquiera de los dos lados.
+- **Fuera:** artículos nuestros no activos (servicios, obsoletos, de baja, fuera del último
+  corte; `catalogo_propio_actual.activo`) y precio regular ≤ 0 o vacío en cualquiera de los
+  dos lados (el nuestro, en la fecha de la foto).
+- `security_invoker = true` y sin permisos para `anon` / `authenticated`: la vista no abre
+  las tablas de abajo.
 - **Agregar** (en las consultas de E2-8, no en la vista): por artículo, promedio entre
   tiendas y luego entre competidores; por competidor o categoría NACS, **promedio simple**
   por ahora. ⏸️ **Ponderar por `venta_12m_sin_impuestos` queda pendiente** (decisión 20):

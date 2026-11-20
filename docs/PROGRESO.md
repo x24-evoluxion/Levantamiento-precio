@@ -26,7 +26,7 @@
 | E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
 | E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ✅ |
 | E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ✅ |
-| E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
+| E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | 🟡 |
 | E2-5 | 🤖 agentes | Leer una foto | ⬜ |
 | E2-6 | 🤖 agentes | Lotes y guardado | ⬜ |
 | E2-7 | 🤖 agentes | Método de equivalencias | ⬜ |
@@ -77,6 +77,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **(Etapa 2, E2-3) `.env.example` y secret key de Supabase:** agregar los nombres de
       PLAN_ETAPA2 4.1 y guiar al usuario para copiar la secret key a `.env.local`. Se pasó
       de E2-2 a E2-3 porque el usuario pidió no tocar llaves en E2-2.
+- [ ] **(Etapa 2, E2-4) Ejecutar `supabase/006_equivalencias_comparacion.sql`** (todas las
+      filas `ok = true`) y después la prueba `supabase/pruebas/006_prueba_comparacion.sql`.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
 
@@ -1110,3 +1112,63 @@ creía que no había precios con más de 2 decimales). Detalle por fila solo en
 - Fase E2-3 cambiada a ✅.
 
 **Siguiente fase:** E2-4 (🧱 base). **No se empieza sin que el usuario lo pida.**
+
+---
+
+## Etapa 2 — Fase E2-4: Equivalencias y vista de comparación (2026-11-20) — 🟡 falta ejecutar la migración
+
+**Respuestas del usuario antes de diseñar (2026-11-20; decisión 24 de PLAN_ETAPA2):**
+1. Filas que no se pueden comparar (precio regular en 0 o vacío, de cualquier lado): **no aparecen**.
+2. Artículos nuestros no activos (servicio, obsoleto, de baja, fuera del último corte): **se excluyen**.
+3. `otra_presentacion`: **un solo índice**, calculado por 100 g / 100 ml / pieza
+   (`mismo_articulo`: precio total contra precio total). La columna `base_indice` dice cuál.
+4. Al borrar un artículo nuestro o de la competencia con equivalencias: **no se deja borrar**
+   (`on delete restrict`).
+5. `otra_presentacion` sin contenido o con unidades distintas: **no aparece**.
+   (`mismo_articulo` sin contenido sí aparece: índice calculado, precio por unidad vacío y
+   `motivo_sin_precio_unidad`.)
+
+**Qué se hizo:**
+- `supabase/006_equivalencias_comparacion.sql` (nuevo; se puede ejecutar varias veces):
+  - Tabla `equivalencias` (solo estructura): `tipo` y `estado` con `check`; `clave_propia`
+    texto, vacía **solo** en `sin_equivalente` (`check`); índice único parcial "una aprobada
+    por artículo"; `on delete restrict` en las dos llaves; *trigger* de `actualizado_at`.
+    **Sin** lógica de llenado.
+  - Vista `comparacion_precios` (`security_invoker`): una fila por lectura
+    (`propuesta`/`aprobada`/`corregida`) con equivalencia aprobada; nuestro precio con
+    `precio_propio_vigente` en la fecha de la foto (hora de México);
+    `indice_vs_competencia_pct` con `comment on column` (positivo = nosotros más caros),
+    `en_linea`, `entra_a_promedios`, precios por unidad y `motivo_sin_precio_unidad`.
+    Divisiones protegidas con filtro + `nullif`.
+  - Permisos: RLS sin políticas en `equivalencias`; `revoke` a `anon`/`authenticated` en la
+    tabla, la vista, la secuencia y la función del *trigger*; solo `service_role`.
+  - Comprobación final (solo lee), incluida la de que `anon` no puede leer nada de lo que
+    hay debajo de la vista.
+- `supabase/pruebas/006_prueba_comparacion.sql`: prueba con **datos inventados** (20
+  comprobaciones: caso normal +10, precio propio en 0, sin contenido, no aprobada, otra
+  presentación +10, sin equivalente, `por_revisar`, de baja, competencia en 0, unidades
+  distintas, `check` de tipo/estado/clave, dos aprobadas, borrado bloqueado, comentario del
+  signo). Termina con `rollback`; si algo falla, se detiene con error y tampoco guarda nada.
+- `src/lib/etapa2/tipos.ts`: tipos `Equivalencia` y `ComparacionPrecio` (solo servidor; la
+  app no cambia).
+- `docs/PLAN_ETAPA2.md`: decisión 24, 5.7 y 5.9.
+
+**Por qué `security_invoker` y además `revoke`:** con `security_invoker = true` la vista lee
+las tablas con los permisos de **quien consulta**, no del dueño; así no puede "abrir"
+`lecturas_precio`, `catalogo_propio`, etc. El `revoke` cierra la vista misma. Son dos
+candados: si uno se quitara por error, el otro sigue.
+
+**Pasos que tiene que hacer el usuario:**
+1. Supabase → SQL Editor: pegar **todo** `supabase/006_equivalencias_comparacion.sql` y
+   ejecutar. La última consulta debe dar **todas** las filas con `ok = true`.
+2. Pegar **todo** `supabase/pruebas/006_prueba_comparacion.sql` y ejecutar. Debe mostrar la
+   tabla con `ok = true` en todas las filas (o "Success. No rows returned" si el editor solo
+   muestra el último comando); si algo falla, sale un error "PRUEBA FALLÓ: …" con el caso.
+3. Avisar al agente para marcar E2-4 como ✅.
+
+**Cómo probarlo:** `npm run lint`, `npm run build` y `npm run test:etapa2` pasan
+(verificado). No hay Postgres local: el SQL se valida al ejecutarlo en Supabase.
+
+**Commit:** ver `git log` — `Etapa 2, Fase E2-4: equivalencias y vista de comparación (006)`
+
+**Siguiente:** con E2-4 termina la base. Las fases 🤖 **no empiezan sin que el usuario lo pida**.
