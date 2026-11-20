@@ -283,7 +283,7 @@ propias en `src/lib/etapa2/validar.ts`.
 |---|---|---|
 | `supabase/002_fotos_hora_captura.sql` | E2-1 | Columnas de hora de captura en `fotos` + permiso de `anon` para llenarlas |
 | `supabase/003_quitar_competidor_elegido_at.sql` | E2-1 | Quita la columna, **después** de desplegar la app nueva |
-| `supabase/004_etapa2_lecturas.sql` | E2-2 | Estado y calidad en `fotos`, `lotes_proceso`, `articulos_competencia`, `lecturas_precio`, `guardar_lecturas` |
+| `supabase/004_tablas_competencia.sql` | E2-2 | Estado y calidad en `fotos`, borrado en cascada `fotos` ← `visitas`, funciones de normalización, `lotes_proceso`, `articulos_competencia`, `lecturas_precio`, `guardar_lecturas`, vista `lecturas_analisis` |
 | `supabase/005_catalogo_propio.sql` | E2-3 | `catalogo_propio`, `catalogo_propio_cortes`, `promociones_propias`, función `importar_corte` y vista `precio_propio_vigente` (5.6) |
 | `supabase/006_equivalencias_comparacion.sql` | E2-4 | `equivalencias` (solo estructura, 5.7) y vista `comparacion_precios` (5.9). **Sin** `zonas` |
 
@@ -301,19 +301,22 @@ leer y escribir.
 
 ### 5.1 Unidades y normalización (lo calcula la base de datos)
 
-- `unidad` solo puede ser: `g`, `kg`, `ml`, `l`, `pieza`.
+- `unidad` solo puede ser: `g`, `kg`, `ml`, `l`, `pza` (✅ usuario, 2026-11-20: se guarda como dice
+  la etiqueta y la base convierte; antes decía `pieza`).
 - `piezas` (entero, default 1) para paquetes: "6 × 355 ml" → `cantidad = 355`, `unidad =
   ml`, `piezas = 6`. *(Agregado por el agente: sin esto no se pueden comparar paquetes.)*
 - Columnas **generadas** por Postgres (nadie las escribe, ni el agente):
-  - `unidad_base`: `g` (si `g`/`kg`), `ml` (si `ml`/`l`), `pieza`.
+  - `unidad_base`: `g` (si `g`/`kg`), `ml` (si `ml`/`l`), `pza`.
   - `contenido_base = cantidad × piezas × (1000 si kg o l, si no 1)`.
 - El precio normalizado se calcula **en la vista**:
-  `precio_normalizado = precio / contenido_base × (100 si g o ml, 1 si pieza)`
-  → **precio por 100 g, por 100 ml o por pieza.**
+  `precio_normalizado = precio / contenido_base × (100 si g o ml, 1 si pza)`
+  → **precio por 100 g, por 100 ml o por pza.**
 - Solo se comparan precios con la **misma `unidad_base`**.
 
 Las mismas reglas aplican a `lecturas_precio` y a `catalogo_propio`, con la misma función
-SQL, para que los dos lados se normalicen igual.
+SQL, para que los dos lados se normalicen igual. **Creadas en E2-2 (`004`):**
+`normalizar_unidad_base(unidad)` y `normalizar_contenido_base(cantidad, unidad, piezas)`
+(E2-3 las reutiliza; no se vuelven a crear).
 
 **Cómo entra nuestro catálogo a estas reglas** (detalle en 5.6.5): el paquete trae el
 contenido **ya convertido** a `g` o `ml` (litros, kilos y onzas ya pasados a ml / g) y en
@@ -368,7 +371,7 @@ nada útil); su calidad y motivo sirven para retroalimentar al equipo de campo.
 | `costo_estimado_usd` | `numeric(10,4)` | Con precios de lote |
 | `created_at` / `recogido_at` | `timestamptz` | |
 
-### 5.4 Tabla `articulos_competencia` *(propuesta del agente)*
+### 5.4 Tabla `articulos_competencia` *(✅ confirmada por el usuario, 2026-11-20)*
 
 **Por qué existe:** si las equivalencias se ligaran a cada lectura, habría que aprobar
 "Coca-Cola 600 ml de Neto = nuestra Coca-Cola 600 ml" **cada vez** que aparezca en una foto.
@@ -382,7 +385,7 @@ heredan la equivalencia. También es la base para ver la **tendencia** de un art
 | `articulo` | `text` no nulo | Nombre limpio, ej. "Refresco Coca-Cola" |
 | `cantidad`, `unidad`, `piezas` | como en 5.1 | + `unidad_base` y `contenido_base` generadas |
 | `ean` | `text` | Código de barras, si alguna lectura lo trajo. Solo se guarda: **cómo (o si) se usa** se decide con el método de equivalencias (5.7) |
-| `clave_normalizada` | `text` no nulo, **único** | Generada: minúsculas, sin acentos ni espacios dobles, de `marca + articulo + cantidad + unidad + piezas`. Evita duplicados. *(Antes se llamaba `clave`; se renombra para no confundirla con `catalogo_propio.clave`, que es el código del SCA)* |
+| `clave_normalizada` | `text` no nulo, **único** | Generada: minúsculas, sin acentos ni espacios dobles, de `marca + articulo + contenido de una pieza en unidad base + unidad base + piezas` (así "1 l" y "1000 ml" dan la misma clave). Evita duplicados. *(Antes se llamaba `clave`; se renombra para no confundirla con `catalogo_propio.clave`, que es el código del SCA)* |
 | `created_at` | `timestamptz` | |
 
 El proceso, al guardar una lectura, busca el artículo por `clave_normalizada`; si no
@@ -403,12 +406,13 @@ Una fila por **cada producto visto** en una foto (una foto puede tener 0, 1 o mu
 | `articulo` | `text` | Ej. "Refresco Coca-Cola" |
 | `marca` | `text` | |
 | `cantidad` | `numeric(10,3)` | Ej. 600 |
-| `unidad` | `text` | `g`, `kg`, `ml`, `l`, `pieza` |
+| `unidad` | `text` | `g`, `kg`, `ml`, `l`, `pza` |
 | `piezas` | `int` no nulo, default 1 | 5.1 |
 | `unidad_base`, `contenido_base` | generadas | 5.1 |
 | `ean` | `text` | Código de barras, si la etiqueta lo trae. Solo se guarda; **cómo se lee y si se usa** se decide en la fase de agentes |
 | `codigo_interno` | `text` | **Nuevo.** Código del competidor que no es de barras |
-| `precio` | `numeric(10,2)` | Precio **regular** por pieza, con impuestos. En "antes / ahora" es el **antes**. Vacío si la etiqueta no lo dice (**no** se toma de otro cartel) |
+| `precio_regular` | `numeric(10,2)` | Precio **regular** con impuestos, **el total que dice la etiqueta** por la presentación completa (paquete de 6 → precio del paquete). En "antes / ahora" es el **antes**. Vacío si la etiqueta no lo dice (**no** se toma de otro cartel). *(✅ usuario, 2026-11-20; antes se llamaba `precio` y era "por pieza")* |
+| `precio_regular_pieza` | generada | `precio_regular ÷ piezas`, a centavos. Nadie la escribe |
 | `promo_tipo` | `text` no nulo, default `'ninguna'` | **Nuevo.** Lista cerrada, la misma del formato de la consultora (5.10): `ninguna`, `precio_rebajado`, `n_por_precio`, `nxm`, `n_al_porcentaje`, `combo`, `mayoreo`, `otro` |
 | `promo_piezas` | `int` | **Nuevo.** Piezas que pide ("2" en "2 x $30"; "1" en "antes / ahora"). Si hay varios niveles ("1 x $24 ó 2 x $42") se toma el de **menos piezas** |
 | `promo_precio_total` | `numeric(10,2)` | **Nuevo.** Precio de la promoción completa ("30" en "2 x $30"; el "ahora" en "antes / ahora") |
@@ -421,12 +425,15 @@ Una fila por **cada producto visto** en una foto (una foto puede tener 0, 1 o mu
 
 **Promoción: Claude copia números, la base de datos calcula.** Claude **no** divide ni
 multiplica: solo copia `promo_piezas`, `promo_precio_total`, etc. El **precio de promoción
-por pieza** lo calcula SQL en la vista (`precio_promo_pieza`):
-- `precio_rebajado` y `n_por_precio`: `promo_precio_total ÷ promo_piezas` (a centavos).
-- `nxm`: `precio × promo_paga_piezas ÷ promo_piezas` (solo si hay `precio` regular).
-- `n_al_porcentaje`: `precio × (promo_piezas − promo_descuento_pct/100) ÷ promo_piezas`.
-- `combo`, `mayoreo`, `otro`, con `promo_condicion` distinta de `ninguna`, o vencida: **sin
-  precio de promoción comparable** (se guarda, pero no entra a la comparación).
+por pieza individual** es una **columna generada** de la tabla (`precio_promo_pieza`, E2-2;
+antes se calculaba en la vista). `promo_piezas` cuenta lo que vende la etiqueta (piezas o
+paquetes):
+- `precio_rebajado` y `n_por_precio`: `promo_precio_total ÷ promo_piezas ÷ piezas` (a centavos).
+- `nxm`: `precio_regular ÷ piezas × promo_paga_piezas ÷ promo_piezas` (solo si hay regular).
+- `n_al_porcentaje`: `precio_regular ÷ piezas × (promo_piezas − promo_descuento_pct/100) ÷ promo_piezas`.
+- `combo`, `mayoreo`, `otro`, `ninguna`: vacía.
+- Con `promo_condicion` distinta de `ninguna`, o vencida a la fecha de la foto: el precio se
+  calcula pero **no es comparable** (`lecturas_analisis.promo_comparable = false`).
 
 *(Antes había una columna `precio_promocion` que llenaba Claude; se quita porque obligaba a
 Claude a hacer cuentas, que es justo lo que el plan prohíbe.)*
@@ -435,8 +442,8 @@ Claude a hacer cuentas, que es justo lo que el plan prohíbe.)*
 | `confianza_presentacion` | `text` no nulo | `alta`, `media`, `baja` |
 | `confianza_precio` | `text` no nulo | `alta`, `media`, `baja` |
 | `motivo_duda` | `text` | Por qué algo no es `alta`, o por qué se descartó |
-| `estado` | `text` no nulo | `propuesta`, `por_revisar`, `aprobada`, `corregida`, `descartada` |
-| `valores_agente` | `jsonb` no nulo | Copia **sin tocar** de lo que respondió el agente. Nunca se edita |
+| `estado` | `text` no nulo, default `por_revisar` | `propuesta`, `por_revisar`, `aprobada`, `corregida`, `descartada` |
+| `valores_agente` | `jsonb` no nulo | Copia **sin tocar** de lo que respondió el agente. Nunca se edita (un *trigger* rechaza cualquier cambio) |
 | `discrepancia` | `text` | Solo si se activa la segunda lectura (9.4): qué campo no coincidió |
 | `modelo` | `text` no nulo | |
 | `lote_id` | `text`, FK | Nulo si vino de una prueba sin lote |
@@ -492,7 +499,7 @@ catalogo_propio (1 fila por artículo, llave: clave)
 | `depto_id`, `departamento` | `int`, `text` | Departamento. Hay un departamento especial de "productos de baja" |
 | `nacs_categoria_id`, `nacs_categoria`, `nacs_subcategoria_id` | `text` | Categoría estándar NACS (de la industria de tiendas de conveniencia) asignada por la consultora. **Estimada**: sirve para agrupar resultados. Vacía en casi todos los artículos de baja |
 | `cantidad` | `numeric(10,3)` | Contenido de **todo el empaque**, ya en g o ml. Ej. 600. Vacío si no se sabe |
-| `unidad` | `text` | Solo `g` o `ml` desde el archivo; `pieza` solo si una persona lo pone (5.6.5) |
+| `unidad` | `text` | Solo `g` o `ml` desde el archivo; `pza` solo si una persona lo pone (5.6.5) |
 | `piezas` | `int` no nulo, default 1 | Siempre 1 al importar: el archivo ya da el contenido del paquete completo (5.1) |
 | `unidad_base`, `contenido_base` | generadas | Como en 5.1 |
 | `contenido_origen` | `text` no nulo | `archivo` (estimado del SCA leyendo la descripción), `manual` (lo corrigió una persona), `sin_dato`. **El script nunca sobrescribe un `manual`** |
@@ -1142,15 +1149,15 @@ Este archivo. Sin código.
 fotos nuevas miden 2200 px de lado mayor; `competidor_elegido_at` ya no existe.
 
 ### Fase E2-2 — 🧱 Base de datos de lecturas (solo estructura)
-- `supabase/004_etapa2_lecturas.sql`: columnas de estado y calidad en `fotos`,
+- `supabase/004_tablas_competencia.sql`: columnas de estado y calidad en `fotos`,
   `lotes_proceso`, función de normalización (5.1), `articulos_competencia`,
   `lecturas_precio` (con las columnas de promoción de 5.5), `guardar_lecturas`, vista
   `lecturas_analisis`, permisos (5.0). Las tablas quedan **vacías**: las llenan las fases 🤖.
 - Tipos de servidor en `src/lib/etapa2/tipos.ts`; solo las columnas nuevas de `fotos` en
   `src/lib/tipos.ts`.
-- `.env.example` con los nombres de 4.1. Guiar al usuario para copiar la **secret key de
-  Supabase** a `.env.local` (la necesita la importación del catálogo). La llave de
-  Anthropic **no** se crea todavía (se hace en E2-5).
+- ~~`.env.example` con los nombres de 4.1 y guiar al usuario para copiar la secret key~~
+  **Se pasó a E2-3** (2026-11-20: el usuario pidió no tocar llaves en E2-2; la necesita
+  la importación del catálogo). La llave de Anthropic se crea en E2-5.
 - **Sin** `@anthropic-ai/sdk` y **sin** llamadas a la API.
 
 **Cómo comprobar:** la app publicada funciona igual; fotos viejas `pendiente`; con la llave
@@ -1252,8 +1259,11 @@ nuestro aparece en las peticiones a la API** (se revisa el texto que se manda).
 | Objetivo final y las 9 decisiones de la sección 2 | Usuario, 2026-11-19 |
 | Opción A (script local) para disparar el proceso | Recomendación del agente, ✅ **confirmada por el usuario, 2026-11-20** |
 | Confianza en 3 niveles; estado calculado por nuestro código; `valores_agente` inmutable | Propuesta del agente (5.5) |
-| Tabla `articulos_competencia` (equivalencia una vez por artículo, no por lectura) | Propuesta del agente, **pendiente de confirmar** (5.4) |
-| Columna `piezas` para paquetes | Propuesta del agente, **pendiente de confirmar** (5.1) |
+| Tabla `articulos_competencia` (equivalencia una vez por artículo, no por lectura) | Propuesta del agente, ✅ **confirmada por el usuario, 2026-11-20** (5.4) |
+| Columna `piezas` para paquetes | Propuesta del agente, ✅ **confirmada por el usuario, 2026-11-20** (5.1) |
+| Precio regular = **total de la etiqueta**; la base calcula `precio_regular_pieza` y `precio_promo_pieza` (columnas generadas) | ✅ **Usuario, 2026-11-20** (5.5) |
+| Unidades `g`, `kg`, `ml`, `l`, `pza` (la base convierte kg → g y l → ml) | ✅ **Usuario, 2026-11-20** (5.1) |
+| Borrar una visita borra sus fotos y lecturas (`on delete cascade`); borrar artículo o lote deja la lectura sin esa referencia (`set null`) | Agente, E2-2, a pedido del usuario de poder borrar datos de prueba sin errores ni huérfanos |
 | ~~Historial de precios propios~~ → reemplazado por los **cortes** del paquete (`catalogo_propio_cortes`) | Agente, 2026-11-20, al conocer el paquete (5.6) |
 | ~~Tabla `zonas`~~ → **no se crea en esta versión**; comparación con precio regular; promociones regionales en segunda iteración; pregunta abierta: ubicación → plaza | Usuario, 2026-11-20 (5.8) |
 | Alcance: solo fases 🧱 base; ninguna fase 🤖 sin pedido explícito | Usuario, 2026-11-20 (sección 11) |

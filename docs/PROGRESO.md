@@ -24,7 +24,7 @@
 |---|---|---|---|
 | E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
 | E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
-| E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ⬜ |
+| E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | 🟡 (falta que el usuario ejecute `004`) |
 | E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ⬜ |
 | E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
 | E2-5 | 🤖 agentes | Leer una foto | ⬜ |
@@ -69,8 +69,14 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **(Etapa 2, E2-9) Verificar el nivel de resolución de visión** de Sonnet 5.5 y Haiku 5.5.
       Se supuso alta resolución (2576 px / 4 784 tokens) porque la documentación dice "Claude
       4.7 y posteriores" sin nombrarlos. Se comprueba en la evaluación (PLAN_ETAPA2 3.2 y 9.2).
-- [ ] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
-      Se necesitan antes de E2-2.
+- [x] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
+      Confirmados por el usuario el 2026-11-20, junto con precio = total de la etiqueta y
+      unidades `g`/`kg`/`ml`/`l`/`pza`.
+- [ ] **(Etapa 2, E2-2) Ejecutar `supabase/004_tablas_competencia.sql`** en el SQL Editor y
+      revisar que todas las filas de la comprobación salgan `ok = true`.
+- [ ] **(Etapa 2, E2-3) `.env.example` y secret key de Supabase:** agregar los nombres de
+      PLAN_ETAPA2 4.1 y guiar al usuario para copiar la secret key a `.env.local`. Se pasó
+      de E2-2 a E2-3 porque el usuario pidió no tocar llaves en E2-2.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
 
@@ -913,3 +919,75 @@ segunda reducción. Detalle en PLAN_ETAPA2 3.2 y 3.3.
 **Siguiente fase:** E2-2 (🧱 base). Antes: confirmar `articulos_competencia` y `piezas`.
 **No se empieza sin que el usuario lo pida.**
 
+---
+
+## Etapa 2 — Fase E2-2: Tablas de la competencia (2026-11-20) — 🟡 falta ejecutar `004`
+
+**Respuestas del usuario antes de diseñar (2026-11-20):**
+1. **Sí a `articulos_competencia`** como tabla aparte (la equivalencia se aprueba una vez por artículo).
+2. **Sí a la columna `piezas`** ("6 × 355 ml" → cantidad 355, ml, piezas 6).
+3. **Precio = total de la etiqueta.** La base calcula el precio por pieza (columnas generadas).
+4. **Unidades `g`, `kg`, `ml`, `l`, `pza`.** Se guarda como dice la etiqueta; la base convierte.
+
+**Qué se hizo:**
+- `supabase/004_tablas_competencia.sql` (archivo **nuevo**; los anteriores no se tocaron; se
+  puede ejecutar varias veces):
+  - Funciones de cálculo `normalizar_unidad_base`, `normalizar_contenido_base`,
+    `normalizar_texto` y `clave_articulo_competencia` (las reusa E2-3).
+  - Tablas `lotes_proceso`, `articulos_competencia` y `lecturas_precio`, **vacías**.
+  - `fotos`: `estado_proceso` (las existentes quedan `pendiente`), `calidad`, `motivo_calidad`,
+    `lote_id`, `intentos`, `error_proceso`, `procesada_at`.
+  - `precio_regular_pieza` y `precio_promo_pieza` son **columnas generadas**: nadie las escribe.
+  - Todos los valores acotados con `check` en la base (unidades, confianzas, estados, calidad,
+    tipos y condiciones de promoción, estado de la foto y del lote).
+  - `valores_agente` protegido con un *trigger*: no se puede cambiar.
+  - Función `guardar_lecturas` (todo o nada; no duplica si la foto ya está `procesada`).
+    Hoy nadie la llama.
+  - Vista `lecturas_analisis` con `security_invoker = true`.
+  - Permisos: RLS activado **sin políticas**; `revoke all` a `public`, `anon` y `authenticated`
+    en tablas, vista, secuencia y funciones; solo `service_role` tiene permisos.
+  - Bloque final de comprobación: permisos de anon, RLS, políticas, cascada y cálculos de ejemplo.
+- `src/lib/tipos.ts`: columnas nuevas de `fotos` (solo lectura). La app no las usa: **sin cambio de comportamiento**.
+- `src/lib/etapa2/tipos.ts` (**nuevo**): tipos de servidor de las tablas nuevas. Nadie los importa todavía.
+- `docs/PLAN.md` (4.1, 4.4) y `docs/PLAN_ETAPA2.md` (5.0, 5.1, 5.4, 5.5, 11, 12) con las decisiones.
+
+**Comportamiento al borrar (para datos de prueba en el Table Editor):**
+
+| Si borras… | Pasa… | Por qué |
+|---|---|---|
+| Una visita | Se borran sus fotos (filas) y las lecturas de esas fotos (`cascade`) | Antes daba error; las fotos y lecturas no tienen sentido sin su visita |
+| Una foto | Se borran sus lecturas (`cascade`) | Una lectura sin foto no se puede revisar |
+| Un artículo de la competencia | Sus lecturas se quedan, con `articulo_competencia_id` vacío (`set null`) | La lectura sigue siendo válida; se puede volver a ligar |
+| Un lote | Fotos y lecturas se quedan, con `lote_id` vacío (`set null`) | El lote es solo un registro del envío |
+| Un competidor con visitas | **Error** (sin cambio respecto a la Etapa 1) | Para quitarlo se pone `activo = false` |
+
+⚠️ Los **archivos** en Storage no se borran solos: se borran a mano en
+Storage → `fotos` → `visitas/<id de la visita>/`. Un artículo de la competencia puede quedar sin
+lecturas después de borrar fotos de prueba; no rompe nada (consulta para limpiarlos en "Cómo probarlo").
+
+**Pasos que tiene que hacer el usuario:**
+1. Supabase → SQL Editor: pegar **todo** `supabase/004_tablas_competencia.sql` y ejecutar (Run).
+2. La última consulta muestra una tabla de comprobaciones: **todas** con `ok = true`.
+3. Probar la app publicada: crear una visita y subir una foto (debe funcionar igual).
+4. Avisar al agente para marcar E2-2 como ✅.
+
+**Cómo probarlo:**
+1. `npm run lint` y `npm run build`: pasan (verificado). No hay Postgres local: el SQL se valida al ejecutarlo en Supabase.
+2. Table Editor → `fotos`: las fotos existentes tienen `estado_proceso = pendiente`.
+3. (Opcional) Limpiar artículos sin lecturas: `delete from articulos_competencia a where not exists (select 1 from lecturas_precio l where l.articulo_competencia_id = a.id);`
+
+**Decisiones tomadas (y por qué):**
+- **Archivo `004_tablas_competencia.sql`** (nombre sugerido por el usuario) en vez de `004_etapa2_lecturas.sql`.
+- **`precio_promo_pieza` como columna generada** en la tabla (antes iba en la vista), para que la
+  base lo calcule siempre; lo que depende de la fecha de la foto (vigencia) queda en la vista
+  como `promo_comparable`.
+- **`precio` → `precio_regular`** para que quede claro que es el total de la etiqueta.
+- **`estado` con default `por_revisar`:** si algo se guarda sin estado, queda para revisar.
+- **`.env.example` y secret key pasan a E2-3** (el usuario pidió no tocar llaves).
+
+**Problemas encontrados / pendientes:**
+- Falta ejecutar `004` en Supabase.
+- `anon` puede **leer** las columnas nuevas de `fotos` (la app lee la tabla completa). No son
+  sensibles (estado, calidad, id de lote); no puede escribirlas.
+
+**Commit:** ver `git log` — `Etapa 2, Fase E2-2: tablas de la competencia (004)`

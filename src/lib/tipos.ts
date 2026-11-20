@@ -1,7 +1,10 @@
 // Tipos de TypeScript de las tablas de Supabase (escritos a mano).
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
-// (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql). Si cambias una tabla, cambia
-// también este archivo.
+// (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql).
+// Si cambias una tabla, cambia también este archivo.
+//
+// Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
+// están aquí: la app no puede verlas. Sus tipos viven en src/lib/etapa2/tipos.ts.
 //
 //   Row    → cómo llega una fila al LEERLA
 //   Insert → qué se manda al CREAR una fila (solo las columnas que "anon" puede llenar)
@@ -10,6 +13,11 @@
 // Las fechas (timestamptz) llegan como texto ISO en UTC, ej. "2026-11-18T17:05:00+00:00".
 
 import type { OrigenCaptura } from "./exif";
+
+/** Estado de procesamiento de una foto (Etapa 2, 004). Lo escribe solo el proceso del servidor. */
+export type EstadoProcesoFoto = "pendiente" | "en_lote" | "procesada" | "error";
+/** Calidad de la foto según la lectura (Etapa 2, 004). */
+export type CalidadFoto = "legible" | "borrosa" | "reflejo" | "lejana" | "sin_precios";
 
 type SinCambios = { [_ in never]: never };
 
@@ -67,6 +75,14 @@ export type Database = {
           capturada_at: string | null;
           capturada_origen: OrigenCaptura;
           created_at: string;
+          // Etapa 2 (004): solo lectura para la app; las llena el proceso del servidor.
+          estado_proceso: EstadoProcesoFoto;
+          calidad: CalidadFoto | null;
+          motivo_calidad: string | null;
+          lote_id: string | null;
+          intentos: number;
+          error_proceso: string | null;
+          procesada_at: string | null;
         };
         Insert: {
           visita_id: string;

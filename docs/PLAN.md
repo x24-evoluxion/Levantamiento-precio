@@ -114,7 +114,7 @@ qué sirve y espera a que diga que sí.
 | Columna | Tipo | Notas |
 |---|---|---|
 | `id` | `uuid`, PK, default `gen_random_uuid()` | |
-| `visita_id` | `uuid`, FK → `visitas.id`, no nulo | |
+| `visita_id` | `uuid`, FK → `visitas.id`, no nulo | **Etapa 2 (E2-2, `004`):** `on delete cascade` (borrar una visita en Table Editor borra sus filas de fotos; los archivos de Storage se borran a mano) |
 | `ruta` | `text`, único, no nulo | Ruta dentro del bucket, ej. `visitas/<visita_id>/<uuid>.jpg` |
 | `nombre_original` | `text` | Nombre del archivo en el celular |
 | `tamano_bytes` | `int` | Tamaño ya comprimido |
@@ -124,6 +124,10 @@ qué sirve y espera a que diga que sí.
 
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
+>
+> **Etapa 2, Fase E2-2** (`004_tablas_competencia.sql`): `fotos` recibe columnas de estado
+> de procesamiento y calidad (solo las escribe el servidor; ver PLAN_ETAPA2 5.2) y se crean
+> las tablas de la competencia, todas cerradas a `anon`.
 >
 > **Cambios de la Etapa 2, Fase E2-1** (ver `docs/PLAN_ETAPA2.md`): se quita
 > `visitas.competidor_elegido_at` y se agregan `fotos.capturada_at` y
@@ -170,7 +174,7 @@ toca "Guardar visita". Antes de eso, todo vive en la pantalla.
 ```
 supabase/
 ├── 001_esquema.sql          ← tablas, RLS, bucket y políticas de Storage
-├── 002_..., 003_...         ← migraciones de la Etapa 2 (ver PLAN_ETAPA2 sección 5.0)
+├── 002_..., 003_..., 004_... ← migraciones de la Etapa 2 (ver PLAN_ETAPA2 sección 5.0)
 └── seed_competidores.sql    ← SOLO la lista de competidores (el usuario la va a editar)
 ```
 
