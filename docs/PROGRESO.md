@@ -24,7 +24,7 @@
 |---|---|---|---|
 | E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
 | E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
-| E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | 🟡 (falta que el usuario ejecute `004`) |
+| E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ✅ |
 | E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ⬜ |
 | E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
 | E2-5 | 🤖 agentes | Leer una foto | ⬜ |
@@ -72,8 +72,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [x] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
       Confirmados por el usuario el 2026-11-20, junto con precio = total de la etiqueta y
       unidades `g`/`kg`/`ml`/`l`/`pza`.
-- [ ] **(Etapa 2, E2-2) Ejecutar `supabase/004_tablas_competencia.sql`** en el SQL Editor y
-      revisar que todas las filas de la comprobación salgan `ok = true`.
+- [x] **(Etapa 2, E2-2) Ejecutar `supabase/004_tablas_competencia.sql`** en el SQL Editor y
+      revisar que todas las filas de la comprobación salgan `ok = true`. Hecho el 2026-11-20.
 - [ ] **(Etapa 2, E2-3) `.env.example` y secret key de Supabase:** agregar los nombres de
       PLAN_ETAPA2 4.1 y guiar al usuario para copiar la secret key a `.env.local`. Se pasó
       de E2-2 a E2-3 porque el usuario pidió no tocar llaves en E2-2.
@@ -921,7 +921,7 @@ segunda reducción. Detalle en PLAN_ETAPA2 3.2 y 3.3.
 
 ---
 
-## Etapa 2 — Fase E2-2: Tablas de la competencia (2026-11-20) — 🟡 falta ejecutar `004`
+## Etapa 2 — Fase E2-2: Tablas de la competencia (2026-11-20) — ✅ confirmada 2026-11-20
 
 **Respuestas del usuario antes de diseñar (2026-11-20):**
 1. **Sí a `articulos_competencia`** como tabla aparte (la equivalencia se aprueba una vez por artículo).
@@ -991,3 +991,11 @@ lecturas después de borrar fotos de prueba; no rompe nada (consulta para limpia
   sensibles (estado, calidad, id de lote); no puede escribirlas.
 
 **Commit:** ver `git log` — `Etapa 2, Fase E2-2: tablas de la competencia (004)`
+
+**Cierre (2026-11-20), confirmado por el usuario:**
+- Se ejecutó `004_tablas_competencia.sql`; todas las filas de la comprobación dieron `ok = true`.
+- El usuario verificó por su cuenta RLS y permisos de `anon` en las tablas nuevas.
+- La app publicada funciona igual: crear visita, subir foto y ver fotos antiguas.
+- Fase E2-2 cambiada a ✅.
+
+**Siguiente fase:** E2-3 (🧱 base). **No se empieza sin que el usuario lo pida.**
