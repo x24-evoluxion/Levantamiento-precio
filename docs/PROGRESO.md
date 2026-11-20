@@ -26,7 +26,7 @@
 | E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
 | E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ✅ |
 | E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ✅ |
-| E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | 🟡 |
+| E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ✅ |
 | E2-5 | 🤖 agentes | Leer una foto | ⬜ |
 | E2-6 | 🤖 agentes | Lotes y guardado | ⬜ |
 | E2-7 | 🤖 agentes | Método de equivalencias | ⬜ |
@@ -77,8 +77,12 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **(Etapa 2, E2-3) `.env.example` y secret key de Supabase:** agregar los nombres de
       PLAN_ETAPA2 4.1 y guiar al usuario para copiar la secret key a `.env.local`. Se pasó
       de E2-2 a E2-3 porque el usuario pidió no tocar llaves en E2-2.
-- [ ] **(Etapa 2, E2-4) Ejecutar `supabase/006_equivalencias_comparacion.sql`** (todas las
+- [x] **(Etapa 2, E2-4) Ejecutar `supabase/006_equivalencias_comparacion.sql`** (todas las
       filas `ok = true`) y después la prueba `supabase/pruebas/006_prueba_comparacion.sql`.
+      Hecho el 2026-11-20.
+- [ ] **(Etapa 2, E2-4) Confirmar con el responsable de los datos el umbral de `en_linea`**
+      (hoy ±3 %: índice entre −3 y +3, PLAN_ETAPA2 5.9). Si cambia, se ajusta la vista
+      `comparacion_precios` en una migración nueva.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
 
@@ -1115,7 +1119,7 @@ creía que no había precios con más de 2 decimales). Detalle por fila solo en
 
 ---
 
-## Etapa 2 — Fase E2-4: Equivalencias y vista de comparación (2026-11-20) — 🟡 falta ejecutar la migración
+## Etapa 2 — Fase E2-4: Equivalencias y vista de comparación (2026-11-20) — ✅ confirmada 2026-11-20
 
 **Respuestas del usuario antes de diseñar (2026-11-20; decisión 24 de PLAN_ETAPA2):**
 1. Filas que no se pueden comparar (precio regular en 0 o vacío, de cualquier lado): **no aparecen**.
@@ -1170,5 +1174,18 @@ candados: si uno se quitara por error, el otro sigue.
 (verificado). No hay Postgres local: el SQL se valida al ejecutarlo en Supabase.
 
 **Commit:** ver `git log` — `Etapa 2, Fase E2-4: equivalencias y vista de comparación (006)`
+
+**Cierre (2026-11-20), confirmado por el usuario:**
+- Se ejecutó `006_equivalencias_comparacion.sql`: todas las filas de la comprobación con
+  `ok = true`.
+- Se ejecutó la prueba `pruebas/006_prueba_comparacion.sql` (datos inventados): todas las
+  filas con `ok = true`.
+- Los conteos del catálogo siguen iguales.
+- `anon` no tiene permisos sobre `equivalencias` ni sobre `comparacion_precios`.
+- La app publicada funciona igual.
+- Fase E2-4 cambiada a ✅.
+
+**Pendiente:** confirmar con el responsable de los datos el umbral de ±3 % de `en_linea`
+(ver "Pendientes y dudas abiertas").
 
 **Siguiente:** con E2-4 termina la base. Las fases 🤖 **no empiezan sin que el usuario lo pida**.
