@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "catalogo:importar": "node --env-file=.env.local scripts/etapa2/importar-catalogo.ts",
+    "test:etapa2": "node --test src/lib/etapa2/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.1",

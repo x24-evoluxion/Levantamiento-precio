@@ -115,6 +115,10 @@ catálogo cargado y la vista, que se llenan después.
 | 17 | **Disparador: opción A (script local)** (confirmado 2026-11-20). Sin ruta pública ni llaves en Vercel. | Sección 8 |
 | 18 | **`clave` es la llave de `catalogo_propio` y se guarda SIEMPRE como TEXTO, nunca como número** (confirmado 2026-11-20). Aplica a toda columna que guarde una clave nuestra. | Sección 5.6.1 |
 | 19 | **E2-1 aprobada:** quitar `competidor_elegido_at` y nuevo tamaño de foto (2200 px / 0.85 / 4 MB), solo para fotos nuevas, con el tamaño revisado contra la documentación vigente. Orden: cambio de código → lint y build → el usuario despliega y prueba → **solo después** el usuario ejecuta la migración que borra la columna. | Secciones 3.3 y 11 |
+| 20 | **Ningún dato de venta en Supabase en esta versión** (E2-3, 2026-11-20): no se cargan `venta_12m_sin_impuestos`, `piezas_12m`, `fecha_ultima_venta`, `piezas_vendidas_promo` ni `importe_vendido_promo`. Los promedios **ponderados por venta quedan pendientes**: antes, el usuario confirma con el responsable de los datos si el permiso cubre volúmenes de venta; si sí, se agrega con un SQL **nuevo** y una nueva importación. Mientras tanto, nada (tablas, vistas ni cálculos) depende de la venta | 5.6, 5.9 |
+| 21 | **Columnas que NO se cargan** (E2-3, 2026-11-20): mayoreo (`precio_mayoreo`, `mayoreo_desde_piezas`), impuestos (`tasa_iva`, `tasa_ieps`, `precio_regular_sin_impuestos`), `promos_vigentes_al_corte`, `precio_promo_pieza_min_al_corte`, `precio_normal_registrado`, `descuento_pct` y `clave_es_ean` (esta se agrega con un SQL nuevo cuando se defina el método de equivalencias). Las revisiones de calidad que las usan se hacen **leyendo el archivo**; el reporte privado dice qué revisión corrió y desde qué columnas | 5.6.5 |
+| 22 | **Activo** = aparece en el corte más reciente, no obsoleto, no de baja, no servicio y precio regular > 0 (sin datos de venta). Se calcula en la vista `catalogo_propio_actual` | 5.6.1 |
+| 23 | **Importación** (E2-3): un corte más viejo no pisa los datos de los artículos (solo guarda sus precios y promociones con su fecha); reimportar el mismo corte reemplaza sus precios y promociones; los artículos nunca se borran y el contenido `manual` no se toca. Escribe **solo con `--confirmar`**; sin él, simulación con conteos de insertar / actualizar / borrar | 5.6.5 |
 
 **Cambio respecto a la Etapa 1:** `PLAN.md` sección 6 decía "nunca se usa la llave
 `service_role` / `secret`". Eso **sigue valiendo para la app** (el navegador). La única
@@ -237,7 +241,8 @@ justifica, se puede calcular el tamaño por foto según su proporción.
 - **Con la opción recomendada (A, script local) no se agrega nada en Vercel.**
 - `.env.example` se actualiza con **solo los nombres** (valores vacíos) y el comentario
   "solo servidor, nunca NEXT_PUBLIC_".
-- ⚠️ El agente de E2-2 le pregunta al usuario si sus variables se llaman exactamente así.
+- ✅ `SUPABASE_SECRET_KEY` confirmada por el usuario con ese nombre exacto (E2-3); ya está
+  en su `.env.local` (el agente no la lee). Se agregó **solo el nombre** a `.env.example` en E2-3.
 
 ### 4.2 Dónde vive el código
 
@@ -498,19 +503,20 @@ catalogo_propio (1 fila por artículo, llave: clave)
 | `area_id`, `area` | `int`, `text` | Área de nuestro catálogo |
 | `depto_id`, `departamento` | `int`, `text` | Departamento. Hay un departamento especial de "productos de baja" |
 | `nacs_categoria_id`, `nacs_categoria`, `nacs_subcategoria_id` | `text` | Categoría estándar NACS (de la industria de tiendas de conveniencia) asignada por la consultora. **Estimada**: sirve para agrupar resultados. Vacía en casi todos los artículos de baja |
-| `cantidad` | `numeric(10,3)` | Contenido de **todo el empaque**, ya en g o ml. Ej. 600. Vacío si no se sabe |
+| `cantidad` | `numeric` (sin límite de decimales) | Contenido de **todo el empaque**, ya en g o ml. Ej. 600. Vacío si no se sabe. Se guarda **exacto** como viene: un caso trae muchos decimales y se reporta como calidad (no se redondea) |
 | `unidad` | `text` | Solo `g` o `ml` desde el archivo; `pza` solo si una persona lo pone (5.6.5) |
 | `piezas` | `int` no nulo, default 1 | Siempre 1 al importar: el archivo ya da el contenido del paquete completo (5.1) |
 | `unidad_base`, `contenido_base` | generadas | Como en 5.1 |
 | `contenido_origen` | `text` no nulo | `archivo` (estimado del SCA leyendo la descripción), `manual` (lo corrigió una persona), `sin_dato`. **El script nunca sobrescribe un `manual`** |
 | `es_servicio` | `boolean` no nulo | Recargas, pagos, boletos… **Nunca** se comparan |
-| `tasa_iva`, `tasa_ieps` | `numeric(5,4)` | Ej. 0.16 = 16 %. Del corte más reciente |
 | `obsoleto`, `de_baja` | `boolean` no nulo | Del corte más reciente. Los dos excluyen de los promedios |
 | `fecha_corte_ultimo` | `date` no nulo | Último corte en el que apareció el artículo |
 | `actualizado_at` | `timestamptz` | |
 
-- **Activo** se calcula, no se guarda: `not obsoleto and not de_baja and not es_servicio` y
-  con venta en el último corte. Un artículo que deja de venir en los cortes **no se borra**
+- **Activo** se calcula, no se guarda (decisión 22, vista `catalogo_propio_actual`): aparece
+  en el corte más reciente, `not obsoleto and not de_baja and not es_servicio` y precio
+  regular > 0. *(Antes decía "con venta en el último corte"; sin datos de venta se usa
+  "aparece en el corte más reciente": el archivo solo trae artículos con venta en 12 meses.)* Un artículo que deja de venir en los cortes **no se borra**
   (rompería comparaciones viejas); simplemente su `fecha_corte_ultimo` se queda atrás.
 - El borrador anterior tenía `id bigint` + `codigo`. Se cambia a **`clave` como llave**
   porque ya es única, la usa la caja y la consultora, y evita una columna de más.
@@ -524,13 +530,12 @@ PK: `(fecha_corte, clave)`; `clave` FK → `catalogo_propio.clave`.
 | `fecha_corte` | `date` no nulo | |
 | `clave` | `text` no nulo | |
 | `precio_regular` | `numeric(10,2)` no nulo | Precio de lista de **toda la cadena** (no hay precios por tienda), **con IVA e IEPS**, como en el anaquel |
-| `precio_regular_sin_impuestos` | `numeric(12,4)` | Viene calculado en el archivo; el script comprueba que cuadre con las tasas |
 | `fecha_ultimo_cambio_precio` | `date` | |
-| `precio_mayoreo`, `mayoreo_desde_piezas` | `numeric(10,2)`, `int` | Si el ticket lleva N o más piezas del mismo artículo, todas se cobran a ese precio. **No es promoción** y **no entra** a la comparación (se guarda para consultas) |
-| `promos_vigentes_al_corte`, `precio_promo_pieza_min_al_corte` | `int`, `numeric(10,2)` | Resumen que ya trae el archivo. Se guarda **solo para comprobar** que nuestra vista (5.6.4) da lo mismo |
-| `piezas_12m` | `numeric(14,2)` | Piezas vendidas en los 12 meses previos al corte |
-| `venta_12m_sin_impuestos` | `numeric(14,2)` | Venta 12 meses. **Sirve para ponderar** los promedios (5.9): un artículo que casi no se vende no debe mover el resultado |
-| `fecha_ultima_venta` | `date` | |
+
+**No se cargan** (decisiones 20 y 21): impuestos y precio sin impuestos, mayoreo, resúmenes
+de promoción al corte, `piezas_12m`, `venta_12m_sin_impuestos` y `fecha_ultima_venta`. Las
+revisiones que los usan (mayoreo ≥ regular, impuestos que no cuadran) se hacen desde el
+archivo.
 
 #### 5.6.3 Tabla `promociones_propias`
 
@@ -554,18 +559,21 @@ datos de la promoción (descripción, fechas…) se repiten en cada artículo; s
 | `num_grupos`, `id_grupo` | `int` | Cualquier artículo del mismo grupo cuenta para las piezas requeridas |
 | `clave` | `text` no nulo | **Sin FK estricta** a `catalogo_propio`: puede venir una clave que no vendió en 12 meses y no está en el catálogo. El script la reporta |
 | `piezas_requeridas` | `int` | "2" en "2 x $30" |
-| `precio_promo_pieza` | `numeric(10,2)` | Precio por pieza con impuestos ("15" en "2 x $30"). **Es lo que cobra la caja** |
-| `precio_promo_grupo`, `precio_promo_total` | `numeric(10,2)` | Grupo = piezas × pieza; total = suma de grupos ("30" en "2 x $30") |
-| `precio_regular_al_inicio`, `precio_normal_registrado` | `numeric(10,2)` | Precio normal al iniciar y el que registró la caja al cobrar |
-| `descuento_pct` | `numeric(6,4)` | 0.1667 = 16.67 %. **Puede ser negativo** (ver 5.10.4) |
-| `piezas_vendidas_promo`, `importe_vendido_promo` | `numeric(14,2)` | Lo vendido con la promoción |
+| `precio_promo_pieza` | `numeric` (sin límite de decimales) | Precio por pieza con impuestos ("15" en "2 x $30"). **Es lo que cobra la caja**. Puede traer más de 2 decimales ("3 x $50" = 16.6667): se guarda **exacto** y se reporta |
+| `precio_promo_grupo`, `precio_promo_total` | `numeric` | Grupo = piezas × pieza; total = suma de grupos ("30" en "2 x $30") |
+| `precio_regular_al_inicio` | `numeric` | Precio normal al iniciar la promoción. Algunos traen residuos de redondeo (muchos decimales): se guardan exactos y se reportan |
 
-Índice único para no duplicar al reimportar: `(fecha_corte, origen, coalesce(id_promocion,
-0), coalesce(id_grupo, 0), clave)`.
+**No se cargan** (decisiones 20 y 21): `precio_normal_registrado`, `descuento_pct`,
+`piezas_vendidas_promo`, `importe_vendido_promo`. La revisión de descuento negativo se hace
+desde el archivo.
+
+Índice único para no duplicar al reimportar: `(fecha_corte, origen, id_promocion, id_grupo,
+clave) nulls not distinct` (dos vacíos cuentan como iguales, sin inventar un 0).
 
 #### 5.6.4 Vista / función `precio_propio_vigente` (nuestro precio regular en una fecha)
 
-Responde: **"¿cuál era el precio regular de este artículo nuestro en esta fecha?"** La usa
+**Hecha como función** `precio_propio_vigente(clave, fecha)` → `(clave, precio_regular,
+fecha_corte_usada, corte_posterior)` en `005`. Responde: **"¿cuál era el precio regular de este artículo nuestro en esta fecha?"** La usa
 `comparacion_precios` (5.9). Recibe `clave` y `fecha`. **No recibe plaza**: el precio
 regular es el mismo en toda la cadena (5.6.2), así que no depende de la zona.
 
@@ -613,15 +621,30 @@ hasta que confirmas.**
 4. **Resumen y confirmación:** artículos nuevos, con precio cambiado, sin cambio,
    promociones nuevas, filas con error, artículos sin contenido y **conteo por tipo de
    problema de calidad**. Solo **conteos** en pantalla (sin nombres, claves ni precios), y
-   el detalle en los CSV dentro de `datos-privados/`. Pregunta `¿Importar? s/n`.
-5. **Escribe todo o nada:** manda las filas a una función de Postgres `importar_corte(...)`
-   (solo `service_role`) que en **una sola transacción** hace *upsert* en
-   `catalogo_propio`, inserta el corte en `catalogo_propio_cortes` y `promociones_propias`.
-   Si algo falla, no queda nada a medias. **Importar el mismo corte dos veces no duplica**
-   (las llaves de 5.6.2 y 5.6.3 lo impiden y el corte se reemplaza completo).
-6. **Comprueba:** los conteos guardados en la base coinciden con los del archivo, y el
-   regular de `precio_propio_vigente` en la fecha de corte es el del archivo; si no cuadra,
-   lo avisa (solo conteos).
+   el detalle en los CSV dentro de `datos-privados/`. **Sin pregunta interactiva:** por
+   defecto es **simulación** (imprime el *project ref*, comprueba que `anon` no puede leer
+   nada del catálogo y pide a la base los conteos de filas que se **insertarían,
+   actualizarían y borrarían**, sin escribir). Solo escribe con **`--confirmar`**. Si el
+   corte es más viejo que el último cargado, avisa qué hará y qué no (decisión 23).
+   Con `--sin-conexion` solo revisa el archivo y escribe los reportes (no toca Supabase).
+5. **Escribe todo o nada:** manda **todas** las filas en **una sola llamada** a la función
+   de Postgres `importar_corte(fecha, articulos jsonb, promociones jsonb, simular)` (solo
+   `service_role`). Una función llamada por la API corre en **una sola transacción**: si
+   cualquier paso falla (un `check`, un dato que no cabe, una comprobación final), Postgres
+   deshace todo. Hace *upsert* en `catalogo_propio` (sin pisar con un corte viejo ni tocar
+   contenido `manual`), borra y vuelve a insertar el corte en `catalogo_propio_cortes` y
+   `promociones_propias`. **Importar el mismo corte dos veces no duplica.**
+   - **Tamaño:** el corte actual pesa ~2 MB en JSON; el script se detiene si pasa de 5 MB.
+   - **Si algún día no cabe en una llamada** (no implementado; se hace con un SQL nuevo):
+     el script sube los datos por partes a **tablas de preparación** (`*_preparacion`,
+     marcadas con un id de importación; nada de eso es visible en las tablas reales) y al
+     final llama **una** función `aplicar_importacion(id)` que, en una sola transacción,
+     pasa todo a las tablas reales y borra la preparación. Si una parte falla, las tablas
+     reales no cambian y la preparación se borra.
+6. **Comprueba:** dentro de la misma transacción, los conteos guardados coinciden con los
+   recibidos y el regular de `precio_propio_vigente` en la fecha de corte es el del archivo
+   para **cada** artículo; si no cuadra, lanza error y **se deshace todo**. Después, el
+   script vuelve a contar por su lado y repite la comprobación de `anon` (solo conteos).
 
 **Este script no llama a la API de Anthropic** (es una fase 🧱 base).
 
@@ -685,7 +708,7 @@ aprobadas), una fila por lectura con equivalencia aprobada:
 | Cuándo | `fecha_observacion` = `capturada_at` de la foto, o `created_at` de la visita si no hay; `fecha_origen` |
 | Dónde | `competidor`, `latitud`, `longitud`, `visita_id`, `foto_id`, `ruta` (**sin** zona ni plaza en esta versión, 5.8) |
 | Competencia | `articulo`, `marca`, `ean`, `cantidad`, `unidad`, `piezas`, `precio_regular_comp`, `promo_tipo`, `texto_promocion`, `precio_promo_pieza_comp` (calculado, 5.5; informativo, no entra al índice), `estado_lectura` |
-| Nuestro | `clave`, `descripcion`, cantidad / unidad, `precio_regular_propio` (de `precio_propio_vigente` en `fecha_observacion`), `fecha_corte_usada`, `venta_12m_sin_impuestos`, `nacs_categoria`, `activo` |
+| Nuestro | `clave`, `descripcion`, cantidad / unidad, `precio_regular_propio` (de `precio_propio_vigente` en `fecha_observacion`), `fecha_corte_usada`, `nacs_categoria`, `activo` (de `catalogo_propio_actual`). **Sin** `venta_12m_sin_impuestos` (decisión 20) |
 | Equivalencia | `tipo_equivalencia` |
 | Calculado por SQL | `indice_vs_competencia_pct` (abajo), `en_linea`, `unidad_comparacion` ("100 g" / "100 ml" / "pieza") y precios regulares normalizados de los dos lados |
 
@@ -714,8 +737,10 @@ Reglas:
 - **Fuera:** servicios, obsoletos, de baja, sin venta en el último corte, precio regular
   ≤ 0 en cualquiera de los dos lados.
 - **Agregar** (en las consultas de E2-8, no en la vista): por artículo, promedio entre
-  tiendas y luego entre competidores; por competidor o categoría NACS, **ponderado por
-  `venta_12m_sin_impuestos`**. Un competidor con menos de **10 artículos** comparados se
+  tiendas y luego entre competidores; por competidor o categoría NACS, **promedio simple**
+  por ahora. ⏸️ **Ponderar por `venta_12m_sin_impuestos` queda pendiente** (decisión 20):
+  se agrega solo si el responsable de los datos confirma que el permiso cubre volúmenes de
+  venta, con un SQL nuevo y una nueva importación. Un competidor con menos de **10 artículos** comparados se
   reporta pero no se saca conclusión.
 - Pensada para que un tablero futuro haga `group by competidor, date_trunc('week',
   fecha_observacion)` sin más cálculos (por zona, en la segunda iteración).
@@ -811,9 +836,10 @@ importación los cuenta y los escribe en el **reporte de calidad** dentro de
 | Misma clave con **varias promociones a la vez** (fechas traslapadas) | Decenas de claves | Se guarda tal cual; se resuelve en la segunda iteración (promociones) |
 | Claves de promoción **sin artículo** | Un par | **Reporte de calidad** (por eso no hay FK estricta) |
 | Origen `catalogo` sin `id_promocion` ni descripción | Pocos renglones | Llave técnica `id` (5.6.3) |
+| **Decimales de más** (encontrado en E2-3) | Unas decenas de renglones de promoción (precio por pieza con 3–4 decimales, y algunos regulares al inicio con residuos de redondeo) y un contenido | Columnas `numeric` sin límite: se guardan **exactos**; **reporte de calidad** (`decimales_de_mas`) |
 
 **Sin problemas:** no hay llaves duplicadas, ni filas repetidas, ni espacios sobrantes,
-ni precios con más de 2 decimales; `sin_impuestos` cuadra con las tasas, y los totales de
+`sin_impuestos` cuadra con las tasas, y los totales de
 promoción cuadran con sus grupos.
 
 ### 5.11 Cuántas tablas hacen falta (resumen)

@@ -25,7 +25,7 @@
 | E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
 | E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
 | E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ✅ |
-| E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ⬜ |
+| E2-3 | 🧱 base | Catálogo propio (tablas y carga) | 🟡 |
 | E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
 | E2-5 | 🤖 agentes | Leer una foto | ⬜ |
 | E2-6 | 🤖 agentes | Lotes y guardado | ⬜ |
@@ -999,3 +999,102 @@ lecturas después de borrar fotos de prueba; no rompe nada (consulta para limpia
 - Fase E2-2 cambiada a ✅.
 
 **Siguiente fase:** E2-3 (🧱 base). **No se empieza sin que el usuario lo pida.**
+
+---
+
+## Etapa 2 — Fase E2-3: Catálogo propio (2026-11-20) — 🟡 falta que el usuario ejecute 005 y la importación
+
+**Respuestas del usuario antes de diseñar (2026-11-20):**
+1. **Columnas:** se cargan solo las necesarias. **Ningún dato de venta** en Supabase (ni
+   `venta_12m_sin_impuestos`; la ponderación queda pendiente de confirmar el permiso). Fuera:
+   mayoreo, impuestos, `piezas_12m`, resúmenes de promoción, `precio_normal_registrado`,
+   `descuento_pct`, `piezas_vendidas_promo`, `importe_vendido_promo`, `fecha_ultima_venta` y
+   `clave_es_ean`. (PLAN_ETAPA2 decisiones 20 y 21.)
+2. **Activo** = en el corte más reciente, no obsoleto, no de baja, no servicio, precio > 0 (decisión 22).
+3. Corte viejo no pisa datos del artículo; reimportar reemplaza el corte; artículos nunca se
+   borran; contenido `manual` intacto; solo `--confirmar` escribe (decisión 23).
+4. Todo o nada **dentro de una función de la base**; solo la llave secreta puede ejecutarla.
+5. `SUPABASE_SECRET_KEY` ya existe en `.env.local` (el agente no la lee); solo el nombre en `.env.example`.
+6. Lector de CSV propio, sin librerías, con pruebas de datos **inventados**.
+7. Clave vacía o con espacios → se detiene.
+
+**Qué se hizo:**
+- `supabase/005_catalogo_propio.sql` (nuevo; se puede ejecutar varias veces):
+  `catalogo_propio`, `catalogo_propio_cortes`, `promociones_propias`, función
+  `precio_propio_vigente(clave, fecha)`, vista `catalogo_propio_actual` (con `activo`), función
+  `importar_corte(fecha, articulos, promociones, simular)` y permisos (RLS sin políticas,
+  `revoke` a `anon`/`authenticated`, solo `service_role`). Bloque final de comprobación.
+- `src/lib/etapa2/csv.ts`: lector de CSV sin librería (BOM, CRLF, comas y saltos de línea
+  dentro de comillas, comillas escapadas). Todo sale como texto.
+- `src/lib/etapa2/catalogo.ts`: validación del paquete (formato → detiene; calidad → reporte).
+- `scripts/etapa2/importar-catalogo.ts` + `npm run catalogo:importar`.
+- Pruebas `npm run test:etapa2` (14, solo datos inventados): lector de CSV y validación.
+- `tsconfig.json`: `allowImportingTsExtensions` (Node corre TypeScript y exige `.ts` en los imports).
+- `.env.example`: nombre `SUPABASE_SECRET_KEY` sin valor.
+- `docs/PLAN_ETAPA2.md`: decisiones 20–23, 4.1, 5.6.1–5.6.5, 5.9 y 5.10.4.
+
+**Cómo se garantiza "todo o nada":** el script manda **todo el corte en una sola llamada** a
+`importar_corte`; una función llamada por la API corre en una sola transacción y cualquier
+error la deshace completa. Al final de la función se comprueban conteos y
+`precio_propio_vigente` por artículo; si algo no cuadra, lanza error → se deshace todo. El
+corte actual pesa ~1.8 MB; el script se detiene si pasa de 5 MB (qué hacer en ese caso:
+PLAN_ETAPA2 5.6.5, tablas de preparación + una función que aplica todo).
+
+**Revisión del archivo (`--sin-conexion`, solo conteos):**
+
+| Concepto | Conteo |
+|---|---|
+| Artículos en el archivo / listos para cargar | 3116 / 3116 |
+| Renglones de promoción / listos para cargar | 1344 / 1344 |
+| Errores de formato | 0 |
+| Artículos sin contenido (`sin_dato`) | 802 |
+| `mayoreo_mayor_o_igual_al_regular` | 70 |
+| `decimales_de_mas` | 65 |
+| `promo_pieza_mayor_o_igual_al_regular` | 17 |
+| `descuento_negativo` | 12 |
+| `descripcion_repetida` (renglones) | 8 |
+| `precio_regular_cero_o_negativo` | 2 |
+| `promocion_sin_articulo` | 2 |
+| `sin_impuestos_no_cuadra`, `promo_grupo_no_cuadra`, `fecha_inicio_posterior_a_fin` | 0 |
+
+Coinciden con las magnitudes de PLAN_ETAPA2 5.10.4. Nuevo: **decimales de más** (antes se
+creía que no había precios con más de 2 decimales). Detalle por fila solo en
+`datos-privados/reporte_calidad_<fecha>.csv` y `datos-privados/revision_contenido_<fecha>.csv`.
+
+**Decisiones tomadas (y por qué):**
+- **Precios de promoción, `precio_regular_al_inicio` y contenido como `numeric` sin límite:**
+  con `numeric(10,2)` la base redondearía en silencio. Se guardan exactos y se reportan.
+  `precio_regular` (el que se compara) sigue en `numeric(10,2)`: si trae más decimales, se
+  detiene (en el script y en la función).
+- **`importar_corte` con `p_simular` (default `true`):** la simulación usa el mismo código que
+  la importación, así los conteos de insertar/actualizar/borrar son los reales.
+- **Índice único con `nulls not distinct`** en vez de `coalesce(..., 0)`: sin inventar un 0.
+- **`precio_propio_vigente` como función** (recibe clave y fecha).
+- **Comprobación de anon:** solo cuenta como cerrado el error "permiso denegado" (42501); si
+  anon recibe cualquier otra respuesta, el script se detiene.
+- **Mensajes de error sin datos:** nunca se imprimen `details`/`hint` de Postgres.
+
+**Pasos que tiene que hacer el usuario:**
+1. Supabase → SQL Editor: pegar **todo** `supabase/005_catalogo_propio.sql` y ejecutar (Run).
+   La última consulta debe dar **todas** las filas con `ok = true`.
+2. Simulación: `npm run catalogo:importar -- datos-privados/x24_precios_20261119`.
+   Revisar: project ref correcto, comprobación de anon con ✔, conteos.
+3. Importación real: lo mismo con `--confirmar`.
+4. Correrla otra vez con `--confirmar`: debe decir "borrar 3116 / insertar 3116" en cortes
+   (reemplaza, no duplica) y los conteos finales iguales.
+5. Avisar al agente para marcar E2-3 como ✅.
+
+**Cómo probarlo:**
+1. `npm run test:etapa2`, `npm run lint` y `npm run build`: pasan (verificado).
+2. `node scripts/etapa2/importar-catalogo.ts datos-privados/<carpeta> --sin-conexion`: verificado (tabla de arriba).
+3. No hay Postgres local: el SQL se valida al ejecutarlo en Supabase.
+
+**Problemas encontrados / pendientes:**
+- Falta ejecutar `005` y la importación (las hace el usuario).
+- Ponderación por venta: pendiente del permiso (decisión 20).
+- Node muestra un aviso `MODULE_TYPELESS_PACKAGE_JSON` al correr los scripts (no afecta). No
+  se agregó `"type": "module"` a `package.json` para no arriesgar la app.
+
+**Commit:** ver `git log` — `Etapa 2, Fase E2-3: catálogo propio (005) e importador en simulación`
+
+**Siguiente fase:** E2-4 (🧱 base). **No se empieza sin que el usuario lo pida.**
