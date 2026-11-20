@@ -7,7 +7,7 @@
 // encima de todo y se cierra también con la tecla Escape.
 //
 // Se usa <img> normal (no el <Image> de Next.js): las fotos ya llegan reducidas
-// (~2000 px, casi siempre < 1 MB) y así no hay que configurar ni pagar la
+// (2200 px de lado mayor; las de antes, 2000 px) y así no hay que configurar ni pagar la
 // optimización de imágenes de Vercel.
 /* eslint-disable @next/next/no-img-element */
 
@@ -116,7 +116,10 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
               />
             </div>
 
-            <p className="px-3 pt-2 text-center text-base text-texto-suave">Subida {formatearFecha(foto.created_at)}</p>
+            <p className="px-3 pt-2 text-center text-base text-texto-suave">
+              {foto.capturada_at && <span className="block">Tomada {formatearFecha(foto.capturada_at)}</span>}
+              <span className="block">Subida {formatearFecha(foto.created_at)}</span>
+            </p>
 
             {varias && (
               <div className="grid grid-cols-2 gap-3 p-3">

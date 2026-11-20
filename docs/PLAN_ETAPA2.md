@@ -112,6 +112,9 @@ catálogo cargado y la vista, que se llenan después.
 | 14 | **Sin tabla `zonas` en esta versión.** La comparación usa el **precio regular**, que no depende de la zona. Promociones regionales: **segunda iteración**. Pregunta abierta: cómo se traduce la latitud/longitud de una visita a una plaza. | Sección 5.8 |
 | 15 | **Evaluación al final**, con una muestra de **20–30 fotos reales de la app verificadas a mano**. Aún no hay datos del levantamiento de octubre; si llegan, se agregan después. | Sección 9 |
 | 16 | **Calidad del catálogo:** los problemas (mayoreo ≥ regular, descuentos negativos, precios en 0, descripciones repetidas…) se registran en un **reporte dentro de `datos-privados/`** al importar, **sin corregirlos en silencio**. En pantalla y en los docs, solo conteos. | Secciones 5.6.5 y 5.10.4 |
+| 17 | **Disparador: opción A (script local)** (confirmado 2026-11-20). Sin ruta pública ni llaves en Vercel. | Sección 8 |
+| 18 | **`clave` es la llave de `catalogo_propio` y se guarda SIEMPRE como TEXTO, nunca como número** (confirmado 2026-11-20). Aplica a toda columna que guarde una clave nuestra. | Sección 5.6.1 |
+| 19 | **E2-1 aprobada:** quitar `competidor_elegido_at` y nuevo tamaño de foto (2200 px / 0.85 / 4 MB), solo para fotos nuevas, con el tamaño revisado contra la documentación vigente. Orden: cambio de código → lint y build → el usuario despliega y prueba → **solo después** el usuario ejecuta la migración que borra la columna. | Secciones 3.3 y 11 |
 
 **Cambio respecto a la Etapa 1:** `PLAN.md` sección 6 decía "nunca se usa la llave
 `service_role` / `secret`". Eso **sigue valiendo para la app** (el navegador). La única
@@ -146,8 +149,15 @@ explicar por qué.** Ver sección 4.3.
 - **No se guarda el original.** Y al comprimir se **pierden los datos EXIF** (incluida la
   hora de captura): por eso la hora se lee **antes** (Fase E2-1).
 
-### 3.2 Qué dice la documentación vigente de visión (consultada el 2026-11-19)
+### 3.2 Qué dice la documentación vigente de visión (consultada el 2026-11-19 y otra vez el 2026-11-20)
 Fuente: `platform.claude.com/docs/en/build-with-claude/vision`.
+
+**Revisión del 2026-11-20 (Fase E2-1):** los números de la tabla siguen iguales. La página
+define dos niveles: alta resolución para "Claude 4.7 y posteriores" (2576 px, 4 784 tokens) y
+estándar para los demás (1568 px, 1 568 tokens). No nombra a Sonnet 5.5 / Haiku 5.5 uno por
+uno; por ser posteriores a 4.7 se toma el nivel alto. Nuevo dato: si una sola petición lleva
+**más de 20 imágenes**, cada una debe medir ≤ 3000 px (no nos afecta: una foto por petición y
+2200 px). La página no trae tabla de tamaños por proporción; el cálculo de abajo es nuestro.
 
 | Dato | Valor |
 |---|---|
@@ -172,7 +182,15 @@ mayor no aporta nada** y solo agrega una segunda reducción.
 | 2200 × 1238 (foto 16:9) | 3 555 | No |
 | 2576 × 1932 | 6 348 → recorta a 4 784 | **Sí** |
 
-### 3.3 Propuesta para las fotos nuevas (se aplica en la Fase E2-1, con aprobación)
+### 3.3 Tamaño para las fotos nuevas (✅ aprobado y aplicado en E2-1, 2026-11-20)
+
+**Por qué 2200 y no 2576:** en una foto 4:3 el tope que manda es el de tokens, no el de
+lado. Con la fórmula `⌈ancho/28⌉ × ⌈alto/28⌉`, el lado mayor más grande que cabe en 4 784
+tokens es **2212 px** (79 × 60 = 4 740); a partir de 2213 px son 80 × 60 = 4 800 y la API la
+vuelve a reducir. 2200 es el número redondo debajo de ese límite. En fotos 16:9 se podría
+llegar a 2576, pero las fotos de celular son casi siempre 4:3; si la evaluación (E2-9) lo
+justifica, se puede calcular el tamaño por foto según su proporción.
+
 - **Lado mayor: 2200 px** (antes 2000). Es lo máximo que la API aprovecha en fotos 4:3 sin
   volver a reducirlas. Cuesta ~20 % más tokens por foto (4 661 vs 3 888).
 - **Calidad JPEG: 0.85** (antes 0.8).
@@ -467,7 +485,7 @@ catalogo_propio (1 fila por artículo, llave: clave)
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| `clave` | `text`, **PK** | Clave del artículo en el SCA, en mayúsculas. Casi siempre es el código de barras, pero hay **claves internas** con letras (ej. inventado `Z123`). Es la misma llave que usa la consultora (`clave_x24`), así los datos se pueden juntar. Se guarda **tal cual**: ninguna columna ni regla derivada del código de barras en la base |
+| `clave` | `text`, **PK** | **Siempre TEXTO, nunca número** (confirmado por el usuario, 2026-11-20): como número se perderían los ceros a la izquierda y los dígitos de más de 15 cifras, y las claves internas con letras no cabrían. El script de importación **nunca** la pasa por `Number()` / `parseInt`, y toda columna que la guarde (`catalogo_propio_cortes.clave`, `promociones_propias.clave`, `equivalencias.clave_propia`) también es `text`. Clave del artículo en el SCA, en mayúsculas. Casi siempre es el código de barras, pero hay **claves internas** con letras (ej. inventado `Z123`). Es la misma llave que usa la consultora (`clave_x24`), así los datos se pueden juntar. Se guarda **tal cual**: ninguna columna ni regla derivada del código de barras en la base |
 | `descripcion` | `text` no nulo | Ej. inventado "REFRESCO COLA 600 ML". Viene en mayúsculas y puede traer acentos y comas |
 | `area_id`, `area` | `int`, `text` | Área de nuestro catálogo |
 | `depto_id`, `departamento` | `int`, `text` | Departamento. Hay un departamento especial de "productos de baja" |
@@ -938,7 +956,7 @@ Si el método de equivalencias (E2-7) usa la API en lote, puede reusar este mism
 | Límite de tiempo | Ninguno | Las funciones de Vercel tienen tiempo máximo |
 | Automático | No: alguien lo corre (ej. una vez al día) | Sí, con Cron |
 
-**Recomendación: A (script local).** Explicación sencilla: como no hay login, cualquier
+**✅ Decisión (usuario, 2026-11-20): A (script local).** Explicación sencilla: como no hay login, cualquier
 dirección de internet que dispare el proceso es una puerta que alguien podría encontrar; la
 única protección sería una clave, y si se filtra cuesta dinero y expone el catálogo. Con el
 script local **esa puerta no existe**: las llaves nunca salen de tu computadora y la app
@@ -1105,7 +1123,10 @@ Este archivo. Sin código.
 3. Build, lint, prueba local y **despliegue** (el usuario confirma que la app publicada
    funciona: crear visita, subir fotos de iPhone y Android, ver la hora de captura).
 4. `supabase/003_quitar_competidor_elegido_at.sql`: `alter table visitas drop column if
-   exists competidor_elegido_at`. ⚠️ **Se ejecuta solo después del paso 3**: si se ejecuta
+   exists competidor_elegido_at`, con un freno que se detiene si la visita más reciente
+   aún trae la columna (señal de que la app publicada sigue siendo la vieja). ⚠️ **Se
+   ejecuta solo después del paso 3** (decisión 19: lo ejecuta el usuario, nunca junto con el
+   cambio de código): si se ejecuta
    antes, la app publicada (que aún manda esa columna) dejaría de crear visitas. Borra esos
    datos para siempre: el agente ofrece exportarlos antes y pide confirmación.
 5. Actualizar `PLAN.md` (sección 4.1, tablas) para reflejar los cambios.
@@ -1223,7 +1244,7 @@ nuestro aparece en las peticiones a la API** (se revisa el texto que se manda).
 | Decisión / supuesto | Origen |
 |---|---|
 | Objetivo final y las 9 decisiones de la sección 2 | Usuario, 2026-11-19 |
-| Opción A (script local) para disparar el proceso | Recomendación del agente, **pendiente de confirmar** |
+| Opción A (script local) para disparar el proceso | Recomendación del agente, ✅ **confirmada por el usuario, 2026-11-20** |
 | Confianza en 3 niveles; estado calculado por nuestro código; `valores_agente` inmutable | Propuesta del agente (5.5) |
 | Tabla `articulos_competencia` (equivalencia una vez por artículo, no por lectura) | Propuesta del agente, **pendiente de confirmar** (5.4) |
 | Columna `piezas` para paquetes | Propuesta del agente, **pendiente de confirmar** (5.1) |
@@ -1235,11 +1256,11 @@ nuestro aparece en las peticiones a la API** (se revisa el texto que se manda).
 | Columnas de `catalogo_propio` y promociones | **Conocidas el 2026-11-20** por el paquete de la consultora; diseño en 5.6, estructura en 5.10 |
 | Formato y reglas de la consultora (promoción por pieza, índice, ±3 %, ponderar por venta, mínimo 10 artículos) | `LEEME.md` y `diccionario.csv` del paquete (no se suben); adoptados para poder juntar levantamientos. **Sus reglas de match no están adoptadas** (5.7) |
 | Signo del índice (positivo = nosotros más caros), columna `indice_vs_competencia_pct` | **Usuario, 2026-11-20** (5.9) |
-| `clave` como llave de `catalogo_propio` (en vez de `id` + `codigo`) | Propuesta del agente, **pendiente de confirmar** (5.6.1) |
+| `clave` como llave de `catalogo_propio` (en vez de `id` + `codigo`), guardada **siempre como texto** | ✅ **Usuario, 2026-11-20** (5.6.1) |
 | ~~Equivalencias por código aprobadas solas~~ → **quitado**; el método de equivalencias se define en la fase de agentes; en la base solo estructura (`tipo`, `estado`) | Usuario, 2026-11-20 (5.7) |
 | Permiso del responsable de los datos: catálogo y promociones en Supabase; descripciones sin precios y fotos de la competencia a la API. **Nunca precios propios a la API** | ✅ **Usuario, 2026-11-20** (secciones 2.1 y 10) |
-| Tamaño 2200 px / JPEG 0.85 / sin tope de 1 MB | Propuesta del agente con la documentación de visión (3.3); se confirma en E2-9 |
-| Límites de visión (2576 px, 4 784 tokens, 10 MB, 28 × 28 px por token) | Documentación de Anthropic consultada el 2026-11-19 |
+| Tamaño 2200 px / JPEG 0.85 / `maxSizeMB: 4` (sin tope de 1 MB), solo fotos nuevas | ✅ **Aprobado por el usuario, 2026-11-20**, tras revisar otra vez la documentación de visión (3.2, 3.3). Aplicado en E2-1; E2-9 lo confirma con fotos reales |
+| Límites de visión (2576 px, 4 784 tokens, 10 MB, 28 × 28 px por token) | Documentación de Anthropic consultada el 2026-11-19 y el 2026-11-20 |
 | Precios de los modelos y lotes (50 %, 24 h, 29 días) | Documentación de Anthropic al 2026-11; revisar antes de E2-5 (primera fase 🤖) |
 | Comportamiento de EXIF en iPhone y Android | Comportamiento conocido; **se comprueba con celulares reales en E2-1** |
 | `@anthropic-ai/sdk` (🤖), `exifr` (🧱 E2-1), otras según el método de equivalencias (el lector de Excel ya no hace falta) | **Pendientes de permiso** en su fase |

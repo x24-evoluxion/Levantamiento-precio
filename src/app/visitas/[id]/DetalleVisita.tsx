@@ -100,10 +100,6 @@ export default function DetalleVisita({ id }: { id: string }) {
           <dd className="text-lg font-semibold">{formatearFecha(v.created_at)}</dd>
         </div>
         <div>
-          <dt className="text-base text-texto-suave">Competidor elegido</dt>
-          <dd className="text-lg font-semibold">{formatearFecha(v.competidor_elegido_at)}</dd>
-        </div>
-        <div>
           <dt className="text-base text-texto-suave">Ubicación</dt>
           {v.latitud != null && v.longitud != null ? (
             <dd className="text-lg">

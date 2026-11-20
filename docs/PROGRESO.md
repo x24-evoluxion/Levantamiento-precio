@@ -23,7 +23,7 @@
 | Fase | Tipo | Nombre | Estado |
 |---|---|---|---|
 | E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
-| E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ⬜ |
+| E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | 🟡 código listo; faltan pasos del usuario (ver su sección) |
 | E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ⬜ |
 | E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ⬜ |
 | E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
@@ -64,6 +64,10 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       poder aplicar nuestras promociones regionales (PLAN_ETAPA2 5.8).
 - [ ] **(Etapa 2, fase de agentes) Método de equivalencias.** No está definido; se decide en
       E2-7 (PLAN_ETAPA2 5.7).
+- [ ] **(Etapa 2, E2-1) Pasos del usuario para cerrar la fase:** ejecutar `002`, desplegar,
+      probar en iPhone y Android, y **después** ejecutar `003` (ver la sección de E2-1).
+- [ ] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
+      Se necesitan antes de E2-2.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
 
@@ -803,3 +807,94 @@ y archivos con UUID, y bucket con límite de 5 MB que acepta solo imágenes (ver
 **Siguiente fase:** E2-1 (🧱 base).
 
 **Commit:** ver `git log` — `Etapa 2, Fase 0: alcance base, permiso de datos y decisiones`
+
+---
+
+## Etapa 2 — Fase E2-1: Ajuste de la Etapa 1: fechas y fotos (2026-11-20) — 🟡 código listo
+
+**Respuestas del usuario a los pendientes (2026-11-20):**
+1. **Sí a la opción A (script local)** para disparar el proceso.
+2. **Sí a quitar `competidor_elegido_at` y al nuevo tamaño de foto**, con condiciones: verificar
+   el tamaño contra la documentación vigente de visión y justificarlo; solo para fotos nuevas;
+   orden (a) código → (b) lint y build → (c) el usuario despliega y prueba → (d) **solo
+   después** el usuario ejecuta la migración que borra la columna; migración en archivo nuevo.
+3. **Sí a `clave` como llave** del catálogo, guardada **siempre como TEXTO**. Anotado en
+   PLAN_ETAPA2 (decisión 18 y 5.6.1).
+
+**Qué se hizo:**
+- **`competidor_elegido_at` fuera de la app:** el formulario ya no la manda, la pantalla de la
+  visita ya no la muestra y se quitó de `tipos.ts`. No hizo falta cambiar permisos: la app
+  simplemente deja de mandarla; el permiso de `anon` sobre esa columna desaparece solo cuando
+  se borre la columna (`003`).
+- **Hora de captura:** lector propio de EXIF (`src/lib/exif.ts`, sin librerías). Lee
+  `DateTimeOriginal` y `OffsetTimeOriginal` del archivo **antes** de comprimirlo. JPEG: lee
+  el bloque EXIF del inicio; otros formatos (HEIC): busca la firma EXIF en el archivo. Si no
+  encuentra nada → `sin_dato`. Nunca detiene la subida. **No hizo falta `exifr`** (por ahora).
+- La foto en grande muestra **"Tomada …"** (si hay hora) además de "Subida …".
+- **Tamaño de foto nuevo** (solo afecta a las que se suban desde ahora): 2200 px, JPEG 0.85,
+  `maxSizeMB: 4` (antes 2000 px, 0.8, 1 MB). La ruta de HEIC con `<canvas>` usa las mismas
+  constantes.
+- **Migraciones nuevas** (no se tocaron los archivos viejos): `002` agrega las columnas;
+  `003` borra `competidor_elegido_at`, con un **freno** que no borra nada si la visita más
+  reciente todavía trae esa columna (señal de que la app publicada sigue siendo la vieja).
+
+**Verificación del tamaño (documentación de visión, consultada el 2026-11-20):** alta
+resolución = lado mayor ≤ 2576 px **y** ≤ 4 784 tokens (`⌈ancho/28⌉ × ⌈alto/28⌉`); si pasa
+cualquiera, la API reduce otra vez. En 4:3 el límite real es **2212 px** (79 × 60 = 4 740
+tokens; 2240 × 1680 ya da 4 800). **2200 × 1650 = 4 661 tokens** → se aprovecha completo sin
+segunda reducción. Detalle en PLAN_ETAPA2 3.2 y 3.3.
+
+**Archivos creados o cambiados:**
+- `supabase/002_fotos_hora_captura.sql` — **nuevo**. `fotos.capturada_at`, `fotos.capturada_origen` (con `check`) y permiso de `insert` para `anon`
+- `supabase/003_quitar_competidor_elegido_at.sql` — **nuevo**. Borra la columna (con freno). **No ejecutar todavía**
+- `src/lib/exif.ts` — **nuevo**. `leerHoraCaptura(archivo)`
+- `src/lib/tipos.ts` — sin `competidor_elegido_at`; `fotos` con `capturada_at` y `capturada_origen`
+- `src/lib/fotos.ts` — 2200 px / 0.85 / 4 MB, con la justificación en un comentario
+- `src/app/visitas/nueva/FormularioNuevaVisita.tsx` — ya no manda `competidor_elegido_at`
+- `src/app/visitas/[id]/DetalleVisita.tsx` — ya no muestra "Competidor elegido"
+- `src/app/visitas/[id]/SubirFotos.tsx` — lee la hora antes de comprimir y la manda en el `insert`
+- `src/app/visitas/[id]/GaleriaFotos.tsx` — "Tomada …" en la foto grande
+- `docs/PLAN.md` (4.1, 4.4, Fase 5), `docs/PLAN_ETAPA2.md` (2.1, 3.2, 3.3, 5.6.1, 8, 11, 12)
+
+**Pasos que tiene que hacer el usuario (en este orden):**
+1. Supabase → SQL Editor: ejecutar **`002_fotos_hora_captura.sql`**. La última consulta debe
+   mostrar 2 filas con `anon_puede_insertar = true`. (Es seguro con la app vieja.)
+2. Revisar el commit y hacer **push**. Esperar a que Vercel publique.
+3. Con el link de Vercel: **guardar una visita nueva** (debe abrir su pantalla, ya sin
+   "Competidor elegido"); subir fotos desde un **iPhone** y un **Android**; abrir una en
+   grande y ver "Tomada …". Subir también una **captura de pantalla** (no debe decir "Tomada").
+4. En Table Editor → `fotos`: las nuevas tienen `capturada_at` y `capturada_origen = exif` (o
+   `exif_zona_celular`); la captura, `sin_dato`. En Storage, las nuevas miden 2200 px de lado mayor.
+5. **Solo entonces**, (opcional) exportar la copia que trae comentada `003` y ejecutar
+   **`003_quitar_competidor_elegido_at.sql`**. La última consulta debe devolver 0 filas.
+6. Avisar al agente para marcar E2-1 como ✅.
+
+**Cómo probarlo (local):**
+1. `npm run lint` y `npm run build`: pasan (verificado).
+2. El lector de EXIF se probó con archivos sintéticos: JPEG con zona (`exif`), sin zona
+   (`exif_zona_celular`), big y little-endian, sin EXIF y fecha en ceros (`sin_dato`), firma
+   EXIF dentro de un archivo tipo HEIC (`exif`) y basura (`sin_dato`). Todos correctos.
+3. Local con `npm run dev` **después del paso 1**: si `002` no se ha ejecutado, subir fotos
+   falla porque la columna no existe.
+
+**Decisiones tomadas (y por qué):**
+- **`002` va antes del push y `003` después:** `002` solo agrega (la app vieja no se entera);
+  la app nueva necesita `002` para subir fotos; `003` borra algo que la app vieja aún manda.
+- **Freno en `003`:** evita borrar la columna si por error se ejecuta antes de desplegar.
+- **`check` en `002`:** `sin_dato` ⇔ sin hora, para que los dos campos no se contradigan.
+- **Sin `File.lastModified`** como respaldo: no es la hora de la foto (PLAN_ETAPA2, E2-1).
+- **Fechas absurdas** (año < 2000, "0000:00:00") se guardan como `sin_dato`. Las fechas raras
+  pero posibles (ej. posteriores a la subida) se guardan y las marcará la vista (riesgos, 10).
+- **HEIC con búsqueda de firma** en lugar de un lector completo: es pequeño y, en la práctica,
+  iPhone entrega JPEG al elegir de la galería. Si en la prueba real las HEIC quedan
+  `sin_dato`, se propone `exifr` con permiso.
+
+**Problemas encontrados / pendientes:**
+- ⚠️ Después de ejecutar `003`, `001_esquema.sql` **ya no se puede volver a ejecutar tal cual**
+  (su `grant` nombra la columna borrada y el SQL Editor deshace todo el archivo). Anotado en
+  PLAN.md 4.1.
+- Falta la prueba real en iPhone y Android (paso 3) para confirmar el comportamiento de EXIF.
+- Antes de E2-2: confirmar `articulos_competencia` y `piezas`.
+
+**Commit:** ver `git log` — `Etapa 2, Fase E2-1: hora de captura, tamaño de foto y sin competidor_elegido_at`
+

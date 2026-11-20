@@ -25,8 +25,8 @@ export default function FormularioNuevaVisita() {
   const [lista, setLista] = useState<EstadoLista>({ tipo: "cargando" });
   const [intento, setIntento] = useState(0);
 
-  // Competidor elegido y el momento en que se eligió (reloj del celular).
-  const [elegido, setElegido] = useState<{ id: number; at: string } | null>(null);
+  // Competidor elegido.
+  const [elegido, setElegido] = useState<{ id: number } | null>(null);
 
   // Ubicación del celular (latitud, longitud, precisión y momento).
   const [ubicacion, setUbicacion] = useState<Ubicacion | null>(null);
@@ -59,7 +59,7 @@ export default function FormularioNuevaVisita() {
   }, [intento]);
 
   function elegir(id: number) {
-    setElegido({ id, at: new Date().toISOString() });
+    setElegido({ id });
     setErrorGuardar(null);
   }
 
@@ -70,7 +70,6 @@ export default function FormularioNuevaVisita() {
 
     const nueva: NuevaVisita = {
       competidor_id: elegido.id,
-      competidor_elegido_at: elegido.at,
       latitud: ubicacion.latitud,
       longitud: ubicacion.longitud,
       precision_metros: ubicacion.precision_metros,

@@ -2,7 +2,7 @@
 
 // Zona para elegir fotos de la galería y subirlas, una por una, a la carpeta de
 // la visita en Storage (visitas/<visita_id>/<uuid>.jpg). Por cada foto subida se
-// crea una fila en la tabla "fotos".
+// crea una fila en la tabla "fotos", con la hora en que se tomó (si el archivo la trae).
 //
 // Si una foto falla, las demás se siguen subiendo, y esa se puede reintentar sola.
 // Cada foto que queda guardada se avisa con "alSubir" para que aparezca en la galería.
@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { BUCKET_FOTOS, type Foto } from "@/lib/tipos";
 import { IconoAlerta } from "@/components/TituloError";
 import { ErrorFoto, mensajeErrorSubida, prepararFoto, rutaFoto, type FotoPreparada } from "@/lib/fotos";
+import { leerHoraCaptura, type HoraCaptura } from "@/lib/exif";
 
 type EstadoFoto = "esperando" | "preparando" | "subiendo" | "guardando" | "listo" | "error";
 
@@ -27,6 +28,8 @@ type ItemFoto = {
 /** Lo que se va logrando con cada foto, para que un reintento siga donde se quedó. */
 type Avance = {
   archivo: File;
+  /** Hora en que se tomó la foto, leída ANTES de comprimir (al comprimir se pierde). */
+  hora?: HoraCaptura;
   preparada?: FotoPreparada;
   ruta?: string;
   archivoSubido: boolean;
@@ -71,9 +74,11 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
     const av = avances.current.get(clave);
     if (!av) return;
 
-    // 1) Reducir / convertir a JPEG (solo la primera vez).
+    // 1) Leer la hora de captura del archivo original y luego reducir / convertir
+    //    a JPEG (solo la primera vez). El orden importa: la hora se pierde al comprimir.
     if (!av.preparada) {
       actualizar(clave, { estado: "preparando", mensaje: undefined });
+      av.hora ??= await leerHoraCaptura(av.archivo);
       av.preparada = await prepararFoto(av.archivo);
     }
 
@@ -101,6 +106,8 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
         ruta: av.ruta!,
         nombre_original: av.archivo.name || null,
         tamano_bytes: av.preparada.blob.size,
+        capturada_at: av.hora?.capturada_at ?? null,
+        capturada_origen: av.hora?.capturada_origen ?? "sin_dato",
       })
       .select()
       .single();

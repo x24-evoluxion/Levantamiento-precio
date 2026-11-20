@@ -1,6 +1,6 @@
 // Preparar y nombrar fotos antes de subirlas a Supabase Storage.
 //
-// Cada foto se reduce (lado mayor de ~2000 px) y se guarda como JPEG:
+// Cada foto se reduce (lado mayor de 2200 px) y se guarda como JPEG:
 //   - JPEG, PNG y WebP → los comprime la librería browser-image-compression.
 //   - Cualquier otro formato (por ejemplo HEIC/HEIF de iPhone) → se convierte con
 //     <canvas>, que ya trae el navegador: se "pinta" la foto y se exporta como JPEG.
@@ -10,8 +10,24 @@
 import { supabase } from "./supabase";
 import { BUCKET_FOTOS } from "./tipos";
 
-export const LADO_MAXIMO_PX = 2000;
-export const CALIDAD_JPEG = 0.8;
+// Tamaño pensado para que Claude lea las etiquetas (Etapa 2, PLAN_ETAPA2 sección 3).
+// Documentación de visión consultada el 2026-11-20: los modelos de alta resolución
+// aprovechan hasta 2576 px de lado mayor Y hasta 4784 "tokens visuales" por imagen
+// (1 token = cuadro de 28 × 28 px → ⌈ancho/28⌉ × ⌈alto/28⌉). Si la foto pasa
+// cualquiera de los dos topes, la API la vuelve a reducir.
+// Las fotos de celular son casi siempre 4:3. En 4:3, el tope real es el de tokens:
+//   2200 × 1650 → 79 × 59 = 4661 tokens  ✅ no se vuelve a reducir
+//   2240 × 1680 → 80 × 60 = 4800 tokens  ❌ la API la reduciría otra vez
+// 2200 px es lo más grande (en número redondo) que se aprovecha sin una segunda
+// reducción. Aplica solo a las fotos que se suban desde ahora.
+export const LADO_MAXIMO_PX = 2200;
+/** Calidad JPEG (0 a 1). La compresión fuerte borra letras pequeñas. */
+export const CALIDAD_JPEG = 0.85;
+/**
+ * Peso máximo que pide la librería. Antes era 1 MB, y para llegar ahí bajaba la
+ * calidad del JPEG. Con 4 MB (el bucket acepta 5) casi nunca la baja.
+ */
+const PESO_OBJETIVO_MB = 4;
 /** Límite del bucket "fotos" (ver supabase/001_esquema.sql). */
 export const TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024;
 
@@ -49,7 +65,7 @@ async function comprimirConLibreria(archivo: File): Promise<Blob> {
   try {
     return await imageCompression(archivo, {
       maxWidthOrHeight: LADO_MAXIMO_PX,
-      maxSizeMB: 1,
+      maxSizeMB: PESO_OBJETIVO_MB,
       fileType: "image/jpeg",
       initialQuality: CALIDAD_JPEG,
       // Sin "web worker": con él, la librería descarga código de un sitio externo

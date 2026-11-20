@@ -105,7 +105,7 @@ qué sirve y espera a que diga que sí.
 | `latitud` | `double precision` | |
 | `longitud` | `double precision` | |
 | `precision_metros` | `double precision` | Qué tan exacta fue la ubicación |
-| `competidor_elegido_at` | `timestamptz` | Momento en que eligió el competidor (reloj del celular) |
+| ~~`competidor_elegido_at`~~ | ~~`timestamptz`~~ | **Se quita en la Etapa 2 (E2-1).** La app ya no la escribe ni la lee; la columna se borra con `supabase/003_quitar_competidor_elegido_at.sql` (lo ejecuta el usuario **después** de desplegar la app nueva) |
 | `ubicacion_at` | `timestamptz` | Momento en que guardó la ubicación (reloj del celular) |
 | `created_at` | `timestamptz`, default `now()` | Momento en que se guardó la visita (reloj del servidor, es el dato confiable) |
 
@@ -118,15 +118,21 @@ qué sirve y espera a que diga que sí.
 | `ruta` | `text`, único, no nulo | Ruta dentro del bucket, ej. `visitas/<visita_id>/<uuid>.jpg` |
 | `nombre_original` | `text` | Nombre del archivo en el celular |
 | `tamano_bytes` | `int` | Tamaño ya comprimido |
-| `created_at` | `timestamptz`, default `now()` | |
+| `capturada_at` | `timestamptz` | **Etapa 2 (E2-1, `002_fotos_hora_captura.sql`).** Hora en que se **tomó** la foto (EXIF), leída antes de comprimir. Nula si no se pudo leer |
+| `capturada_origen` | `text` no nulo, default `'sin_dato'` | **Etapa 2 (E2-1).** `exif`, `exif_zona_celular` o `sin_dato` |
+| `created_at` | `timestamptz`, default `now()` | Hora de **subida** (reloj del servidor) |
 
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
 >
-> **Cambios planeados en la Etapa 2, Fase E2-1** (ver `docs/PLAN_ETAPA2.md`): se quita
+> **Cambios de la Etapa 2, Fase E2-1** (ver `docs/PLAN_ETAPA2.md`): se quita
 > `visitas.competidor_elegido_at` y se agregan `fotos.capturada_at` y
-> `fotos.capturada_origen` (hora en que se tomó la foto), con migraciones nuevas. El agente
-> de E2-1 actualiza estas tablas cuando se ejecuten.
+> `fotos.capturada_origen`, con migraciones nuevas (`002_...` y `003_...`; las tablas de
+> arriba ya lo reflejan). ⚠️ Después de ejecutar `003`, **`001_esquema.sql` ya no se puede
+> volver a ejecutar tal cual**: su `grant insert (...)` nombra la columna borrada y falla
+> (el SQL Editor deshace todo el archivo, así que no deja nada a medias). Los archivos
+> viejos no se editan; si algún día hace falta recrear la base, se ejecutan en orden y se
+> salta ese `grant` (lo reemplaza el de `002`/`003`).
 
 ### 4.2 Storage
 
@@ -164,6 +170,7 @@ toca "Guardar visita". Antes de eso, todo vive en la pantalla.
 ```
 supabase/
 ├── 001_esquema.sql          ← tablas, RLS, bucket y políticas de Storage
+├── 002_..., 003_...         ← migraciones de la Etapa 2 (ver PLAN_ETAPA2 sección 5.0)
 └── seed_competidores.sql    ← SOLO la lista de competidores (el usuario la va a editar)
 ```
 
@@ -303,7 +310,8 @@ caen donde estabas.
 - En `/visitas/[id]`, una zona grande "Toca para elegir fotos" con
   `<input type="file" accept="image/*" multiple>`. **No** uses `capture`, porque no
   queremos abrir la cámara.
-- **Comprimir** cada foto antes de subirla (lado mayor de ~2000 px, JPEG). Pídele permiso
+- **Comprimir** cada foto antes de subirla (lado mayor de ~2000 px, JPEG). *(Etapa 2, E2-1:
+  ahora 2200 px y calidad 0.85; ver PLAN_ETAPA2 sección 3.)* Pídele permiso
   al usuario para instalar la librería `browser-image-compression`.
 - Subir **una por una** a `visitas/<visita_id>/<uuid>.jpg` y, por cada una, hacer el
   `insert` en `fotos`.

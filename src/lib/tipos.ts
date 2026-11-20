@@ -1,5 +1,6 @@
 // Tipos de TypeScript de las tablas de Supabase (escritos a mano).
-// Deben coincidir con supabase/001_esquema.sql. Si cambias una tabla, cambia
+// Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
+// (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql). Si cambias una tabla, cambia
 // también este archivo.
 //
 //   Row    → cómo llega una fila al LEERLA
@@ -7,6 +8,8 @@
 //   Update → vacío a propósito: "anon" no puede cambiar nada
 //
 // Las fechas (timestamptz) llegan como texto ISO en UTC, ej. "2026-11-18T17:05:00+00:00".
+
+import type { OrigenCaptura } from "./exif";
 
 type SinCambios = { [_ in never]: never };
 
@@ -32,7 +35,6 @@ export type Database = {
           latitud: number | null;
           longitud: number | null;
           precision_metros: number | null;
-          competidor_elegido_at: string | null;
           ubicacion_at: string | null;
           created_at: string;
         };
@@ -41,7 +43,6 @@ export type Database = {
           latitud?: number | null;
           longitud?: number | null;
           precision_metros?: number | null;
-          competidor_elegido_at?: string | null;
           ubicacion_at?: string | null;
         };
         Update: SinCambios;
@@ -62,6 +63,9 @@ export type Database = {
           ruta: string;
           nombre_original: string | null;
           tamano_bytes: number | null;
+          /** Hora en que se TOMÓ la foto (EXIF). null si no se pudo leer. */
+          capturada_at: string | null;
+          capturada_origen: OrigenCaptura;
           created_at: string;
         };
         Insert: {
@@ -69,6 +73,8 @@ export type Database = {
           ruta: string;
           nombre_original?: string | null;
           tamano_bytes?: number | null;
+          capturada_at?: string | null;
+          capturada_origen?: OrigenCaptura;
         };
         Update: SinCambios;
         Relationships: [
