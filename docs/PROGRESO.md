@@ -25,7 +25,7 @@
 | E2-0 | — | Plan (actualizado el 2026-11-20) | ✅ |
 | E2-1 | 🧱 base | Ajuste de la Etapa 1: fechas y fotos | ✅ |
 | E2-2 | 🧱 base | Base de datos de lecturas (solo estructura) | ✅ |
-| E2-3 | 🧱 base | Catálogo propio (tablas y carga) | 🟡 |
+| E2-3 | 🧱 base | Catálogo propio (tablas y carga) | ✅ |
 | E2-4 | 🧱 base | Equivalencias (estructura) y vista de comparación | ⬜ |
 | E2-5 | 🤖 agentes | Leer una foto | ⬜ |
 | E2-6 | 🤖 agentes | Lotes y guardado | ⬜ |
@@ -1002,7 +1002,7 @@ lecturas después de borrar fotos de prueba; no rompe nada (consulta para limpia
 
 ---
 
-## Etapa 2 — Fase E2-3: Catálogo propio (2026-11-20) — 🟡 falta que el usuario ejecute 005 y la importación
+## Etapa 2 — Fase E2-3: Catálogo propio (2026-11-20) — ✅ confirmada 2026-11-20
 
 **Respuestas del usuario antes de diseñar (2026-11-20):**
 1. **Columnas:** se cargan solo las necesarias. **Ningún dato de venta** en Supabase (ni
@@ -1096,5 +1096,17 @@ creía que no había precios con más de 2 decimales). Detalle por fila solo en
   se agregó `"type": "module"` a `package.json` para no arriesgar la app.
 
 **Commit:** ver `git log` — `Etapa 2, Fase E2-3: catálogo propio (005) e importador en simulación`
+
+**Cierre (2026-11-20), confirmado por el usuario:**
+- El usuario aprobó guardar exactos los valores con decimales de más. Tipos: `cantidad`,
+  `precio_promo_pieza`, `precio_promo_grupo`, `precio_promo_total` y
+  `precio_regular_al_inicio` son **`numeric`** (decimal exacto, sin límite), **no** `float` /
+  `real` / `double precision` (que redondean en binario); `precio_regular` es `numeric(10,2)`.
+  El script manda esos valores como texto, así que llegan exactos a la base.
+- Se ejecutó `005_catalogo_propio.sql`: todas las comprobaciones de seguridad con `ok = true`.
+- Importación real hecha: conteos iguales al archivo (3116 artículos, 3116 precios del corte,
+  1344 promociones). La segunda importación **no duplicó**.
+- La app publicada funciona igual.
+- Fase E2-3 cambiada a ✅.
 
 **Siguiente fase:** E2-4 (🧱 base). **No se empieza sin que el usuario lo pida.**
