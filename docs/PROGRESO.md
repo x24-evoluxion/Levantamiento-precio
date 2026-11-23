@@ -1383,7 +1383,10 @@ fase "Quitar fotos de una visita" con estas diferencias respecto a lo anterior, 
    ✅ **Hecho (2026-11-23):** el usuario ejecutó `007` y la comprobación final salió toda `ok`.
 2. Ejecuta `supabase/pruebas/007_prueba_descartar_fotos.sql` (termina con `rollback`).
    ✅ **Hecho (2026-11-23):** el usuario corrió la prueba y todos los casos salieron `ok`.
-3. **Después** hace push de la app. *(Pendiente: lo hace el usuario.)*
+3. **Después** hace push de la app.
+   ✅ **Hecho (2026-11-23):** la app (`c7ed32e`) ya estaba en `origin/main`. El usuario la probó
+   en el celular y todo funciona: ✕ → "Cancelar" deja la foto; ✕ → "Quitar" la quita y baja el
+   conteo en la visita y en la lista. **Fase "Quitar fotos de una visita" cerrada.**
 
 **Storage (sin cambios):** los archivos de las fotos descartadas **siguen en Storage** hasta la
 limpieza del punto de retención, que no está implementada. No hay borrado físico ni limpieza
