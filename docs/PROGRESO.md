@@ -1380,6 +1380,7 @@ fase "Quitar fotos de una visita" con estas diferencias respecto a lo anterior, 
 **⚠️ ORDEN DE DESPLIEGUE (el mismo; no cambiar):**
 1. **Primero** el usuario ejecuta `supabase/007_descartar_fotos.sql` en el SQL Editor (agregar
    una columna es inocuo para la app vieja) y revisa que la comprobación final salga toda `ok`.
+   ✅ **Hecho (2026-11-23):** el usuario ejecutó `007` y la comprobación final salió toda `ok`.
 2. Ejecuta `supabase/pruebas/007_prueba_descartar_fotos.sql` (termina con `rollback`).
 3. **Después** hace push de la app.
 
