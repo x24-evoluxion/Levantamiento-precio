@@ -1,85 +1,62 @@
 // Preparar y nombrar fotos antes de subirlas a Supabase Storage.
 //
-// Cada foto se reduce (lado mayor de 2200 px) y se guarda como JPEG:
-//   - JPEG, PNG y WebP → los comprime la librería browser-image-compression.
-//   - Cualquier otro formato (por ejemplo HEIC/HEIF de iPhone) → se convierte con
-//     <canvas>, que ya trae el navegador: se "pinta" la foto y se exporta como JPEG.
-//     Si el navegador no sabe abrir ese formato, se lanza ErrorFoto con un mensaje
-//     en español que se le muestra al usuario.
+// Cada foto (JPEG, PNG, WebP, HEIC si el navegador la abre…) se "pinta" en un
+// <canvas> del navegador con lado mayor de 2200 px y se exporta como JPEG de
+// calidad 0.92. Si aun así pesa más de 5 MB (el límite del bucket), se vuelve a
+// exportar con un poco menos de calidad, por pasos, hasta que quepa. Nunca se
+// achica la foto para que quepa: solo baja la calidad. Si el navegador no sabe
+// abrir el formato, se lanza ErrorFoto con un mensaje en español para el usuario.
 
 import { supabase } from "./supabase";
 import { BUCKET_FOTOS } from "./tipos";
 
 // Tamaño pensado para que Claude lea las etiquetas (Etapa 2, PLAN_ETAPA2 sección 3).
-// Documentación de visión consultada el 2026-11-20: los modelos de alta resolución
-// aprovechan hasta 2576 px de lado mayor Y hasta 4784 "tokens visuales" por imagen
-// (1 token = cuadro de 28 × 28 px → ⌈ancho/28⌉ × ⌈alto/28⌉). Si la foto pasa
-// cualquiera de los dos topes, la API la vuelve a reducir.
+// Documentación de visión revisada el 2026-11-23 (sin cambios desde el 2026-11-20):
+// los modelos de alta resolución aprovechan hasta 2576 px de lado mayor Y hasta 4784
+// "tokens visuales" por imagen (1 token = cuadro de 28 × 28 px → ⌈ancho/28⌉ × ⌈alto/28⌉).
+// Si la foto pasa cualquiera de los dos topes, la API la vuelve a reducir.
 // Las fotos de celular son casi siempre 4:3. En 4:3, el tope real es el de tokens:
 //   2200 × 1650 → 79 × 59 = 4661 tokens  ✅ no se vuelve a reducir
 //   2240 × 1680 → 80 × 60 = 4800 tokens  ❌ la API la reduciría otra vez
 // 2200 px es lo más grande (en número redondo) que se aprovecha sin una segunda
 // reducción. Aplica solo a las fotos que se suban desde ahora.
 export const LADO_MAXIMO_PX = 2200;
-/** Calidad JPEG (0 a 1). La compresión fuerte borra letras pequeñas. */
-export const CALIDAD_JPEG = 0.85;
-/**
- * Peso máximo que pide la librería. Antes era 1 MB, y para llegar ahí bajaba la
- * calidad del JPEG. Con 4 MB (el bucket acepta 5) casi nunca la baja.
- */
-const PESO_OBJETIVO_MB = 4;
-/** Límite del bucket "fotos" (ver supabase/001_esquema.sql). */
+/** Calidad JPEG inicial (0 a 1). La compresión fuerte borra letras pequeñas. */
+export const CALIDAD_JPEG = 0.92;
+/** Límite del bucket "fotos" (5 MB, ver supabase/001_esquema.sql). */
 export const TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024;
-
-/** Formatos que acepta el bucket. Lo demás se convierte a JPEG antes de subir. */
-const TIPOS_ACEPTADOS: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
+/**
+ * Si la foto pasa de 5 MB, se prueba con estas calidades, en orden, hasta que
+ * quepa. A 2200 px casi nunca hace falta: una foto de ese tamaño a 0.92 suele
+ * pesar bastante menos de 5 MB.
+ */
+const CALIDADES_DE_RESPALDO = [0.88, 0.84, 0.8, 0.76, 0.72, 0.68, 0.64, 0.6];
 
 /** Error con un mensaje listo para mostrarle al usuario. */
 export class ErrorFoto extends Error {}
 
 export type FotoPreparada = { blob: Blob; extension: string; tipo: string };
 
-/** Comprime o convierte una foto para subirla. Lanza ErrorFoto si no se puede. */
+/** Reduce y convierte una foto a JPEG para subirla. Lanza ErrorFoto si no se puede. */
 export async function prepararFoto(archivo: File): Promise<FotoPreparada> {
-  const resultado = TIPOS_ACEPTADOS[archivo.type]
-    ? await comprimirConLibreria(archivo)
-    : await convertirConCanvas(archivo);
-
-  const extension = TIPOS_ACEPTADOS[resultado.type];
-  if (!extension) {
-    throw new ErrorFoto("No se pudo convertir la foto a JPEG. Intenta con otra foto.");
-  }
-  if (resultado.size > TAMANO_MAXIMO_BYTES) {
-    throw new ErrorFoto("La foto pesa más de 5 MB aun después de reducirla. Intenta con otra foto.");
-  }
-  return { blob: resultado, extension, tipo: resultado.type };
-}
-
-async function comprimirConLibreria(archivo: File): Promise<Blob> {
-  // Se importa aquí (y no arriba) para que solo se cargue en el navegador.
-  const { default: imageCompression } = await import("browser-image-compression");
+  const canvas = await pintarReducida(archivo);
   try {
-    return await imageCompression(archivo, {
-      maxWidthOrHeight: LADO_MAXIMO_PX,
-      maxSizeMB: PESO_OBJETIVO_MB,
-      fileType: "image/jpeg",
-      initialQuality: CALIDAD_JPEG,
-      // Sin "web worker": con él, la librería descarga código de un sitio externo
-      // (cdn.jsdelivr.net). Así todo sale de nuestra app.
-      useWebWorker: false,
-    });
-  } catch {
-    // Si la librería falla, se intenta con el método del navegador.
-    return convertirConCanvas(archivo);
+    for (const calidad of [CALIDAD_JPEG, ...CALIDADES_DE_RESPALDO]) {
+      const blob = await exportarJpeg(canvas, calidad);
+      if (blob.size <= TAMANO_MAXIMO_BYTES) {
+        return { blob, extension: "jpg", tipo: "image/jpeg" };
+      }
+    }
+    throw new ErrorFoto("La foto pesa más de 5 MB aun después de reducirla. Intenta con otra foto.");
+  } finally {
+    // Libera la memoria del canvas (importante en iPhone).
+    canvas.width = 0;
+    canvas.height = 0;
   }
 }
 
-/** Abre la foto con lo que trae el navegador, la reduce y la exporta como JPEG. */
-async function convertirConCanvas(archivo: File): Promise<Blob> {
+/** Abre la foto con lo que trae el navegador y la pinta en un canvas de 2200 px de lado mayor. */
+async function pintarReducida(archivo: File): Promise<HTMLCanvasElement> {
   const imagen = await abrirImagen(archivo);
   try {
     const escala = Math.min(1, LADO_MAXIMO_PX / Math.max(imagen.ancho, imagen.alto));
@@ -95,14 +72,20 @@ async function convertirConCanvas(archivo: File): Promise<Blob> {
     // Fondo blanco: JPEG no tiene transparencia y sin esto quedaría negro.
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, ancho, alto);
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(imagen.fuente, 0, 0, ancho, alto);
-
-    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", CALIDAD_JPEG));
-    if (!blob) throw new ErrorFoto("El navegador no pudo convertir la foto a JPEG. Intenta con otra foto.");
-    return blob;
+    return canvas;
   } finally {
     imagen.cerrar();
   }
+}
+
+async function exportarJpeg(canvas: HTMLCanvasElement, calidad: number): Promise<Blob> {
+  const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", calidad));
+  if (!blob || blob.type !== "image/jpeg") {
+    throw new ErrorFoto("El navegador no pudo convertir la foto a JPEG. Intenta con otra foto.");
+  }
+  return blob;
 }
 
 type ImagenAbierta = {

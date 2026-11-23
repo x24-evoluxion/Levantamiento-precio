@@ -17,7 +17,9 @@ export default function PaginaVisita({ params }: PageProps<"/visitas/[id]">) {
         }
       >
         {params.then(({ id }) => (
-          <DetalleVisita id={id} />
+          // key={id}: cada visita tiene su propia pantalla; nunca se mezclan los datos,
+          // las fotos ni la lista de subidas de otra visita.
+          <DetalleVisita key={id} id={id} />
         ))}
       </Suspense>
     </main>

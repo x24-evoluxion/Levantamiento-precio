@@ -4,12 +4,17 @@
  * ============================================================================
  *  COLORES DE LA APP — este es el ÚNICO lugar donde se definen.
  * ============================================================================
- * La app siempre se ve oscura (fondo gris grafito, texto blanco, detalles en gris y
- * rojo), aunque el celular esté en modo claro.
+ * La app siempre se ve clara: fondo blanco, letras negras, rojo de marca en los
+ * botones principales (con texto blanco) y grises en bordes y detalles. Se ve así
+ * aunque el celular esté en modo oscuro.
  *
  * Cada "--color-xxx" crea clases de Tailwind con ese nombre: bg-xxx, text-xxx,
  * border-xxx, etc. Por ejemplo, --color-marca → bg-marca, text-marca.
  * Para cambiar un color en toda la app, cámbialo solo aquí.
+ *
+ * Contraste (revisado el 2026-11-23): todo texto tiene al menos 4.5:1 contra su
+ * fondo y los bordes que marcan una tarjeta o un botón, al menos 3:1 (WCAG AA).
+ * Si cambias un color, vuelve a revisarlo.
  *
  * Dos colores también se usan fuera de CSS (barra del navegador e ícono) y
  * están copiados en src/lib/colores.ts: si cambias "fondo" o "marca", cámbialos
@@ -17,51 +22,56 @@
  */
 @theme {
   /* Base */
-  --color-fondo: #2a2a2a; /* fondo de la página (gris grafito) */
-  --color-tarjeta: #363636; /* tarjetas, cajas y botones de la lista */
-  --color-tarjeta-presionada: #424242; /* tarjeta al tocarla */
-  --color-borde: #5a5a5a; /* bordes de tarjetas y cajas */
-  --color-texto: #ffffff; /* texto principal */
-  --color-texto-suave: #b8b8b8; /* fechas, ayudas, textos secundarios */
+  --color-fondo: #ffffff; /* fondo de la página (blanco) */
+  --color-tarjeta: #f5f5f5; /* tarjetas, cajas y botones de la lista (gris muy claro) */
+  --color-tarjeta-presionada: #e5e5e5; /* tarjeta al tocarla */
+  --color-borde: #8a8a8a; /* bordes de tarjetas y cajas (gris) */
+  --color-texto: #000000; /* texto principal (negro) */
+  --color-texto-suave: #4a4a4a; /* fechas, ayudas, textos secundarios (gris oscuro) */
 
-  /* Rojo de marca */
-  --color-marca: #dc2626; /* botones principales, elegido, acentos */
+  /* Rojo de marca: solo botones principales, lo elegido y acentos */
+  --color-marca: #dc2626;
   --color-marca-presionada: #b91c1c; /* botón rojo al presionarlo */
   --color-sobre-marca: #ffffff; /* texto encima del rojo */
-  --color-enlace: #fca5a5; /* enlaces: rojo claro para que se lea sobre el gris */
+  --color-enlace: #b91c1c; /* enlaces: rojo oscuro, subrayado */
 
   /* Botones grises (acciones secundarias, como "Reintentar") */
-  --color-gris: #4a4a4a;
-  --color-gris-presionado: #5c5c5c;
+  --color-gris: #e5e5e5;
+  --color-gris-presionado: #d4d4d4;
 
   /* Botones desactivados */
-  --color-desactivado: #333333;
-  --color-texto-desactivado: #b8b8b8;
+  --color-desactivado: #ededed;
+  --color-texto-desactivado: #5c5c5c;
 
-  /* Mensajes de error: recuadro rojo claro + ícono. Distinto del rojo de marca. */
-  --color-error-fondo: #3d1f1f;
-  --color-error-borde: #f87171;
-  --color-error-texto: #fecaca;
+  /*
+   * Mensajes de error: recuadro rosado con borde vino + ícono de alerta + "Error:"
+   * para lectores de pantalla. Es otro tono (vino, no el rojo anaranjado de marca)
+   * y otra forma (caja clara con borde, no botón rojo lleno con letras blancas).
+   */
+  --color-error-fondo: #fff1f2;
+  --color-error-borde: #9f1239;
+  --color-error-texto: #881337;
 
   /* Mensajes de éxito */
-  --color-exito-fondo: #1c3324;
-  --color-exito-borde: #4ade80;
-  --color-exito-texto: #bbf7d0;
+  --color-exito-fondo: #f0fdf4;
+  --color-exito-borde: #15803d;
+  --color-exito-texto: #14532d;
 
   /* Avisos (algo no está del todo bien, pero no es un error) */
-  --color-aviso-fondo: #3a3115;
-  --color-aviso-borde: #facc15;
-  --color-aviso-texto: #fef08a;
+  --color-aviso-fondo: #fefce8;
+  --color-aviso-borde: #a16207;
+  --color-aviso-texto: #713f12;
 
   --font-sans: var(--font-geist-sans);
 }
 
 /*
- * "color-scheme: dark" le dice al navegador que dibuje oscuros sus propios
- * controles (barras de desplazamiento, selector de archivos, etc.).
+ * "color-scheme: light" le dice al navegador que dibuje claros sus propios
+ * controles (barras de desplazamiento, selector de archivos, etc.), aunque el
+ * celular esté en modo oscuro.
  */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -130,7 +140,9 @@ body {
     background: var(--color-tarjeta-presionada);
   }
 
+  /* Con borde gris: sin él, el gris claro casi no se distingue del fondo blanco. */
   .boton-gris {
+    border: 2px solid var(--color-borde);
     background: var(--color-gris);
     color: var(--color-texto);
   }

@@ -209,6 +209,23 @@ justifica, se puede calcular el tamaño por foto según su proporción.
   ahorrar.
 - ⚠️ Cambia la app publicada: el agente de E2-1 lo muestra antes de desplegar.
 
+**Ajuste del 2026-11-23 (pedido por el usuario; reemplaza 0.85 / 4 MB):**
+- **Calidad JPEG 0.92** (antes 0.85). **Lado mayor 2200 px** (sin cambio).
+- **Tope de 5 MB** (el del bucket; antes 4 MB). Si una foto lo pasa, se vuelve a exportar
+  con menos calidad **por pasos** (0.88, 0.84 … 0.60) hasta que quepa; **nunca se reduce
+  la resolución**. Si ni a 0.60 cabe, se muestra un error.
+- Se quitó `browser-image-compression`: al pasar del tope, esa librería también achicaba la
+  foto un 5 % por vuelta. Ahora todas las fotos pasan por `<canvas>` (`src/lib/fotos.ts`).
+- Documentación de visión revisada otra vez el 2026-11-23: mismos topes (2 576 px y 4 784
+  tokens para "Claude 4.7 y posteriores"; 1 568 / 1 568 para los demás). 2200 × 1650 sigue
+  en 4 661 tokens: **2200 px sigue siendo el tamaño útil**. Sonnet 5.5 y Haiku 5.5 **no se
+  nombran** en la tabla; por la regla "4.7 y posteriores" estarían en alta resolución, pero
+  queda por comprobar en E2-9 (sin llamar a la API antes de tiempo).
+- Peso por imagen en la API: 10 MB (en base64) en la API de Claude; una foto de 5 MB son
+  ~6.7 MB en base64, así que cabe. (En Amazon Bedrock el tope es 5 MB en base64: si algún día
+  se usara Bedrock, habría que bajar el tope a ~3.7 MB.)
+- Solo afecta a las fotos que se suban desde ahora.
+
 ### 3.4 Guía corta para el equipo de campo (para compartir por WhatsApp)
 
 > **Cómo fotografiar etiquetas de precio**

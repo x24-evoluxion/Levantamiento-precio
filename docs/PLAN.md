@@ -315,8 +315,9 @@ caen donde estabas.
   `<input type="file" accept="image/*" multiple>`. **No** uses `capture`, porque no
   queremos abrir la cámara.
 - **Comprimir** cada foto antes de subirla (lado mayor de ~2000 px, JPEG). *(Etapa 2, E2-1:
-  ahora 2200 px y calidad 0.85; ver PLAN_ETAPA2 sección 3.)* Pídele permiso
-  al usuario para instalar la librería `browser-image-compression`.
+  ahora 2200 px y calidad 0.85; 2026-11-23: calidad 0.92, tope de 5 MB y sin librería,
+  con `<canvas>`; ver PLAN_ETAPA2 sección 3.3.)* ~~Pídele permiso al usuario para instalar
+  la librería `browser-image-compression`.~~ (Se quitó el 2026-11-23.)
 - Subir **una por una** a `visitas/<visita_id>/<uuid>.jpg` y, por cada una, hacer el
   `insert` en `fotos`.
 - Mostrar el progreso ("Subiendo 3 de 12…"). Si una foto falla, poder reintentar solo esa.

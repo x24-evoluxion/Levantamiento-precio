@@ -22,11 +22,11 @@ export const metadata: Metadata = {
   appleWebApp: { title: "Precios" },
 };
 
-// Barra del navegador en el celular: del mismo gris grafito que el fondo.
-// colorScheme "dark": la app siempre es oscura, aunque el celular esté en modo claro.
+// Barra del navegador en el celular: del mismo blanco que el fondo.
+// colorScheme "light": la app siempre es clara, aunque el celular esté en modo oscuro.
 export const viewport: Viewport = {
   themeColor: COLOR_FONDO,
-  colorScheme: "dark",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

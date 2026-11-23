@@ -3,7 +3,7 @@
 // que es donde viven todos los colores: si cambias uno allá, cámbialo aquí también.
 
 /** Fondo de la página (--color-fondo). */
-export const COLOR_FONDO = "#2a2a2a";
+export const COLOR_FONDO = "#ffffff";
 
 /** Rojo de marca (--color-marca). */
 export const COLOR_MARCA = "#dc2626";

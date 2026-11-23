@@ -1,5 +1,6 @@
 import Link from "next/link";
 import FormularioNuevaVisita from "./FormularioNuevaVisita";
+import ReiniciarAlSalir from "@/components/ReiniciarAlSalir";
 
 // Pantalla para crear una visita: elegir competidor, guardar la ubicación y guardar.
 export default function NuevaVisita() {
@@ -9,7 +10,10 @@ export default function NuevaVisita() {
         ← Volver a la lista
       </Link>
       <h1 className="text-3xl font-bold">Nueva visita</h1>
-      <FormularioNuevaVisita />
+      {/* Cada "Nueva visita" empieza vacía: sin tienda ni ubicación de la visita anterior. */}
+      <ReiniciarAlSalir>
+        <FormularioNuevaVisita />
+      </ReiniciarAlSalir>
     </main>
   );
 }

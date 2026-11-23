@@ -17,6 +17,7 @@
 | 6 | Ver fotos de una visita | ✅ |
 | 7 | Pulido móvil y despliegue | ✅ |
 | — | Ajuste visual (tema oscuro) | ✅ |
+| — | Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB, tema claro | 🟡 falta prueba del usuario |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -69,6 +70,7 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **(Etapa 2, E2-9) Verificar el nivel de resolución de visión** de Sonnet 5.5 y Haiku 5.5.
       Se supuso alta resolución (2576 px / 4 784 tokens) porque la documentación dice "Claude
       4.7 y posteriores" sin nombrarlos. Se comprueba en la evaluación (PLAN_ETAPA2 3.2 y 9.2).
+      Revisado otra vez el 2026-11-23: la documentación sigue igual (no los nombra).
 - [x] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
       Confirmados por el usuario el 2026-11-20, junto con precio = total de la etiqueta y
       unidades `g`/`kg`/`ml`/`l`/`pza`.
@@ -1189,3 +1191,69 @@ candados: si uno se quitara por error, el otro sigue.
 (ver "Pendientes y dudas abiertas").
 
 **Siguiente:** con E2-4 termina la base. Las fases 🤖 **no empiezan sin que el usuario lo pida**.
+
+---
+
+## Ajustes de la app: pantalla limpia, menos compresión y tema claro (2026-11-23) — 🟡 falta prueba del usuario
+
+Pedido del usuario: solo estos tres cambios. **No** se tocaron tablas, **no** se ejecutó nada
+en Supabase, **no** se empezaron fases 🤖 ni se llamó a la API de Anthropic.
+
+**1. Pantalla limpia al navegar**
+- **Causa:** `next.config.ts` tiene `cacheComponents: true`. Con eso, Next.js 16 **no
+  desmonta** la pantalla de la que sales: la esconde con `<Activity>` de React y guarda su
+  estado (hasta 3 pantallas). Al volver, aparece tal como se dejó: el formulario con la
+  tienda y la ubicación de la visita anterior (y el botón en "Guardando…"), y la lista con
+  los datos de antes mientras llega la consulta nueva. (Doc:
+  `node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md`.) Además, en el
+  detalle, si la misma pantalla recibía otra visita, `FotosVisita` juntaba las fotos nuevas
+  con las que ya tenía en pantalla.
+- **Solución:** `src/components/ReiniciarAlSalir.tsx` (nuevo). Cuando Next esconde la
+  pantalla, cambia la `key` de lo que tiene adentro y React lo crea de nuevo, vacío. Se usa
+  en la lista (`src/app/page.tsx`) y en el formulario (`src/app/visitas/nueva/page.tsx`):
+  al volver, la lista vuelve a leer Supabase (dice "Cargando visitas…") y "Nueva visita"
+  empieza sin tienda ni ubicación. Una respuesta que llegue tarde (por ejemplo, el GPS) cae
+  en la copia vieja y se ignora.
+- En el detalle (`src/app/visitas/[id]/page.tsx`): `key={id}`, así cada visita tiene su
+  propia pantalla y nunca muestra fotos ni subidas de otra. El detalle **no** se reinicia al
+  salir, para no perder de vista una subida en curso (los datos se vuelven a leer al regresar).
+- No se usó `bfcacheId` porque la doc de Next lo deja como último recurso.
+
+**2. Menos compresión (solo fotos nuevas)**
+- `src/lib/fotos.ts`: calidad JPEG **0.92** (antes 0.85), lado mayor **2200 px** (igual), tope
+  **5 MB** (el del bucket; antes 4 MB). Si pasa de 5 MB, baja la calidad por pasos (0.88,
+  0.84 … 0.60) hasta que quepa; nunca reduce la resolución. Todas las fotos pasan por `<canvas>`.
+- Se quitó la dependencia `browser-image-compression` (`package.json`, `package-lock.json`):
+  al pasar del tope, también achicaba la foto un 5 % por vuelta.
+- Documentación de visión revisada el 2026-11-23: alta resolución = 2 576 px y 4 784 tokens
+  para "Claude 4.7 y posteriores"; 2200 × 1650 = 4 661 tokens, así que **2200 px sigue siendo
+  el tamaño útil**. Sonnet 5.5 y Haiku 5.5 **no se nombran**; por esa regla estarían en alta
+  resolución, pero sigue pendiente comprobarlo en E2-9. Detalle en PLAN_ETAPA2 3.3.
+
+**3. Tema claro**
+- `src/app/globals.css` (paleta central), `src/lib/colores.ts` y `src/app/layout.tsx`: fondo
+  blanco, texto negro, tarjetas gris muy claro con borde gris, botones principales rojo de marca
+  con texto blanco, enlaces rojo oscuro subrayados, `color-scheme: light`, barra del navegador
+  blanca. El botón gris ahora lleva borde para que se vea sobre el blanco.
+- **Errores:** caja rosada con borde y texto **vino** (`#9f1239` / `#881337`), ícono de alerta y
+  "Error:" para lectores de pantalla. Distinto del rojo de marca en tono y en forma (caja
+  clara con borde vs. botón rojo lleno con letras blancas).
+- **Contraste revisado** con un script (fórmula WCAG) en todas las combinaciones que usa la
+  app, incluidos los estados tocado, desactivado, error, éxito, aviso y el visor de fotos:
+  todo texto ≥ 4.5:1 (el más bajo: blanco sobre rojo de marca, 4.83:1) y bordes ≥ 3:1 (el
+  más bajo: borde gris sobre tarjeta, 3.17:1).
+- El ícono de la app no cambia (signo blanco sobre rojo).
+
+**Cómo probarlo:**
+1. `npm run lint` y `npm run build`: pasan (verificado).
+2. **No probado en navegador** (no se corrió la app para no consultar Supabase). Pasos para el
+   usuario después de desplegar:
+   - Crear una visita, subir fotos, tocar "← Volver a la lista": la visita nueva aparece con
+     su número de fotos.
+   - Tocar "+ Nueva visita": sin tienda elegida, sin ubicación y el botón dice "Guardar visita".
+   - Subir una foto grande: se sube; en Supabase Storage pesa menos de 5 MB.
+   - Revisar todas las pantallas con el celular en modo oscuro y en modo claro: siempre fondo
+     blanco y letras negras; un error (por ejemplo, negar la ubicación) se ve en caja vino.
+
+**Commit:** ver `git log` — `Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB y tema claro`
+
