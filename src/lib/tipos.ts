@@ -1,6 +1,7 @@
 // Tipos de TypeScript de las tablas de Supabase (escritos a mano).
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
-// (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql).
+// (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql,
+// 007_descartar_fotos.sql).
 // Si cambias una tabla, cambia también este archivo.
 //
 // Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
@@ -8,7 +9,8 @@
 //
 //   Row    → cómo llega una fila al LEERLA
 //   Insert → qué se manda al CREAR una fila (solo las columnas que "anon" puede llenar)
-//   Update → vacío a propósito: "anon" no puede cambiar nada
+//   Update → qué puede CAMBIAR "anon". Vacío a propósito, salvo en fotos: solo
+//            descartada_at (quitar una foto pendiente; 007). No puede restaurarla.
 //
 // Las fechas (timestamptz) llegan como texto ISO en UTC, ej. "2026-11-18T17:05:00+00:00".
 
@@ -83,6 +85,11 @@ export type Database = {
           intentos: number;
           error_proceso: string | null;
           procesada_at: string | null;
+          /**
+           * 007: hora (del servidor) en que alguien quitó la foto desde la app.
+           * null = a la vista. La app solo lee fotos con null.
+           */
+          descartada_at: string | null;
         };
         Insert: {
           visita_id: string;
@@ -92,7 +99,13 @@ export type Database = {
           capturada_at?: string | null;
           capturada_origen?: OrigenCaptura;
         };
-        Update: SinCambios;
+        /**
+         * Lo único que "anon" puede cambiar (007): quitar una foto 'pendiente' que no
+         * esté quitada. El valor que se manda no importa: el servidor pone su hora.
+         */
+        Update: {
+          descartada_at: string;
+        };
         Relationships: [
           {
             foreignKeyName: "fotos_visita_id_fkey";

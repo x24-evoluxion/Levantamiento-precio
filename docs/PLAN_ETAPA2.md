@@ -310,6 +310,8 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/005_catalogo_propio.sql` | E2-3 | `catalogo_propio`, `catalogo_propio_cortes`, `promociones_propias`, función `importar_corte` y vista `precio_propio_vigente` (5.6) |
 | `supabase/006_equivalencias_comparacion.sql` | E2-4 | `equivalencias` (solo estructura, 5.7) y vista `comparacion_precios` (5.9). **Sin** `zonas` |
 | `supabase/pruebas/006_prueba_comparacion.sql` | E2-4 | Prueba con datos inventados; termina con `rollback` (no deja nada) |
+| `supabase/007_descartar_fotos.sql` | Fuera del plan (2026-11-23) | Quitar fotos: `fotos.descartada_at`, permiso de `anon` solo para esa columna en fotos `pendiente`, *trigger* con la hora del servidor, y `lecturas_analisis` / `comparacion_precios` sin fotos descartadas |
+| `supabase/pruebas/007_prueba_descartar_fotos.sql` | Fuera del plan (2026-11-23) | Prueba como `anon` con datos inventados; termina con `rollback` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
 equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (`007_...`).
@@ -362,6 +364,7 @@ marca para revisión; **no se adivina**.
 | `intentos` | `int` no nulo, default 0 | | E2-2 |
 | `error_proceso` | `text` | Último error, en palabras simples | E2-2 |
 | `procesada_at` | `timestamptz` | | E2-2 |
+| `descartada_at` | `timestamptz` | Hora (servidor) en que alguien **quitó** la foto desde la app. Nula = a la vista. `anon` solo puede ponerla en fotos `pendiente` no quitadas y no puede restaurarla | 2026-11-23 (`007`) |
 
 - `anon` recibe permiso de `insert` **solo** en `capturada_at` y `capturada_origen` (además
   de las 4 que ya tiene). **No** puede tocar estado ni calidad (no tiene `update`).
@@ -983,7 +986,13 @@ A cambio cuesta **50 % menos**. Por eso son dos comandos separados.
 
 ### Paso 1 — `npm run lote:crear` ("entregar")
 1. Busca fotos `pendiente`, o `error` con `intentos < 3`. **Nunca** `procesada` ni
-   `en_lote`. Máximo `N` por lote (ej. 200, configurable).
+   `en_lote`, y **nunca descartadas** (`descartada_at is null`, 2026-11-23). Máximo `N` por
+   lote (ej. 200, configurable).
+   **Regla anti-carrera (2026-11-23):** las fotos se toman y se marcan `en_lote` en **un solo
+   `update`** (`update fotos set estado_proceso = 'en_lote' … where estado_proceso in (…) and
+   descartada_at is null … returning id`). Así, o la persona la quita antes (y no entra al
+   lote) o el lote la toma antes (y `anon` ya no la puede quitar). Si después falla la entrega
+   a Anthropic, esas fotos se regresan a como estaban.
 2. **Muestra un estimado de costo** y pide confirmación (`¿Continuar? s/n`).
 3. Arma una petición por foto. El **`custom_id` es el `id` de la foto** (los resultados
    llegan **en cualquier orden**; así se sabe de qué foto es cada uno).

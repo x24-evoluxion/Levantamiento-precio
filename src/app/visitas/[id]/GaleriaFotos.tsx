@@ -2,6 +2,8 @@
 
 // Galería de miniaturas de una visita. Al tocar una, se abre grande en pantalla
 // completa, con botones para cerrar y pasar a la anterior o la siguiente.
+// Debajo de cada miniatura hay un botón "Quitar" (lo que pasa después lo decide
+// FotosVisita: confirmación, aviso para deshacer y guardado).
 //
 // La foto grande usa <dialog>, una ventana que ya trae el navegador: se pone
 // encima de todo y se cierra también con la tecla Escape.
@@ -16,7 +18,13 @@ import { formatearFecha } from "@/lib/fechas";
 import { urlFoto } from "@/lib/fotos";
 import type { Foto } from "@/lib/tipos";
 
-export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
+type Props = {
+  fotos: Foto[];
+  /** Se llama al tocar "Quitar" debajo de una foto. */
+  alQuitar: (foto: Foto) => void;
+};
+
+export default function GaleriaFotos({ fotos, alQuitar }: Props) {
   // Id de la foto abierta en grande; null = ninguna. Se guarda el id (y no la
   // posición) para que, si llega una foto nueva mientras está abierta, no cambie.
   const [abiertaId, setAbiertaId] = useState<string | null>(null);
@@ -67,7 +75,7 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
 
       <ul className="grid grid-cols-3 gap-2">
         {fotos.map((f, i) => (
-          <li key={f.id}>
+          <li key={f.id} className="flex flex-col gap-1">
             <button
               type="button"
               onClick={() => setAbiertaId(f.id)}
@@ -81,6 +89,14 @@ export default function GaleriaFotos({ fotos }: { fotos: Foto[] }) {
                 decoding="async"
                 className="h-full w-full object-cover"
               />
+            </button>
+            <button
+              type="button"
+              onClick={() => alQuitar(f)}
+              className="boton-gris min-h-11 w-full rounded-lg px-2 py-1 text-base font-semibold"
+              aria-label={`Quitar foto ${i + 1} de ${fotos.length}`}
+            >
+              Quitar
             </button>
           </li>
         ))}

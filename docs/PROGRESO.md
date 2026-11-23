@@ -18,6 +18,7 @@
 | 7 | Pulido móvil y despliegue | ✅ |
 | — | Ajuste visual (tema oscuro) | ✅ |
 | — | Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB, tema claro | 🟡 falta prueba del usuario |
+| — | Quitar fotos (descarte reversible) — fuera del plan original | 🟡 falta que el usuario ejecute `007` y la prueba, y despliegue |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -85,6 +86,13 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **(Etapa 2, E2-4) Confirmar con el responsable de los datos el umbral de `en_linea`**
       (hoy ±3 %: índice entre −3 y +3, PLAN_ETAPA2 5.9). Si cambia, se ajusta la vista
       `comparacion_precios` en una migración nueva.
+- [ ] **(Quitar fotos, 2026-11-23) Pasos del usuario, EN ESTE ORDEN:** (1) ejecutar
+      `supabase/007_descartar_fotos.sql` (todas las filas `ok = true`); (2) ejecutar
+      `supabase/pruebas/007_prueba_descartar_fotos.sql` (fila `0. RESUMEN` con `ok = true`);
+      (3) **después** hacer push de la app. Ver la sección "Quitar fotos" al final.
+- [ ] **(Punto de retención, pendiente) Limpieza de fotos descartadas.** Los archivos de las
+      fotos quitadas **siguen en Storage**. Se borrarán en la limpieza del punto de retención
+      (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
 
@@ -1256,4 +1264,91 @@ en Supabase, **no** se empezaron fases 🤖 ni se llamó a la API de Anthropic.
      blanco y letras negras; un error (por ejemplo, negar la ubicación) se ve en caja vino.
 
 **Commit:** ver `git log` — `Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB y tema claro`
+
+---
+
+## Quitar fotos (descarte reversible) (2026-11-23) — 🟡 falta que el usuario ejecute `007`, la prueba y despliegue
+
+Fase nueva, **fuera del plan original**, pedida por el usuario. **No** se ejecutó nada en
+Supabase, **no** se empezaron fases 🤖 ni se llamó a la API de Anthropic.
+
+**Decisión del usuario:** cualquiera con el link puede quitar fotos de una visita, sin clave y
+sin ventana de tiempo. Pero es un **descarte reversible** (*soft delete*: la fila se marca, no
+se borra), no un borrado físico.
+
+**Qué se hizo:**
+- `supabase/007_descartar_fotos.sql` (nuevo; se puede ejecutar varias veces):
+  - Columna `fotos.descartada_at timestamptz` (vacía = a la vista).
+  - *Trigger* `fotos_poner_hora_descarte`: si alguien pone `descartada_at`, se guarda
+    **siempre** `now()` del servidor, no la hora que mande el celular. Ponerla en null
+    (restaurar) solo lo puede hacer el equipo desde el SQL Editor.
+  - Permisos: se quita a `anon` y `authenticated` todo UPDATE, DELETE y TRUNCATE de `fotos`, y
+    se da a `anon` UPDATE **solo de la columna** `descartada_at`.
+  - Regla RLS `anon descarta fotos pendientes`: solo filas `estado_proceso = 'pendiente'` y
+    `descartada_at is null`; la fila debe quedar con `descartada_at` **no nulo** (no puede
+    restaurar ni cambiar la hora de una ya quitada).
+  - Vistas `lecturas_analisis` (004) y `comparacion_precios` (006) recreadas **iguales**, con
+    una sola línea nueva cada una: `and f.descartada_at is null`.
+  - Revisado sin cambios: `guardar_lecturas` (no elige fotos; anon solo quita fotos pendientes,
+    que no tienen lecturas; si el equipo quitara a mano una procesada, sus lecturas se quedan
+    pero las vistas no las muestran, y regresan si se restaura). `catalogo_propio_actual` y
+    `precio_propio_vigente` no usan fotos. El proceso que **elige** fotos para un lote aún no
+    existe (E2-6): se anotó en PLAN_ETAPA2 sección 7 que debe excluir las descartadas y tomar
+    las fotos con un solo `update … returning` para que no haya carrera.
+  - Comprobación final (solo lee): 19 filas `ok`.
+- `supabase/pruebas/007_prueba_descartar_fotos.sql`: prueba con datos inventados, como `anon`
+  (`set local role anon`). 15 casos: (a) descarta una pendiente con hora del servidor aunque
+  mande una falsa; (b) no descarta `en_lote`, `procesada` ni `error`; (c) no restaura, no
+  cambia la hora de una ya quitada, no pone null; (d) no modifica `estado_proceso` ni `ruta`;
+  (e) no borra; (f) las dos vistas ignoran la descartada; (g) no crea una foto ya descartada;
+  (h) el equipo sí restaura y la foto regresa a las vistas. Cada caso atrapa su error, así que
+  **siempre** muestra la tabla con una fila `0. RESUMEN` y **siempre** termina con `rollback`.
+- App:
+  - `src/app/visitas/[id]/GaleriaFotos.tsx`: botón **"Quitar"** debajo de cada foto.
+  - `src/app/visitas/[id]/ConfirmarQuitar.tsx` (nuevo): ventana "¿Quitar esta foto?".
+  - `src/app/visitas/[id]/FotosVisita.tsx`: al confirmar, la foto se esconde y abajo sale
+    **"Foto quitada. Deshacer"** por 5 segundos. Al terminar ese tiempo se guarda el descarte;
+    si toca "Deshacer", no se guarda nada. Si la foto ya no está pendiente, se explica en
+    español por qué no se puede (antes de confirmar, o al guardar si cambió mientras tanto) y la
+    foto vuelve. Si sale de la pantalla antes de los 5 s, el descarte se guarda en ese momento;
+    si cierra o recarga la pestaña, el navegador pregunta antes (y si se va, no se quita).
+    Solo se leen fotos con `descartada_at` vacío.
+  - `src/app/ListaVisitas.tsx`: el número de fotos no cuenta las quitadas
+    (`fotos(count)` + filtro `fotos.descartada_at is null`).
+  - `src/lib/tipos.ts`: `descartada_at` en `Foto` y `Update` de fotos solo con esa columna.
+- Docs: `PLAN.md` (4.1, 4.3 y fuera de alcance) y `PLAN_ETAPA2.md` (5.0, 5.2 y sección 7).
+
+**⚠️ ORDEN DE DESPLIEGUE (no cambiar):**
+1. **Primero** el usuario ejecuta `supabase/007_descartar_fotos.sql` en el SQL Editor. Agregar
+   una columna es inocuo para la app publicada (la vieja no la usa).
+2. Ejecuta `supabase/pruebas/007_prueba_descartar_fotos.sql` y revisa que todo salga `ok`.
+3. **Después** hace push de la app. Si se publica la app nueva sin `007`, la lista y la
+   pantalla de la visita fallan con "column … descartada_at does not exist".
+
+**Archivos de Storage:** quitar una foto **no** borra su archivo: sigue en Storage
+(`visitas/<visita>/<foto>.jpg`) hasta la limpieza del **punto de retención** (pendiente, no
+implementada). No se hizo borrado físico ni limpieza programada. Los archivos de Storage **solo
+se borran con la API de Storage, nunca con SQL** (borrar filas de `storage.objects` con SQL deja
+el archivo huérfano en el almacenamiento).
+
+**Cómo restaurar una foto (equipo, SQL Editor):**
+`update public.fotos set descartada_at = null where id = '<id de la foto>';`
+
+**Cómo probarlo:**
+1. `npm run lint` y `npm run build`: pasan (verificado).
+2. **No probado en navegador** (no se corrió la app para no consultar Supabase sin la columna).
+   Después de `007` y del despliegue: entrar a una visita, tocar "Quitar" → "Sí, quitar" → la
+   foto desaparece y sale "Foto quitada. Deshacer"; tocar "Deshacer" → regresa y en Supabase
+   `descartada_at` sigue vacía; repetir sin deshacer → a los 5 s queda la hora en
+   `descartada_at` y el número de fotos de la visita en la lista baja en 1.
+
+**Decisiones tomadas (y por qué):**
+- Permiso por **columna** + regla RLS + *trigger*: tres candados distintos (qué columnas, qué
+  filas, qué valor). Si uno se quitara por error, los otros siguen.
+- El "Quitar" se muestra en todas las fotos; si una ya no está pendiente se explica por qué,
+  en vez de esconder el botón sin decir nada.
+- Una foto que la base no deja quitar no da error en Supabase (solo no cambia ninguna fila); la
+  app revisa cuántas filas cambiaron y, si fue ninguna, consulta el estado para dar el mensaje.
+
+**Commit:** ver `git log` — `Quitar fotos: descarte reversible (007), botón con deshacer y prueba`
 

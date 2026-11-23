@@ -31,7 +31,9 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
 - **Etapa 2:** convertir las fotos en una tabla de artículos y precios, y la revisión
   de esa información. Las tablas sí deben permitir agregarla después sin rehacer nada.
 - Nombre de la sucursal. Solo importa su ubicación.
-- Editar o borrar visitas o fotos desde la app.
+- Editar o borrar visitas o fotos desde la app. *(Excepción del 2026-11-23: se pueden **quitar**
+  fotos pendientes, como descarte reversible — `fotos.descartada_at`, `supabase/007_descartar_fotos.sql`.
+  No se borra nada.)*
 
 ---
 
@@ -121,6 +123,7 @@ qué sirve y espera a que diga que sí.
 | `capturada_at` | `timestamptz` | **Etapa 2 (E2-1, `002_fotos_hora_captura.sql`).** Hora en que se **tomó** la foto (EXIF), leída antes de comprimir. Nula si no se pudo leer |
 | `capturada_origen` | `text` no nulo, default `'sin_dato'` | **Etapa 2 (E2-1).** `exif`, `exif_zona_celular` o `sin_dato` |
 | `created_at` | `timestamptz`, default `now()` | Hora de **subida** (reloj del servidor) |
+| `descartada_at` | `timestamptz` | **2026-11-23 (`007`).** Hora (reloj del servidor, la pone un *trigger*) en que alguien **quitó** la foto desde la app. Nula = a la vista. Descarte reversible: no se borra la fila ni el archivo |
 
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
@@ -162,7 +165,7 @@ que no ha iniciado sesión (el rol `anon`).
 |---|---|---|
 | `competidores` | leer | crear, cambiar, borrar |
 | `visitas` | leer, crear | cambiar, borrar |
-| `fotos` | leer, crear | cambiar, borrar |
+| `fotos` | leer, crear, **quitar** (solo poner `descartada_at` en fotos `pendiente` no quitadas; 2026-11-23, `007`) | cambiar cualquier otra columna, restaurar, borrar |
 | Storage `fotos` | leer, subir archivos nuevos | reemplazar, borrar |
 
 **Consecuencia de diseño:** como `anon` no puede **cambiar** una visita, la visita se

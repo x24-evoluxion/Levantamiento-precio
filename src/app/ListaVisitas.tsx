@@ -3,6 +3,8 @@
 // Lista de visitas (la más reciente primero). Se lee desde el navegador cada vez
 // que se abre la página, para que siempre salgan las visitas nuevas.
 // "fotos(count)" le pide a Supabase el número de fotos de cada visita en la misma consulta.
+// El filtro "fotos.descartada_at is null" hace que ese número NO cuente las fotos quitadas
+// (solo filtra las fotos que se cuentan; las visitas salen todas).
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -39,6 +41,7 @@ export default function ListaVisitas() {
       const { data, error } = await supabase
         .from("visitas")
         .select("id, created_at, competidores(nombre), fotos(count)")
+        .is("fotos.descartada_at", null)
         .order("created_at", { ascending: false });
 
       if (cancelado) return;
