@@ -1304,7 +1304,8 @@ se borra), no un borrado físico.
   (h) el equipo sí restaura y la foto regresa a las vistas. Cada caso atrapa su error, así que
   **siempre** muestra la tabla con una fila `0. RESUMEN` y **siempre** termina con `rollback`.
 - App:
-  - `src/app/visitas/[id]/GaleriaFotos.tsx`: botón **"Quitar"** debajo de cada foto.
+  - `src/app/visitas/[id]/GaleriaFotos.tsx`: botón **"Quitar"** debajo de cada foto
+    (*reemplazado en el ajuste siguiente: botón ✕ arriba a la derecha, sin "Deshacer"*).
   - `src/app/visitas/[id]/ConfirmarQuitar.tsx` (nuevo): ventana "¿Quitar esta foto?".
   - `src/app/visitas/[id]/FotosVisita.tsx`: al confirmar, la foto se esconde y abajo sale
     **"Foto quitada. Deshacer"** por 5 segundos. Al terminar ese tiempo se guarda el descarte;
@@ -1351,4 +1352,47 @@ el archivo huérfano en el almacenamiento).
   app revisa cuántas filas cambiaron y, si fue ninguna, consulta el estado para dar el mensaje.
 
 **Commit:** ver `git log` — `Quitar fotos: descarte reversible (007), botón con deshacer y prueba`
+
+### Ajuste: botón ✕ en la esquina y guardado inmediato (2026-11-23)
+
+**Qué cambió (solo la app; la migración `007` y su prueba no cambian):** se volvió a pedir la
+fase "Quitar fotos de una visita" con estas diferencias respecto a lo anterior, y se ajustó la app:
+- **Botón:** ya no es "Quitar" debajo de la foto. Es un círculo negro semitransparente con
+  borde blanco y una **✕**, en la **esquina superior derecha** de cada miniatura, de 44 × 44 px,
+  con `aria-label="Quitar foto"`. Se ve sobre fotos claras y oscuras.
+- **Confirmación:** "¿Quitar esta foto?" con los botones **"Cancelar"** y **"Quitar"** (antes
+  "Sí, quitar"). Es el `<dialog>` propio de la app, con el estilo del tema. Cancelar o Escape:
+  no pasa nada.
+- **Guardado inmediato, sin "Deshacer":** al tocar "Quitar" se guarda el descarte en ese
+  momento. Mientras se guarda, la foto sigue a la vista con su botón desactivado (muestra "…"),
+  así que tocarlo varias veces no hace nada. Al guardarse, la foto desaparece y baja el
+  número de fotos de la visita. Si falla, o la foto ya no está pendiente, **la foto sigue a la
+  vista** y sale un mensaje en español. Se quitaron el aviso "Foto quitada. Deshacer", la
+  espera de 5 s y la pregunta del navegador al cerrar la pestaña.
+- **Lista de visitas:** sin cambios de código. Con `cacheComponents`, Next.js esconde la
+  lista con `<Activity>` en vez de desmontarla, y al volver a ella se repite su efecto, que vuelve
+  a leer el conteo (que ya no cuenta las fotos quitadas). Si se va de la visita con la ventana de
+  confirmación abierta, al volver aparece cerrada (`useLayoutEffect`, como dice
+  `preserving-ui-state.md`).
+- Archivos: `GaleriaFotos.tsx`, `ConfirmarQuitar.tsx`, `FotosVisita.tsx`. `src/lib/tipos.ts` ya
+  tenía `descartada_at` (lectura en `Foto`; `Update` solo con esa columna): sin cambios.
+
+**⚠️ ORDEN DE DESPLIEGUE (el mismo; no cambiar):**
+1. **Primero** el usuario ejecuta `supabase/007_descartar_fotos.sql` en el SQL Editor (agregar
+   una columna es inocuo para la app vieja) y revisa que la comprobación final salga toda `ok`.
+2. Ejecuta `supabase/pruebas/007_prueba_descartar_fotos.sql` (termina con `rollback`).
+3. **Después** hace push de la app.
+
+**Storage (sin cambios):** los archivos de las fotos descartadas **siguen en Storage** hasta la
+limpieza del punto de retención, que no está implementada. No hay borrado físico ni limpieza
+programada. Los archivos de Storage **solo se borran con la API de Storage, nunca con SQL**.
+
+**Cómo probarlo (después de 007 y del push):** abrir una visita → tocar la ✕ de una foto →
+"Cancelar" → la foto sigue. Tocar la ✕ → "Quitar" → el botón se desactiva un momento, la foto
+desaparece y baja "N fotos guardadas"; en Supabase la fila tiene `descartada_at` con la hora del
+servidor. Volver a la lista → la visita muestra una foto menos. Sin internet → "No se pudo
+quitar la foto…" y la foto sigue. `npm run lint` y `npm run build` pasan; **no probado en el
+navegador** (sin `007` ejecutada, la app nueva no puede leer fotos).
+
+**Commit:** ver `git log` — `Quitar fotos: botón ✕ en la esquina y guardado inmediato`
 

@@ -8,26 +8,24 @@
 //
 // QUITAR UNA FOTO (descarte, 007). No se borra nada: la foto se marca con
 // descartada_at y deja de mostrarse (se puede restaurar desde Supabase).
-//   1. "Quitar" → si la foto ya no está pendiente, solo se explica por qué no se puede.
+//   1. Botón ✕ "Quitar foto" → si la foto ya no está pendiente, solo se explica
+//      por qué no se puede.
 //   2. Si está pendiente → ventana "¿Quitar esta foto?" (ConfirmarQuitar).
-//   3. "Sí, quitar" → la foto se esconde y abajo sale "Foto quitada. Deshacer".
-//   4. A los 5 segundos se guarda el descarte en Supabase. Si antes toca
-//      "Deshacer", no se guarda nada y la foto vuelve.
-//   5. Si al guardar resulta que ya no se podía (por ejemplo, justo la mandaron
-//      a leer precios), la foto vuelve y se explica por qué.
-// Si sale de la pantalla antes de los 5 segundos, el descarte se guarda en ese
-// momento (ya lo había confirmado).
+//      "Cancelar" (o Escape) → no pasa nada.
+//   3. "Quitar" → se guarda el descarte en Supabase en ese momento. Mientras se
+//      guarda, la foto sigue a la vista con su botón desactivado (no se puede
+//      tocar dos veces).
+//   4. Si se guardó → la foto desaparece y baja el número de fotos.
+//      Si falló, o ya no se podía (por ejemplo, justo la mandaron a leer
+//      precios) → la foto sigue a la vista y se explica por qué.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { EstadoProcesoFoto, Foto } from "@/lib/tipos";
 import SubirFotos from "./SubirFotos";
 import GaleriaFotos from "./GaleriaFotos";
 import ConfirmarQuitar from "./ConfirmarQuitar";
 import TituloError, { IconoAlerta } from "@/components/TituloError";
-
-/** Tiempo para tocar "Deshacer" antes de que el descarte se guarde. */
-const ESPERA_DESHACER_MS = 5000;
 
 type Estado =
   | { tipo: "cargando" }
@@ -98,13 +96,18 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
   const [intento, setIntento] = useState(0);
   /** Foto en la ventana "¿Quitar esta foto?"; null = ventana cerrada. */
   const [porConfirmar, setPorConfirmar] = useState<Foto | null>(null);
-  /** Fotos quitadas que todavía se pueden deshacer (esperando los 5 segundos). */
-  const [porQuitar, setPorQuitar] = useState<Foto[]>([]);
-  /** Fotos cuyo descarte ya se guardó: no se vuelven a mostrar. */
+  /** Fotos cuyo descarte se está guardando (su botón queda desactivado). */
+  const [guardando, setGuardando] = useState<ReadonlySet<string>>(() => new Set());
+  /** Fotos cuyo descarte ya se guardó: no se vuelven a mostrar (aunque se recargue la lista). */
   const [quitadas, setQuitadas] = useState<ReadonlySet<string>>(() => new Set());
   const [aviso, setAviso] = useState<Aviso | null>(null);
-  /** Temporizador de 5 segundos de cada foto en "porQuitar". */
-  const temporizadores = useRef(new Map<string, { foto: Foto; id: ReturnType<typeof setTimeout> }>());
+  /** Texto para lectores de pantalla ("Foto quitada."). */
+  const [anuncio, setAnuncio] = useState("");
+
+  // Con cacheComponents, Next.js esconde esta pantalla (no la desmonta) al ir a
+  // otra. Si se fue con la ventana "¿Quitar esta foto?" abierta, al volver
+  // aparece cerrada (ver la doc de Next: preserving-ui-state.md).
+  useLayoutEffect(() => () => setPorConfirmar(null), []);
 
   useEffect(() => {
     let cancelado = false;
@@ -152,41 +155,6 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     [recargar],
   );
 
-  /** Pasaron los 5 segundos (o salió de la pantalla): se guarda el descarte. */
-  const terminarEspera = useCallback(async (foto: Foto) => {
-    temporizadores.current.delete(foto.id);
-    const resultado = await guardarDescarte(foto);
-    if (resultado.tipo === "quitada") {
-      setQuitadas((antes) => new Set(antes).add(foto.id));
-    } else {
-      setAviso(resultado);
-    }
-    // Se quita del aviso "Deshacer". Si no se pudo guardar, la foto vuelve a la galería.
-    setPorQuitar((lista) => lista.filter((f) => f.id !== foto.id));
-  }, []);
-
-  // Al salir de la pantalla, los descartes que estaban esperando se guardan ya.
-  useEffect(() => {
-    const mapa = temporizadores.current;
-    return () => {
-      for (const { foto, id } of mapa.values()) {
-        clearTimeout(id);
-        terminarEspera(foto);
-      }
-      mapa.clear();
-    };
-  }, [terminarEspera]);
-
-  // Si cierra o recarga la página mientras puede deshacer, el navegador pregunta antes
-  // (si se va de todas formas, la foto NO se quita).
-  const esperando = porQuitar.length > 0;
-  useEffect(() => {
-    if (!esperando) return;
-    const avisar = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", avisar);
-    return () => window.removeEventListener("beforeunload", avisar);
-  }, [esperando]);
-
   function alTocarQuitar(foto: Foto) {
     if (foto.estado_proceso !== "pendiente") {
       setAviso({ tipo: "aviso", texto: textoNoSePuedeQuitar(foto.estado_proceso) });
@@ -196,27 +164,29 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     setPorConfirmar(foto);
   }
 
-  function alConfirmarQuitar(foto: Foto) {
+  async function alConfirmarQuitar(foto: Foto) {
     setPorConfirmar(null);
-    if (temporizadores.current.has(foto.id)) return;
-    setPorQuitar((lista) => [...lista, foto]);
-    const id = setTimeout(() => terminarEspera(foto), ESPERA_DESHACER_MS);
-    temporizadores.current.set(foto.id, { foto, id });
+    if (guardando.has(foto.id)) return;
+    setAnuncio("");
+    setGuardando((antes) => new Set(antes).add(foto.id));
+    const resultado = await guardarDescarte(foto);
+    if (resultado.tipo === "quitada") {
+      setQuitadas((antes) => new Set(antes).add(foto.id));
+      setAnuncio("Foto quitada.");
+    } else {
+      setAviso(resultado);
+    }
+    setGuardando((antes) => {
+      const despues = new Set(antes);
+      despues.delete(foto.id);
+      return despues;
+    });
   }
 
-  function deshacer(foto: Foto) {
-    const t = temporizadores.current.get(foto.id);
-    if (!t) return; // ya se estaba guardando
-    clearTimeout(t.id);
-    temporizadores.current.delete(foto.id);
-    setPorQuitar((lista) => lista.filter((f) => f.id !== foto.id));
-  }
-
-  const escondidas = new Set([...quitadas, ...porQuitar.map((f) => f.id)]);
-  const visibles = estado.tipo === "ok" ? estado.fotos.filter((f) => !escondidas.has(f.id)) : [];
+  const visibles = estado.tipo === "ok" ? estado.fotos.filter((f) => !quitadas.has(f.id)) : [];
 
   return (
-    <section className={`flex flex-col gap-3 ${esperando ? "pb-28" : ""}`}>
+    <section className="flex flex-col gap-3">
       <h2 className="text-2xl font-bold">Fotos</h2>
 
       <SubirFotos visitaId={visitaId} alSubir={alSubir} />
@@ -262,7 +232,9 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
         </div>
       )}
 
-      {estado.tipo === "ok" && <GaleriaFotos fotos={visibles} alQuitar={alTocarQuitar} />}
+      {estado.tipo === "ok" && (
+        <GaleriaFotos fotos={visibles} alQuitar={alTocarQuitar} guardando={guardando} />
+      )}
 
       <ConfirmarQuitar
         foto={porConfirmar}
@@ -270,28 +242,9 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
         alCancelar={() => setPorConfirmar(null)}
       />
 
-      {/* Aviso "Foto quitada. Deshacer", fijo abajo de la pantalla (uno por foto). */}
-      <div
-        role="status"
-        aria-live="polite"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-10 mx-auto flex w-full max-w-md flex-col gap-2 px-4 pb-4"
-      >
-        {porQuitar.map((f) => (
-          <div
-            key={f.id}
-            className="pointer-events-auto flex items-center justify-between gap-3 rounded-xl bg-texto px-4 py-3 text-fondo shadow-lg"
-          >
-            <span className="text-lg font-semibold">Foto quitada.</span>
-            <button
-              type="button"
-              onClick={() => deshacer(f)}
-              className="min-h-11 rounded-lg bg-fondo px-4 py-2 text-lg font-bold text-texto active:bg-gris"
-            >
-              Deshacer
-            </button>
-          </div>
-        ))}
-      </div>
+      <p role="status" aria-live="polite" className="sr-only">
+        {anuncio}
+      </p>
     </section>
   );
 }

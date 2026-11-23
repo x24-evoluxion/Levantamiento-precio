@@ -1,6 +1,6 @@
 "use client";
 
-// Ventana "¿Quitar esta foto?" que aparece al tocar "Quitar" debajo de una foto.
+// Ventana "¿Quitar esta foto?" que aparece al tocar el botón ✕ de una foto.
 // Usa <dialog>, igual que la foto en grande: queda encima de todo y se cierra
 // también con la tecla Escape (eso cuenta como "Cancelar").
 /* eslint-disable @next/next/no-img-element */
@@ -44,7 +44,7 @@ export default function ConfirmarQuitar({ foto, alConfirmar, alCancelar }: Props
             className="max-h-56 w-full rounded-lg border-2 border-borde bg-tarjeta object-contain"
           />
           <p className="text-lg text-texto-suave">
-            Ya no se verá en esta visita. Después de quitarla tendrás unos segundos para deshacerlo.
+            Ya no se verá en esta visita.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <button
@@ -59,7 +59,7 @@ export default function ConfirmarQuitar({ foto, alConfirmar, alCancelar }: Props
               onClick={() => alConfirmar(foto)}
               className="boton-primario rounded-xl px-4 py-3 text-lg font-bold"
             >
-              Sí, quitar
+              Quitar
             </button>
           </div>
         </div>

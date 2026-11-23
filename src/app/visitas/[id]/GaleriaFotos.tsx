@@ -2,8 +2,8 @@
 
 // Galería de miniaturas de una visita. Al tocar una, se abre grande en pantalla
 // completa, con botones para cerrar y pasar a la anterior o la siguiente.
-// Debajo de cada miniatura hay un botón "Quitar" (lo que pasa después lo decide
-// FotosVisita: confirmación, aviso para deshacer y guardado).
+// Arriba a la derecha de cada miniatura hay un botón ✕ "Quitar foto" (lo que pasa
+// después lo decide FotosVisita: confirmación y guardado).
 //
 // La foto grande usa <dialog>, una ventana que ya trae el navegador: se pone
 // encima de todo y se cierra también con la tecla Escape.
@@ -20,11 +20,13 @@ import type { Foto } from "@/lib/tipos";
 
 type Props = {
   fotos: Foto[];
-  /** Se llama al tocar "Quitar" debajo de una foto. */
+  /** Se llama al tocar el botón ✕ "Quitar foto" de una miniatura. */
   alQuitar: (foto: Foto) => void;
+  /** Fotos cuyo descarte se está guardando: su botón queda desactivado. */
+  guardando: ReadonlySet<string>;
 };
 
-export default function GaleriaFotos({ fotos, alQuitar }: Props) {
+export default function GaleriaFotos({ fotos, alQuitar, guardando }: Props) {
   // Id de la foto abierta en grande; null = ninguna. Se guarda el id (y no la
   // posición) para que, si llega una foto nueva mientras está abierta, no cambie.
   const [abiertaId, setAbiertaId] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export default function GaleriaFotos({ fotos, alQuitar }: Props) {
 
       <ul className="grid grid-cols-3 gap-2">
         {fotos.map((f, i) => (
-          <li key={f.id} className="flex flex-col gap-1">
+          <li key={f.id} className="relative">
             <button
               type="button"
               onClick={() => setAbiertaId(f.id)}
@@ -90,13 +92,33 @@ export default function GaleriaFotos({ fotos, alQuitar }: Props) {
                 className="h-full w-full object-cover"
               />
             </button>
+            {/* Botón "Quitar foto": esquina superior derecha, 44 × 44 px (size-11).
+                Círculo negro semitransparente con borde blanco: se ve sobre
+                cualquier foto, clara u oscura. */}
             <button
               type="button"
               onClick={() => alQuitar(f)}
-              className="boton-gris min-h-11 w-full rounded-lg px-2 py-1 text-base font-semibold"
-              aria-label={`Quitar foto ${i + 1} de ${fotos.length}`}
+              disabled={guardando.has(f.id)}
+              aria-busy={guardando.has(f.id)}
+              aria-label="Quitar foto"
+              title="Quitar foto"
+              className="absolute top-1 right-1 flex size-11 items-center justify-center rounded-full border-2 border-white/80 bg-black/60 text-white shadow-md outline-offset-2 active:bg-black/80 disabled:opacity-50 focus-visible:outline-3 focus-visible:outline-marca"
             >
-              Quitar
+              {guardando.has(f.id) ? (
+                <span aria-hidden="true" className="text-base font-bold">…</span>
+              ) : (
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className="size-6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              )}
             </button>
           </li>
         ))}
