@@ -21,6 +21,7 @@
 | — | Quitar fotos (descarte reversible) — fuera del plan original | ✅ (cerrada el 2026-11-23, ver su sección) |
 | — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | ✅ (cerrada el 2026-11-24: `008`, `008b` y `009` ejecutadas, pruebas ok; ver su sección) |
 | — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
+| — | Entrar con usuario (`<usuario>@x24.com.mx`) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -94,6 +95,15 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - **Deshacer `009` solo en emergencia:** `supabase/reversa_009.sql` devuelve a `anon` sus permisos
   y reglas y pone el bucket público. Para volver a cerrar: ejecutar `009` otra vez y su prueba.
   Ver la sección "Archivo de reversa de 009".
+- **Convención de usuarios:** las cuentas del personal se crean en el panel de Supabase con el
+  correo `<usuario>@x24.com.mx` (usuario de 3 a 30 caracteres: `a-z`, `0-9`, `.`, `_`, `-`, en
+  minúsculas). En la app se entra solo con `<usuario>`. El dominio vive en
+  `src/lib/usuarios.ts` (`DOMINIO_INTERNO`). Ver la sección "Entrar con usuario".
+- ⚠️ **No borrar cuentas que ya tienen visitas.** `visitas.usuario_id` y `fotos.subida_por` usan
+  `on delete set null`: al borrar la cuenta, sus visitas quedan **sin dueño** (solo las ve el
+  admin y ya no se sabe quién las hizo). Para quitarle el acceso a alguien, bloquear la cuenta en
+  lugar de borrarla. Ojo: **cambiar la contraseña no cierra** las sesiones ya abiertas en su
+  celular (la sesión se renueva sola).
 
 ---
 
@@ -1779,3 +1789,82 @@ las pruebas pasaron. `reversa_009.sql` **no** se ejecutó.
 (este push lo publica); el registro de correcciones del admin sigue como opcional.
 
 **Commit:** ver `git log` — `Cerrar fase de autenticación: PROGRESO, RESUMEN y PLAN al día`
+
+---
+
+## Entrar con usuario (2026-11-24) — 🟡 falta prueba del usuario y despliegue
+
+**Qué se pidió:** que el personal entre con un **usuario** corto en vez de un correo. Solo cambio
+de app: **no** se tocaron tablas, reglas ni migraciones, **no** se ejecutó nada en Supabase,
+**no** se instaló nada. Dominio interno confirmado por el usuario: **`x24.com.mx`**.
+
+**Qué se hizo:**
+- **Convención:** cuenta en Supabase = `<usuario>@x24.com.mx`. La pantalla "Entrar" tiene un solo
+  campo **"Usuario o correo"** y la contraseña.
+  - Con `@` → se usa como correo tal cual (así siguen entrando el admin y las cuentas de antes).
+  - Sin `@` → se quitan los espacios, se pasa a minúsculas y se exige `[a-z0-9._-]` de 3 a 30
+    caracteres. Si no cumple, se muestra un mensaje en español **sin llamar a Supabase**. Si
+    cumple, se entra con `<usuario>@x24.com.mx`.
+  - Si falla el acceso: **"Usuario o contraseña incorrectos."** (no dice cuál de los dos). Los
+    avisos de red, demasiados intentos y cuenta desactivada siguen igual.
+- **Gestor de contraseñas:** `<form>` real con botón de envío; campo usuario con
+  `name="username"`, `autoComplete="username"`, `autoCapitalize="none"`, `autoCorrect="off"`,
+  `spellCheck={false}`; contraseña con `name="password"` y `autoComplete="current-password"`.
+- **Último usuario:** se guarda en `localStorage` (`levantamiento:ultimo-usuario`) al tocar
+  "Entrar" y se precarga en el campo. **Nunca** la contraseña. Lectura y escritura con
+  `try/catch` (modo privado o almacenamiento bloqueado → simplemente no se precarga).
+- **Qué se muestra:** en el encabezado y en "Creada por" (lista y detalle del admin) se ve el
+  **usuario** (lo de antes de la `@`) si el correo termina en `@x24.com.mx`; si no, el correo
+  completo.
+
+**Sesión (revisado, sin cambios):**
+- `src/lib/supabase.ts` ya tenía `persistSession: true` y `autoRefreshToken: true`.
+- Duración con la configuración por defecto de Supabase (el proyecto no tiene
+  `supabase/config.toml`; los valores reales están en el panel → Authentication → Sessions, que el
+  agente **no** revisó): el pase (JWT) dura **1 hora** y se renueva solo; el *refresh token* no
+  caduca y "Time-box" / "Inactivity timeout" vienen apagados. O sea, **la sesión dura
+  indefinidamente** mientras no se cierre.
+- Lo único en la app que cierra la sesión: **"Cerrar sesión"** y el botón **"Iniciar sesión otra
+  vez"**, que solo aparece cuando la sesión **ya** caducó (lo toca la persona). Fuera de la app
+  la pueden terminar: desactivar o borrar la cuenta, o cerrar sesión en otra pestaña del mismo
+  navegador.
+- Riesgo conocido: **Safari en iPhone** borra el `localStorage` de un sitio que no se abre en
+  **7 días** (si la app no está agregada a la pantalla de inicio). Quien no use la app en una
+  semana tendrá que volver a entrar; con el gestor de contraseñas es un toque.
+
+**Archivos creados o cambiados:**
+- `src/lib/usuarios.ts` — nuevo: `DOMINIO_INTERNO`, `correoParaEntrar()` y `nombreVisible()`.
+- `src/components/PantallaEntrar.tsx` — campo "Usuario o correo", validación, mensaje genérico,
+  atributos para el gestor de contraseñas, último usuario.
+- `src/components/PuertaSesion.tsx` — encabezado con `nombreVisible()`.
+- `src/lib/correos.ts` — "Creada por" con `nombreVisible()`.
+- `docs/PROGRESO.md`, `docs/RESUMEN_PROYECTO.md` — convención de usuarios y aviso de no borrar
+  cuentas con visitas.
+
+**Pasos del usuario:**
+1. En Supabase → Authentication → Users → **Add user**: correo `juan.perez@x24.com.mx` (ejemplo),
+   contraseña, y marcar que quede confirmado (*Auto Confirm User*).
+2. En el celular, abrir la app → escribir `juan.perez` y la contraseña → **Entrar**. El celular
+   debe ofrecer guardar la contraseña.
+3. Comprobar: arriba dice `juan.perez`; en la cuenta de admin, "Creada por" de sus visitas dice
+   `juan.perez`.
+
+**Cómo probarlo:**
+1. Escribir `ju` → "El usuario no es válido…" (no se llama a Supabase).
+2. Contraseña equivocada → "Usuario o contraseña incorrectos."
+3. Entrar con el correo completo del admin → sigue funcionando.
+4. Cerrar sesión → el campo ya trae el último usuario escrito.
+5. Cerrar la pestaña y volver a abrir el link → sigue la sesión.
+
+**Decisiones tomadas (y por qué):**
+- Lo que se recuerda es el usuario **ya normalizado** (o el correo si llevaba `@`), igual que lo
+  que se manda a Supabase.
+- El correo con `@` solo se recorta de espacios al inicio y al final; no se pasa a minúsculas
+  (Supabase ya compara correos sin importar mayúsculas).
+- Se dejaron los mensajes de "cuenta desactivada" y "sin confirmar": Supabase solo los da con la
+  contraseña correcta, así que no revelan nada a quien adivina.
+
+**Pendiente:** confirmar en el panel de Supabase cómo **bloquear** una cuenta sin borrarla (y que
+eso cierre sus sesiones), para el caso de alguien que deja de trabajar.
+
+**Commit:** ver `git log` — `Entrar con usuario: <usuario>@x24.com.mx, gestor de contraseñas y último usuario`

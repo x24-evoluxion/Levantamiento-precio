@@ -29,6 +29,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 | Etapa 2, base: tablas de lectura, catálogo propio, equivalencias, vista de comparación | Terminada y probada con datos inventados |
 | Quitar fotos de una visita (descarte reversible, migración 007) | Terminado, ejecutado y probado en el celular (2026-11-23) |
 | Login y dueño de cada visita (migraciones 008, 008b y 009) | **Terminado (2026-11-24).** Migraciones ejecutadas y probadas: login obligatorio, `anon` sin acceso y bucket privado |
+| Entrar con **usuario** (`<usuario>@x24.com.mx`), solo cambio de app | Hecho (2026-11-24); falta probar en el celular y publicar |
 | Etapa 2, agentes: lectura de fotos con la API de Claude | **No iniciada.** Las fases de agentes solo empiezan cuando se piden |
 | Cambios pedidos en revisión (sección 8.3) | Por decidir o por implementar |
 
@@ -39,7 +40,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 ### 3.1 Flujo del equipo de campo (etapa 1, ya funciona)
 
 1. La persona toma sus fotos con la **cámara normal** del celular. No se toman desde la app, por compatibilidad entre teléfonos.
-2. Abre el link de la app y **entra con su correo y contraseña** (solo la primera vez: la sesión queda guardada en el celular hasta que toque **Cerrar sesión**). Luego toca **Nueva visita**.
+2. Abre el link de la app y **entra con su usuario y contraseña** (solo la primera vez: la sesión queda guardada en el celular hasta que toque **Cerrar sesión**). Luego toca **Nueva visita**.
 3. Elige la tienda en una lista que viene de la tabla `competidores`.
 4. Toca **Guardar mi ubicación**. El navegador pide permiso y obtiene latitud, longitud y precisión. Nadie escribe coordenadas. Si la precisión es peor que 100 m, la app avisa. Si se niega el permiso, explica cómo activarlo en iPhone y Android y permite reintentar.
 5. Toca **Guardar visita**. El botón solo se activa cuando ya hay tienda y ubicación.
@@ -48,12 +49,12 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 8. Cada foto tiene una **✕ arriba a la derecha**. Al tocarla aparece "¿Quitar esta foto?" con **Cancelar** y **Quitar**. Al confirmar, la foto se *descarta* (se oculta, no se borra el archivo). Solo se pueden quitar fotos que aún no leyó un agente.
 9. **Volver a la lista** muestra **sus** visitas, la más reciente primero. Se puede entrar a cualquiera de ellas y agregar más fotos.
 
-**Login (desde 2026-11-24; reemplaza la decisión "sin login"):** sin sesión la app no muestra nada; cada persona entra con correo y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). Hay dos roles:
+**Login (desde 2026-11-24; reemplaza la decisión "sin login"):** sin sesión la app no muestra nada; cada persona entra con su **usuario** (o su correo) y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). Hay dos roles:
 
 | Rol | Qué ve | Qué puede hacer desde la app |
 |---|---|---|
 | **Campo** (cualquier cuenta sin rol admin) | "Mis visitas": **solo sus** visitas y sus fotos | Crear visitas (quedan a su nombre), subir fotos a sus visitas y quitar fotos pendientes de sus visitas |
-| **Admin** (`app_metadata.rol = 'admin'`) | "Todas las visitas", incluidas las de antes del login (sin dueño), con el **correo** de quien creó cada una, y la sección "Fotos quitadas" | Lo mismo que campo en cualquier visita, más **corregir la tienda** de una visita y **restaurar** fotos quitadas |
+| **Admin** (`app_metadata.rol = 'admin'`) | "Todas las visitas", incluidas las de antes del login (sin dueño), con el **usuario** (o el correo) de quien creó cada una, y la sección "Fotos quitadas" | Lo mismo que campo en cualquier visita, más **corregir la tienda** de una visita y **restaurar** fotos quitadas |
 
 Las fotos se muestran con **URLs firmadas** (links temporales de 24 h) porque el bucket es privado.
 
@@ -237,7 +238,10 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 ## 6. Seguridad
 
 **Cuentas y roles (desde 2026-11-24, migraciones 008 y 009)**
-- Se entra con **correo y contraseña** (Supabase Auth). No hay registro público: las cuentas las crea el responsable en el panel.
+- Se entra con **usuario o correo, y contraseña** (Supabase Auth). No hay registro público: las cuentas las crea el responsable en el panel.
+- **Convención de usuarios:** cada cuenta del personal se crea con el correo `<usuario>@x24.com.mx`. El usuario va en minúsculas, de 3 a 30 caracteres, solo `a-z`, `0-9`, `.`, `_` y `-` (ej. `juan.perez`). En la app se escribe solo `juan.perez`; si lo escrito lleva `@`, se usa como correo tal cual (así entran el admin y las cuentas de antes). El dominio está en un solo lugar: `DOMINIO_INTERNO` en `src/lib/usuarios.ts`. En pantalla se muestra el usuario si el correo es del dominio interno; si no, el correo completo.
+- Si falla el acceso, el mensaje es genérico ("Usuario o contraseña incorrectos"). El celular recuerda solo el último usuario escrito (nunca la contraseña), y la pantalla está hecha para que el gestor de contraseñas del teléfono la guarde.
+- ⚠️ **No borrar cuentas que ya tienen visitas:** sus visitas quedan sin dueño (`on delete set null`) y se pierde quién las hizo. Para quitar el acceso, bloquear la cuenta. Cambiar la contraseña **no** cierra las sesiones ya abiertas.
 - **Admin** = cuenta con `app_metadata.rol = 'admin'`. Solo el dueño lo puede poner (con SQL). **Nunca** se usa `user_metadata` para permisos, porque cada persona lo puede editar.
 - El rol viaja en el JWT (el "pase" que dura 1 hora y se renueva solo): si se cambia el rol de alguien, se nota cuando vuelve a entrar o, como máximo, en 1 hora.
 
@@ -248,7 +252,7 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - No modifica visitas ni ninguna otra columna. No borra nada.
 
 **Admin**
-- Ve **todas** las visitas y fotos, incluidas las de antes del login (sin dueño), y el correo de quien creó cada una.
+- Ve **todas** las visitas y fotos, incluidas las de antes del login (sin dueño), y el usuario (o correo) de quien creó cada una.
 - Quita fotos pendientes de cualquier visita. Corrige la tienda y restaura fotos **solo con funciones** que revisan `es_admin()`; no tiene permiso general para modificar.
 
 **Sin sesión (`anon`)**
@@ -276,8 +280,9 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 
 **Límites conocidos**
 - La sesión se guarda en el navegador del celular. En un celular compartido hay que tocar **Cerrar sesión**.
+- Con la configuración por defecto de Supabase la sesión no caduca (el pase de 1 hora se renueva solo). Safari en iPhone borra los datos de un sitio que no se abre en 7 días: quien no use la app en una semana tendrá que volver a entrar.
 - Un link de foto copiado sirve hasta 24 h.
-- Borrar una cuenta deja sus visitas sin dueño (solo las ve el admin).
+- Borrar una cuenta deja sus visitas sin dueño (solo las ve el admin). Por eso **no se borran** cuentas con visitas.
 - ⚠️ **No volver a ejecutar `008_autenticacion.sql` después de `008b`:** regresa las reglas con el ciclo y guardar una visita vuelve a fallar. Si pasa, ejecutar `008b` otra vez.
 - **No** se deben volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`: vuelven a abrir permisos a `anon`.
 - `supabase/reversa_009.sql` deshace 009 (devuelve `anon` y el bucket público). **Solo para emergencias**; no está ejecutado.
@@ -295,6 +300,7 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 | Las visitas de antes del login quedan sin dueño | No se sabe quién las hizo | Solo las ve el admin |
 | El admin edita con **funciones** (corregir tienda, restaurar foto), no con permiso general | Las reglas filtran filas, no columnas | Cada edición nueva del admin es una función nueva |
 | Se muestra el **correo** de quien creó la visita (solo al admin) | Sale solo de la cuenta; no hay que capturar nada | La app lo pide con `admin_correos_usuarios` |
+| Entrar con **usuario**: cuenta = `<usuario>@x24.com.mx` (2026-11-24) | Más fácil de escribir en el celular; Supabase solo entra con correo | Las cuentas se crean con ese correo. El dominio vive en `src/lib/usuarios.ts`. En pantalla se muestra el usuario |
 | Dos migraciones: 008 (agrega) y 009 (cierra a `anon`) | Que la app publicada no se rompa durante el cambio | Ejecutadas en ese orden (con 008b entre ellas) el 2026-11-24 |
 | Reglas RLS que no leen otras tablas: usan funciones del esquema `privado` (008b) | Evitar el ciclo de reglas ("infinite recursion") | No volver a ejecutar 008 después de 008b |
 | Sesión solo en el navegador, sin librerías nuevas | Todos los datos ya se leían desde el navegador | La seguridad la dan las reglas de la base, no las páginas |

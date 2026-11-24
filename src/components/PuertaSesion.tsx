@@ -5,9 +5,10 @@
 //
 //   1. Al abrir la app → "Revisando tu sesión…" mientras la librería lee la sesión
 //      guardada en el celular (y la renueva si hace falta).
-//   2. Sin sesión → pantalla "Entrar" (correo y contraseña). Las pantallas de la app
+//   2. Sin sesión → pantalla "Entrar" (usuario o correo, y contraseña). Las pantallas de la app
 //      ni siquiera se crean, así que no se consulta nada sin sesión.
-//   3. Con sesión → arriba, el correo y "Cerrar sesión"; abajo, la pantalla pedida.
+//   3. Con sesión → arriba, el usuario (o el correo si no es del dominio interno,
+//      ver src/lib/usuarios.ts) y "Cerrar sesión"; abajo, la pantalla pedida.
 //
 // SESIÓN CADUCADA: si la sesión termina mientras se usa la app (la cuenta se
 // desactivó, se cerró en otra pestaña o ya no se pudo renovar), la librería avisa con
@@ -24,6 +25,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { SesionContexto, usuarioDeSesion, type Usuario } from "@/lib/sesion";
+import { nombreVisible } from "@/lib/usuarios";
 import PantallaEntrar from "./PantallaEntrar";
 
 function mismoUsuario(a: Usuario | null, b: Usuario): boolean {
@@ -102,7 +104,7 @@ export default function PuertaSesion({ children }: { children: React.ReactNode }
             <header className="mx-auto w-full max-w-md px-4 pt-4">
               <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-borde bg-tarjeta px-3 py-2">
                 <p className="min-w-0 text-base text-texto-suave">
-                  <span className="block truncate">{usuario.correo}</span>
+                  <span className="block truncate">{nombreVisible(usuario.correo)}</span>
                   {usuario.esAdmin && <span className="block font-semibold text-texto">Administrador</span>}
                 </p>
                 <button

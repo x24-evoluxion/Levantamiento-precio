@@ -7,6 +7,7 @@
 
 import { supabase } from "./supabase";
 import type { Usuario } from "./sesion";
+import { nombreVisible } from "./usuarios";
 
 /** null = no se pudieron leer (se muestra un texto genérico). */
 export type Correos = ReadonlyMap<string, string> | null;
@@ -17,10 +18,11 @@ export async function leerCorreos(): Promise<Correos> {
   return new Map(data.map((u) => [u.usuario_id, u.correo]));
 }
 
-/** Texto "creada por" de una visita. */
+/** Texto "creada por" de una visita (usuario si es del dominio interno; si no, el correo). */
 export function textoCreador(usuarioId: string | null, correos: Correos, yo: Usuario): string {
   if (!usuarioId) return "Sin usuario (visita de antes del login)";
-  if (usuarioId === yo.id) return `Tú (${yo.correo})`;
+  if (usuarioId === yo.id) return `Tú (${nombreVisible(yo.correo)})`;
   if (!correos) return "Otra persona (no se pudo leer su correo)";
-  return correos.get(usuarioId) ?? "Cuenta borrada o desconocida";
+  const correo = correos.get(usuarioId);
+  return correo ? nombreVisible(correo) : "Cuenta borrada o desconocida";
 }
