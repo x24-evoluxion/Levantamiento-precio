@@ -106,6 +106,10 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (3) volver a probar en la app guardar una visita con la cuenta de admin y con una de campo;
       (4) seguir con `009` como estaba. **No volver a ejecutar `008` después de `008b`** (regresa
       el ciclo; si pasa, ejecutar `008b` otra vez).
+- [ ] **(Autenticación, emergencia) Deshacer `009`:** `supabase/reversa_009.sql` (2026-11-24).
+      **No se ejecuta salvo emergencia.** Devuelve a `anon` sus permisos y reglas y pone el bucket
+      público. Para volver a cerrar: ejecutar `009` otra vez y su prueba. Ver la sección
+      "Archivo de reversa de 009".
 - [ ] **(Autenticación) No volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`
       después de `009`:** vuelven a crear permisos y reglas de `anon`. La comprobación final de
       `007` ya no sale toda `ok` después de `008` (espera que `authenticated` no pueda cambiar
@@ -1722,3 +1726,61 @@ No se probó en el celular ni contra Supabase real.
   `src/lib/errores.ts` también ahí.
 
 **Commit:** ver `git log` — `Mensajes de error: distinguir red, sesión caducada y error de Supabase`
+
+---
+
+## Archivo de reversa de 009 (2026-11-24) — ✅ listo, NO ejecutado (solo para emergencia)
+
+**Qué se pidió:** antes de que el usuario ejecute `009`, tener un archivo para deshacerla si algo
+sale mal. `supabase/reversa_009.sql` **no existía**; se creó. **No se ejecutó en Supabase.**
+`009_cerrar_anon.sql` no se tocó (su comentario todavía dice "se haría con un archivo nuevo": ese
+archivo es este).
+
+**Qué hace `supabase/reversa_009.sql`** (una transacción; se puede repetir):
+- BLOQUE 0. Freno: si no está `008` (columna `usuario_id`, regla "authenticated lee sus visitas")
+  o no existe el bucket `fotos`, se detiene sin cambiar nada.
+- BLOQUE 1. Permisos de `anon`, iguales a los de antes de `009`: leer las 3 tablas; crear visitas
+  con 5 columnas (las de `001` menos `competidor_elegido_at`, borrada en `003`); crear fotos con 6
+  columnas (`001` + `002`); cambiar solo `descartada_at` (`007`). Nunca `usuario_id`,
+  `subida_por`, `DELETE` ni `TRUNCATE`.
+- BLOQUE 2. Las 6 reglas RLS de `anon` (copiadas de `001` y `007`).
+- BLOQUE 3. Las 2 reglas de Storage de `anon` (leer y subir, de `001`).
+- BLOQUE 4. Bucket `fotos` público otra vez (mismos límites).
+- BLOQUE 5. Comprobación (solo lee): 12 filas, todas `ok = true`.
+- No toca `authenticated`, el admin, las funciones, `privado` (`008b`) ni la Etapa 2.
+
+**Resultados en local (PGlite, NO es Supabase; mismo arnés que `008b`):**
+- Foto del estado de `anon` (permisos de tabla y columna, reglas, bucket y reglas de
+  `authenticated`) después de `001`–`008b` vs. después de `009` + reversa dos veces:
+  **0 diferencias** (67 filas iguales).
+- Reversa: 12/12 `ok` (dos veces seguidas). Prueba `008` después de la reversa: todo `ok`
+  (incluye los casos "antes de 009", en los que `anon` usa la app).
+- Volver a cerrar: `009` otra vez → 12/12; prueba `009` y prueba `008` → todo `ok`.
+- Freno: sin `008`, se detiene con su mensaje.
+- Límites: Storage en local es una tabla mínima (sin la API, sin URLs públicas ni firmadas).
+
+**Qué pasa con las URLs firmadas si se usa:**
+- **Siguen funcionando.** La app con login las pide con la sesión (`createSignedUrls`, 24 h) y eso
+  depende de las reglas de Storage de `authenticated`, que la reversa no toca. Una URL firmada
+  sirve igual con el bucket público o privado. Las ya entregadas valen hasta que caducan. No hay
+  que cambiar ni volver a publicar la app.
+- **Pero ya no protegen nada:** con el bucket público, cada foto también abre con su link
+  público permanente (`/storage/v1/object/public/fotos/...`), sin sesión y sin caducar, y `anon`
+  puede leer y listar fotos con la llave pública. Los links públicos viejos vuelven a funcionar.
+
+**Cuándo sirve (y cuándo no):**
+- Sirve si hay que **regresar en Vercel a la app vieja (sin login)**, o si la app con login
+  resulta hacer alguna consulta sin sesión.
+- **No arregla** un problema de la app con login causado por las reglas de `authenticated`
+  (`009` no las toca y la reversa tampoco). La app nueva siempre pide entrar, haya o no reversa.
+- Mientras esté deshecha: las visitas creadas sin sesión quedan con `usuario_id` vacío; en la app
+  con login solo el admin las ve.
+
+**Archivos creados o cambiados:**
+- `supabase/reversa_009.sql` — nuevo.
+- `docs/PROGRESO.md` — pendiente y esta sección.
+
+**Pasos del usuario:** ninguno ahora. Seguir con `009` como dice la sección de Autenticación. Si
+algo sale mal: SQL Editor → `supabase/reversa_009.sql` → 12 filas `ok = true`.
+
+**Commit:** ver `git log` — `Agregar reversa_009.sql para deshacer 009 en emergencia (no ejecutado)`
