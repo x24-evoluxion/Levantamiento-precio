@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import { COLOR_FONDO } from "@/lib/colores";
+import PuertaSesion from "@/components/PuertaSesion";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,7 +33,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="es" className={`${geistSans.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-fondo text-texto">{children}</body>
+      <body className="min-h-full flex flex-col bg-fondo text-texto">
+        {/* Todas las pantallas exigen sesión (correo y contraseña). */}
+        <PuertaSesion>{children}</PuertaSesion>
+      </body>
     </html>
   );
 }

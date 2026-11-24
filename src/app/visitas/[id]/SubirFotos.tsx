@@ -5,6 +5,8 @@
 // crea una fila en la tabla "fotos", con la hora en que se tomó (si el archivo la trae).
 //
 // Si una foto falla, las demás se siguen subiendo, y esa se puede reintentar sola.
+// Desde 008, la base solo deja subir fotos a las visitas propias (el admin, a
+// cualquiera); quién la subió (subida_por) lo pone el servidor.
 // Cada foto que queda guardada se avisa con "alSubir" para que aparezca en la galería.
 
 import { useEffect, useRef, useState } from "react";
@@ -88,7 +90,7 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
       av.ruta ??= rutaFoto(visitaId, av.preparada.extension);
       const { error } = await supabase.storage.from(BUCKET_FOTOS).upload(av.ruta, av.preparada.blob, {
         contentType: av.preparada.tipo,
-        upsert: false, // "anon" no puede reemplazar archivos
+        upsert: false, // nadie puede reemplazar archivos (no hay regla de UPDATE en Storage)
         cacheControl: "31536000", // la foto nunca cambia: el celular la puede guardar en caché
       });
       // "Ya existe": un intento anterior sí la subió, aunque no llegó la respuesta.

@@ -7,9 +7,6 @@
 // achica la foto para que quepa: solo baja la calidad. Si el navegador no sabe
 // abrir el formato, se lanza ErrorFoto con un mensaje en español para el usuario.
 
-import { supabase } from "./supabase";
-import { BUCKET_FOTOS } from "./tipos";
-
 // Tamaño pensado para que Claude lea las etiquetas (Etapa 2, PLAN_ETAPA2 sección 3).
 // Documentación de visión revisada el 2026-11-23 (sin cambios desde el 2026-11-20):
 // los modelos de alta resolución aprovechan hasta 2576 px de lado mayor Y hasta 4784
@@ -159,13 +156,8 @@ export function rutaFoto(visitaId: string, extension: string): string {
   return `visitas/${visitaId}/${nuevoUuid()}.${extension}`;
 }
 
-/**
- * Dirección pública (URL) de una foto del bucket. El bucket es público para leer,
- * así que no hace falta pedir permiso: la URL se arma sin consultar al servidor.
- */
-export function urlFoto(ruta: string): string {
-  return supabase.storage.from(BUCKET_FOTOS).getPublicUrl(ruta).data.publicUrl;
-}
+// Los links para MOSTRAR las fotos ya no se arman aquí: son URLs firmadas que se
+// piden con la sesión de la persona (src/lib/urlsFirmadas.ts, 2026-11-24).
 
 /** Convierte un error de Supabase (Storage o tabla) en un mensaje en español. */
 export function mensajeErrorSubida(error: { message?: string; statusCode?: string | number } | null): string {
@@ -181,7 +173,7 @@ export function mensajeErrorSubida(error: { message?: string; statusCode?: strin
     return "El servidor no aceptó el formato de la foto. Intenta con otra foto.";
   }
   if (texto.includes("row-level security") || texto.includes("policy") || codigo === "403") {
-    return "El servidor no permitió guardar la foto. Avisa al responsable de la app.";
+    return "El servidor no permitió guardar la foto. Si tu sesión terminó, vuelve a entrar; si sigue igual, avisa al responsable de la app.";
   }
   return `No se pudo subir la foto. Toca «Reintentar». (Detalle: ${error?.message || "desconocido"})`;
 }

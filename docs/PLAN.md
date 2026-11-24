@@ -26,14 +26,23 @@ Flujo del usuario:
 
 Cada paso guarda **fecha y hora** de forma automática (timestamps).
 
+> **Cambio del 2026-11-24 — Autenticación y propiedad de visitas** (fase fuera del plan
+> original; reemplaza la decisión "sin login"). Antes del paso 2, la persona **entra con su
+> correo y contraseña** (Supabase Auth). Cada quien ve **solo sus visitas** (el paso 7 dice
+> "cualquiera" de las suyas). Un **admin** ve todas. Detalle en la sección 4.3 y en
+> `docs/PROGRESO.md` ("Autenticación y propiedad de visitas").
+
 ### Fuera de alcance (no lo hagas)
-- **Login de usuarios.** La app es abierta: cualquiera con el link puede usarla.
+- ~~**Login de usuarios.** La app es abierta: cualquiera con el link puede usarla.~~
+  *(Reemplazado el 2026-11-24: ahora hay login con correo y contraseña. Sigue fuera de
+  alcance el **registro público**: las cuentas las crea el dueño en el panel de Supabase.)*
 - **Etapa 2:** convertir las fotos en una tabla de artículos y precios, y la revisión
   de esa información. Las tablas sí deben permitir agregarla después sin rehacer nada.
 - Nombre de la sucursal. Solo importa su ubicación.
 - Editar o borrar visitas o fotos desde la app. *(Excepción del 2026-11-23: se pueden **quitar**
   fotos pendientes, como descarte reversible — `fotos.descartada_at`, `supabase/007_descartar_fotos.sql`.
-  No se borra nada.)*
+  No se borra nada. Excepción del 2026-11-24, **solo el admin**: corregir la tienda de una visita
+  y restaurar fotos quitadas, con funciones SQL — `supabase/008_autenticacion.sql`.)*
 
 ---
 
@@ -50,7 +59,7 @@ proponer otro lenguaje o framework.**
 | Base de datos | **Supabase** (tablas Postgres) |
 | Archivos (fotos) | **Supabase Storage**, bucket `fotos` |
 | Despliegue | **Vercel** |
-| Usuarios | **Sin login** |
+| Usuarios | ~~**Sin login**~~ → **Login con correo y contraseña** (Supabase Auth, sin registro público; cambio del 2026-11-24). Rol admin en `app_metadata.rol = 'admin'` |
 | Gestor de paquetes | **npm** |
 
 Si necesitas instalar **cualquier otra librería**, primero explícale al usuario para
@@ -110,6 +119,7 @@ qué sirve y espera a que diga que sí.
 | ~~`competidor_elegido_at`~~ | ~~`timestamptz`~~ | **Se quita en la Etapa 2 (E2-1).** La app ya no la escribe ni la lee; la columna se borra con `supabase/003_quitar_competidor_elegido_at.sql` (lo ejecuta el usuario **después** de desplegar la app nueva) |
 | `ubicacion_at` | `timestamptz` | Momento en que guardó la ubicación (reloj del celular) |
 | `created_at` | `timestamptz`, default `now()` | Momento en que se guardó la visita (reloj del servidor, es el dato confiable) |
+| `usuario_id` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | **2026-11-24 (`008`).** Quién creó la visita. La pone el servidor; la app no puede mandarla. Nula = visita de antes del login (solo la ve el admin) o cuenta borrada |
 
 **`fotos`**: una fila por cada foto subida.
 
@@ -124,6 +134,7 @@ qué sirve y espera a que diga que sí.
 | `capturada_origen` | `text` no nulo, default `'sin_dato'` | **Etapa 2 (E2-1).** `exif`, `exif_zona_celular` o `sin_dato` |
 | `created_at` | `timestamptz`, default `now()` | Hora de **subida** (reloj del servidor) |
 | `descartada_at` | `timestamptz` | **2026-11-23 (`007`).** Hora (reloj del servidor, la pone un *trigger*) en que alguien **quitó** la foto desde la app. Nula = a la vista. Descarte reversible: no se borra la fila ni el archivo |
+| `subida_por` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | **2026-11-24 (`008`).** Quién subió la foto. La pone el servidor; la app no puede mandarla |
 
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
@@ -143,8 +154,12 @@ qué sirve y espera a que diga que sí.
 
 ### 4.2 Storage
 
-- Bucket: **`fotos`**, **público para lectura**. Es lo más simple para mostrar las
-  imágenes y son fotos de anaqueles, no datos sensibles.
+- Bucket: **`fotos`**, ~~**público para lectura**. Es lo más simple para mostrar las
+  imágenes y son fotos de anaqueles, no datos sensibles.~~ **Privado desde la migración
+  `009_cerrar_anon.sql` (2026-11-24).** La app muestra las fotos con **URLs firmadas** que
+  pide con la sesión de la persona; duran **24 horas** y se renuevan solas antes de caducar
+  (`src/lib/urlsFirmadas.ts`). Mientras no caduca, un link copiado abre la foto para
+  cualquiera. Entre `008` y `009` el bucket sigue público, y la app nueva funciona igual.
 - Ruta de cada foto: **`visitas/<visita_id>/<uuid-nuevo>.jpg`**. Así todas las fotos
   de una visita quedan en su propia carpeta, y el nombre único evita que una foto
   reemplace a otra.
@@ -156,21 +171,46 @@ qué sirve y espera a que diga que sí.
 - **Solo imágenes:** tipos permitidos (`allowed_mime_types`): `image/jpeg`,
   `image/png`, `image/webp`. Cualquier otro tipo de archivo, Supabase lo rechaza.
 
-### 4.3 Seguridad sin login (RLS)
+### 4.3 Seguridad con login (RLS) — vigente desde el 2026-11-24
 
-RLS ("Row Level Security") son reglas en Supabase que dicen qué puede hacer alguien
-que no ha iniciado sesión (el rol `anon`).
+RLS ("Row Level Security") son reglas en Supabase que dicen qué filas puede ver o tocar
+cada quien. Desde `008`, la app usa el rol **`authenticated`** (persona con sesión). El
+rol **`anon`** (la llave pública **sin** sesión) se queda **sin ningún permiso** con
+`009`. **Admin** = cuenta con `app_metadata.rol = 'admin'` (solo lo pone el dueño en el
+panel; **nunca** se usa `user_metadata`, que cada persona puede editar). Lo revisa la
+función `es_admin()`, que lee el JWT.
 
-| Recurso | `anon` puede… | `anon` NO puede… |
+| Recurso | Personal de campo puede… | Admin además puede… | Nadie puede (desde la app) |
+|---|---|---|---|
+| `competidores` | leer los activos y los de sus visitas | (lo mismo) | crear, cambiar, borrar |
+| `visitas` | leer **las suyas**, crear (queda a su nombre solo) | leer **todas** (también las sin dueño); **corregir la tienda** con `admin_cambiar_competidor` | cambiar columnas directo, crear a nombre de otro, borrar |
+| `fotos` | leer y subir fotos de **sus** visitas; **quitar** (`descartada_at`) fotos `pendiente` de sus visitas | leer todas; quitar pendientes de cualquier visita; **restaurar** con `admin_restaurar_foto` | cambiar otra columna, restaurar sin la función, borrar |
+| Storage `fotos` | leer y subir en `visitas/<uuid de SU visita>/<uuid>.jpg` | leer todo; subir a cualquier visita | reemplazar, borrar |
+| Correos de las cuentas | — | verlos con `admin_correos_usuarios` (quién creó cada visita) | — |
+| Tablas, vistas y funciones de la Etapa 2 | nada | **nada** (también cerradas para el admin dentro de la app) | — |
+| `anon` (sin sesión) | Antes de `009`: lo de la tabla de abajo (la app vieja). Después de `009`: **nada** | | |
+
+Las reglas filtran **filas**; las **columnas** las limitan los permisos (`grant`) por
+columna. Por eso el admin **no** tiene `update` general: sus cambios van por funciones
+`security definer` que primero revisan `es_admin()`.
+
+*Histórico (antes del login):*
+
+| Recurso | `anon` podía… | `anon` NO podía… |
 |---|---|---|
 | `competidores` | leer | crear, cambiar, borrar |
 | `visitas` | leer, crear | cambiar, borrar |
 | `fotos` | leer, crear, **quitar** (solo poner `descartada_at` en fotos `pendiente` no quitadas; 2026-11-23, `007`) | cambiar cualquier otra columna, restaurar, borrar |
 | Storage `fotos` | leer, subir archivos nuevos | reemplazar, borrar |
 
-**Consecuencia de diseño:** como `anon` no puede **cambiar** una visita, la visita se
-guarda **de una sola vez** (competidor + ubicación + timestamps) cuando el usuario
-toca "Guardar visita". Antes de eso, todo vive en la pantalla.
+**Consecuencia de diseño (sigue igual):** como nadie puede **cambiar** una visita desde la
+app (salvo el admin, solo la tienda), la visita se guarda **de una sola vez** (competidor +
+ubicación + timestamps) cuando el usuario toca "Guardar visita". Antes de eso, todo vive en
+la pantalla.
+
+⚠️ **Después de `009`, no vuelvas a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`:**
+vuelven a crear permisos y reglas de `anon` (abrirían la base sin sesión). Si hiciera falta
+algo de ellos, va en un archivo nuevo.
 
 ### 4.4 Archivos SQL (se ejecutan a mano en el SQL Editor de Supabase)
 
@@ -207,9 +247,10 @@ Lista **provisional** (el usuario la confirmará después):
 
 | Ruta | Qué muestra |
 |---|---|
-| `/` | Lista de visitas (la más reciente primero): competidor, fecha y hora, número de fotos. Botón grande **"Nueva visita"**. |
+| *(todas)* | **Desde 2026-11-24:** sin sesión, cualquier ruta muestra **"Entrar"** (correo y contraseña; "¿No tienes cuenta? Pide tu acceso al responsable."). Con sesión, arriba se ve el correo y **"Cerrar sesión"** (`src/components/PuertaSesion.tsx`). |
+| `/` | Lista de visitas (la más reciente primero): competidor, fecha y hora, número de fotos. Botón grande **"Nueva visita"**. Campo: "Mis visitas". Admin: "Todas las visitas", con quién creó cada una. |
 | `/visitas/nueva` | Selector de competidor, botón **"Guardar mi ubicación"**, botón **"Guardar visita"**. Al guardar, lleva a la pantalla de la visita. |
-| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. |
+| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. Admin: "Creada por", **"Corregir tienda"** y la sección **"Fotos quitadas"** con "Restaurar". |
 
 Guía de diseño:
 - Pensada para **celular primero**: botones grandes y fáciles de tocar con el pulgar,
@@ -374,3 +415,4 @@ que se sepa de dónde salió cada una.
 |---|---|---|
 | Las fotos HEIC/HEIF de iPhone se convierten a JPEG en el navegador antes de subirlas. Primero se intenta con lo que trae el navegador (canvas) y solo si no basta se propone una librería, con permiso del usuario. Si una foto no se puede convertir, se avisa y se suben las demás. | Decisión nuestra (2026-11-18), **no viene de la grabación**. Motivo: el bucket solo acepta JPEG, PNG y WebP, y parte del equipo usa iPhone. | Fase 5 |
 | La app **no debe aparecer en buscadores** (noindex), porque es de uso interno. Se hace con `robots: { index: false, follow: false }` en `src/app/layout.tsx` y el encabezado `X-Robots-Tag: noindex, nofollow` en todas las respuestas (`next.config.ts`). **No** se usa `Disallow` en `robots.txt`, porque eso impide que el buscador vea el aviso. Las fotos viven en Supabase Storage (otro dominio) y no reciben este encabezado; sus links solo aparecen dentro de la app. | Pedido del usuario (2026-11-18), **no viene de la grabación**. | Fase 7 |
+| **Login con correo y contraseña** (Supabase Auth, sin registro público). Rol admin en `app_metadata.rol = 'admin'` (nunca `user_metadata`). Personal de campo: solo sus visitas y fotos; crea visitas, sube fotos a las suyas y quita fotos pendientes de las suyas. Admin: ve todo; desde la app corrige la tienda, quita cualquier foto pendiente y restaura fotos quitadas; ve el **correo** de quien creó cada visita. Las visitas de antes quedan sin dueño (solo las ve el admin). Bucket **privado** con **URLs firmadas de 24 h** que se renuevan solas. Sesión solo en el navegador (supabase-js, sin librerías nuevas). Dos migraciones: `008` (aditiva) y `009` (quita a `anon`; se ejecuta después de probar la app nueva). | Pedido del usuario (2026-11-24), **no viene de la grabación**. Reemplaza "sin login". Las preguntas (qué edita el admin en la app, cómo se muestra quién creó la visita y cuánto duran los links) las respondió el usuario ese día. | Fase "Autenticación y propiedad de visitas" (`PROGRESO.md`) |

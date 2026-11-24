@@ -18,13 +18,24 @@
 //   4. Si se guardó → la foto desaparece y baja el número de fotos.
 //      Si falló, o ya no se podía (por ejemplo, justo la mandaron a leer
 //      precios) → la foto sigue a la vista y se explica por qué.
+//
+// QUIÉN PUEDE QUÉ (lo decide la base de datos, 008): el personal de campo quita
+// fotos pendientes de SUS visitas; el admin, de cualquier visita. Solo el admin ve
+// las fotos quitadas (sección "Fotos quitadas") y las puede RESTAURAR, con la
+// función admin_restaurar_foto.
+//
+// Los links de las fotos son URLs firmadas (src/lib/urlsFirmadas.ts): se piden aquí
+// una sola vez para todas las fotos y se pasan a la galería y a las ventanas.
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { useSesion } from "@/lib/sesion";
+import { useUrlsFirmadas } from "@/lib/urlsFirmadas";
 import type { EstadoProcesoFoto, Foto } from "@/lib/tipos";
 import SubirFotos from "./SubirFotos";
 import GaleriaFotos from "./GaleriaFotos";
 import ConfirmarQuitar from "./ConfirmarQuitar";
+import FotosQuitadas from "./FotosQuitadas";
 import TituloError, { IconoAlerta } from "@/components/TituloError";
 
 type Estado =
@@ -37,6 +48,9 @@ type Aviso = { tipo: "aviso" | "error"; texto: string };
 
 /** Resultado de intentar guardar un descarte. */
 type Resultado = { tipo: "quitada" } | Aviso;
+
+/** Lista vacía fija (para no crear una nueva en cada pantalla). */
+const SIN_FOTOS: Foto[] = [];
 
 /** La más reciente primero, sin repetir (por si una foto llega dos veces). */
 function ordenar(fotos: Foto[]): Foto[] {
@@ -91,15 +105,32 @@ async function guardarDescarte(foto: Foto): Promise<Resultado> {
   }
 }
 
+/** Restaura una foto quitada (solo admin; la base lo revisa). */
+async function guardarRestauracion(foto: Foto): Promise<Aviso | null> {
+  try {
+    const { error } = await supabase.rpc("admin_restaurar_foto", { p_foto_id: foto.id });
+    if (!error) return null;
+    if (error.code === "42501") return { tipo: "error", texto: "Solo el administrador puede restaurar fotos." };
+    throw error;
+  } catch {
+    return {
+      tipo: "error",
+      texto: "No se pudo restaurar la foto. Revisa tu conexión a internet e inténtalo otra vez.",
+    };
+  }
+}
+
 export default function FotosVisita({ visitaId }: { visitaId: string }) {
+  const { usuario } = useSesion();
+  const esAdmin = usuario.esAdmin;
   const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
   const [intento, setIntento] = useState(0);
   /** Foto en la ventana "¿Quitar esta foto?"; null = ventana cerrada. */
   const [porConfirmar, setPorConfirmar] = useState<Foto | null>(null);
   /** Fotos cuyo descarte se está guardando (su botón queda desactivado). */
   const [guardando, setGuardando] = useState<ReadonlySet<string>>(() => new Set());
-  /** Fotos cuyo descarte ya se guardó: no se vuelven a mostrar (aunque se recargue la lista). */
-  const [quitadas, setQuitadas] = useState<ReadonlySet<string>>(() => new Set());
+  /** Fotos que el admin está restaurando (su botón queda desactivado). */
+  const [restaurando, setRestaurando] = useState<ReadonlySet<string>>(() => new Set());
   const [aviso, setAviso] = useState<Aviso | null>(null);
   /** Texto para lectores de pantalla ("Foto quitada."). */
   const [anuncio, setAnuncio] = useState("");
@@ -113,21 +144,21 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     let cancelado = false;
 
     async function cargar() {
-      const { data, error } = await supabase
-        .from("fotos")
-        .select("*")
-        .eq("visita_id", visitaId)
-        .is("descartada_at", null) // las fotos quitadas no se muestran
-        .order("created_at", { ascending: false });
+      let consulta = supabase.from("fotos").select("*").eq("visita_id", visitaId);
+      // Las fotos quitadas no se muestran. El admin sí las lee, para poder restaurarlas.
+      if (!esAdmin) consulta = consulta.is("descartada_at", null);
+      const { data, error } = await consulta.order("created_at", { ascending: false });
 
       if (cancelado) return;
       if (error) {
         setEstado({ tipo: "error", detalle: error.message || "Error desconocido" });
       } else {
-        // Si mientras cargaba ya se subió alguna foto, no se pierde.
+        // Si mientras cargaba ya se subió alguna foto, no se pierde. Si una foto viene
+        // en las dos listas, gana la del servidor (va al final: ordenar() se queda con
+        // la última), por si otra persona (por ejemplo, el admin) la quitó o restauró.
         setEstado((antes) => ({
           tipo: "ok",
-          fotos: ordenar([...data, ...(antes.tipo === "ok" ? antes.fotos : [])]),
+          fotos: ordenar([...(antes.tipo === "ok" ? antes.fotos : []), ...data]),
         }));
       }
     }
@@ -136,9 +167,21 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     return () => {
       cancelado = true;
     };
-  }, [visitaId, intento]);
+  }, [visitaId, intento, esAdmin]);
 
   const recargar = useCallback(() => setIntento((n) => n + 1), []);
+
+  /** Cambia descartada_at de una foto en pantalla (después de guardarlo en Supabase). */
+  const marcar = useCallback((id: string, descartadaAt: string | null) => {
+    setEstado((antes) =>
+      antes.tipo === "ok"
+        ? {
+            tipo: "ok",
+            fotos: antes.fotos.map((f) => (f.id === id ? { ...f, descartada_at: descartadaAt } : f)),
+          }
+        : antes,
+    );
+  }, []);
 
   // SubirFotos avisa aquí cada vez que una foto queda guardada.
   // Si no trae la fila (por ejemplo, la registró un intento anterior), se vuelve a leer la lista.
@@ -171,7 +214,7 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     setGuardando((antes) => new Set(antes).add(foto.id));
     const resultado = await guardarDescarte(foto);
     if (resultado.tipo === "quitada") {
-      setQuitadas((antes) => new Set(antes).add(foto.id));
+      marcar(foto.id, new Date().toISOString());
       setAnuncio("Foto quitada.");
     } else {
       setAviso(resultado);
@@ -183,7 +226,29 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     });
   }
 
-  const visibles = estado.tipo === "ok" ? estado.fotos.filter((f) => !quitadas.has(f.id)) : [];
+  async function alRestaurar(foto: Foto) {
+    if (restaurando.has(foto.id)) return;
+    setAnuncio("");
+    setAviso(null);
+    setRestaurando((antes) => new Set(antes).add(foto.id));
+    const problema = await guardarRestauracion(foto);
+    if (problema) {
+      setAviso(problema);
+    } else {
+      marcar(foto.id, null);
+      setAnuncio("Foto restaurada.");
+    }
+    setRestaurando((antes) => {
+      const despues = new Set(antes);
+      despues.delete(foto.id);
+      return despues;
+    });
+  }
+
+  const todas = estado.tipo === "ok" ? estado.fotos : SIN_FOTOS;
+  const visibles = todas.filter((f) => !f.descartada_at);
+  const quitadasLista = esAdmin ? todas.filter((f) => f.descartada_at) : SIN_FOTOS;
+  const urls = useUrlsFirmadas([...visibles, ...quitadasLista].map((f) => f.ruta));
 
   return (
     <section className="flex flex-col gap-3">
@@ -232,14 +297,31 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
         </div>
       )}
 
+      {urls.fallo && (
+        <p role="status" className="caja-aviso">
+          No se pudieron cargar las imágenes. Revisa tu conexión: se vuelve a intentar sola en
+          unos segundos.
+        </p>
+      )}
+
       {estado.tipo === "ok" && (
-        <GaleriaFotos fotos={visibles} alQuitar={alTocarQuitar} guardando={guardando} />
+        <GaleriaFotos fotos={visibles} alQuitar={alTocarQuitar} guardando={guardando} urls={urls} />
+      )}
+
+      {estado.tipo === "ok" && esAdmin && (
+        <FotosQuitadas
+          fotos={quitadasLista}
+          restaurando={restaurando}
+          alRestaurar={alRestaurar}
+          urls={urls}
+        />
       )}
 
       <ConfirmarQuitar
         foto={porConfirmar}
         alConfirmar={alConfirmarQuitar}
         alCancelar={() => setPorConfirmar(null)}
+        urls={urls}
       />
 
       <p role="status" aria-live="polite" className="sr-only">

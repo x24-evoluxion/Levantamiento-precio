@@ -1,16 +1,21 @@
 // Tipos de TypeScript de las tablas de Supabase (escritos a mano).
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
 // (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql,
-// 007_descartar_fotos.sql).
+// 007_descartar_fotos.sql, 008_autenticacion.sql).
 // Si cambias una tabla, cambia también este archivo.
 //
 // Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
 // están aquí: la app no puede verlas. Sus tipos viven en src/lib/etapa2/tipos.ts.
 //
+// Desde 008 se entra con correo y contraseña: la app usa el rol "authenticated".
 //   Row    → cómo llega una fila al LEERLA
-//   Insert → qué se manda al CREAR una fila (solo las columnas que "anon" puede llenar)
-//   Update → qué puede CAMBIAR "anon". Vacío a propósito, salvo en fotos: solo
-//            descartada_at (quitar una foto pendiente; 007). No puede restaurarla.
+//   Insert → qué se manda al CREAR una fila (solo las columnas que la app puede llenar).
+//            El dueño (visitas.usuario_id, fotos.subida_por) NO está: lo pone el servidor.
+//   Update → qué puede CAMBIAR la app. Vacío a propósito, salvo en fotos: solo
+//            descartada_at (quitar una foto pendiente de una visita propia; el admin, de
+//            cualquiera). Nadie la puede restaurar así: el admin usa admin_restaurar_foto.
+//   Functions → funciones de la base que la app puede llamar con supabase.rpc(). Las
+//            admin_* revisan en la base que quien llama sea admin (si no, error 42501).
 //
 // Las fechas (timestamptz) llegan como texto ISO en UTC, ej. "2026-11-18T17:05:00+00:00".
 
@@ -47,6 +52,8 @@ export type Database = {
           precision_metros: number | null;
           ubicacion_at: string | null;
           created_at: string;
+          /** 008: quién creó la visita. null = visita de antes del login (o cuenta borrada). */
+          usuario_id: string | null;
         };
         Insert: {
           competidor_id: number;
@@ -90,6 +97,8 @@ export type Database = {
            * null = a la vista. La app solo lee fotos con null.
            */
           descartada_at: string | null;
+          /** 008: quién subió la foto. null = foto de antes del login (o cuenta borrada). */
+          subida_por: string | null;
         };
         Insert: {
           visita_id: string;
@@ -118,7 +127,22 @@ export type Database = {
       };
     };
     Views: SinCambios;
-    Functions: SinCambios;
+    Functions: {
+      /** true si quien llama es admin (app_metadata.rol = 'admin' en su JWT). */
+      es_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      /** Admin: corrige la tienda de una visita (solo a un competidor activo). */
+      admin_cambiar_competidor: {
+        Args: { p_visita_id: string; p_competidor_id: number };
+        Returns: undefined;
+      };
+      /** Admin: vuelve a poner a la vista una foto quitada. */
+      admin_restaurar_foto: { Args: { p_foto_id: string }; Returns: undefined };
+      /** Admin: id y correo de cada cuenta (para mostrar quién creó cada visita). */
+      admin_correos_usuarios: {
+        Args: Record<PropertyKey, never>;
+        Returns: { usuario_id: string; correo: string }[];
+      };
+    };
     Enums: SinCambios;
     CompositeTypes: SinCambios;
   };

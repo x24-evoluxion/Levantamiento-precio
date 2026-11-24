@@ -18,7 +18,8 @@
 | 7 | Pulido móvil y despliegue | ✅ |
 | — | Ajuste visual (tema oscuro) | ✅ |
 | — | Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB, tema claro | 🟡 falta prueba del usuario |
-| — | Quitar fotos (descarte reversible) — fuera del plan original | 🟡 falta que el usuario ejecute `007` y la prueba, y despliegue |
+| — | Quitar fotos (descarte reversible) — fuera del plan original | ✅ (cerrada el 2026-11-23, ver su sección) |
+| — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | 🟡 falta: `008` + prueba, push, prueba con cuentas, `009` + prueba |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -86,10 +87,24 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
 - [ ] **(Etapa 2, E2-4) Confirmar con el responsable de los datos el umbral de `en_linea`**
       (hoy ±3 %: índice entre −3 y +3, PLAN_ETAPA2 5.9). Si cambia, se ajusta la vista
       `comparacion_precios` en una migración nueva.
-- [ ] **(Quitar fotos, 2026-11-23) Pasos del usuario, EN ESTE ORDEN:** (1) ejecutar
+- [x] **(Quitar fotos, 2026-11-23) Pasos del usuario, EN ESTE ORDEN:** (1) ejecutar
       `supabase/007_descartar_fotos.sql` (todas las filas `ok = true`); (2) ejecutar
       `supabase/pruebas/007_prueba_descartar_fotos.sql` (fila `0. RESUMEN` con `ok = true`);
-      (3) **después** hacer push de la app. Ver la sección "Quitar fotos" al final.
+      (3) **después** hacer push de la app. Hecho el 2026-11-23 (ver la sección "Quitar fotos").
+- [ ] **(Autenticación, 2026-11-24) Pasos del usuario, EN ESTE ORDEN** (detalle en la sección
+      "Autenticación y propiedad de visitas" al final): (1) crear las cuentas y ponerle
+      `rol = admin` a la del dueño; (2) ejecutar `supabase/008_autenticacion.sql` (A) y
+      `supabase/pruebas/008_prueba_autenticacion.sql`; (3) push y **Ready** en Vercel;
+      (4) probar con una cuenta de campo y con la de admin; (5) ejecutar
+      `supabase/009_cerrar_anon.sql` (B) y `supabase/pruebas/009_prueba_sin_anon.sql`.
+      **Después de B, el link sin sesión deja de funcionar.**
+- [ ] **(Autenticación) No volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`
+      después de `009`:** vuelven a crear permisos y reglas de `anon`. La comprobación final de
+      `007` ya no sale toda `ok` después de `008` (espera que `authenticated` no pueda cambiar
+      fotos y que haya una sola regla de UPDATE); es normal.
+- [ ] **(Autenticación, opcional) Registro de correcciones del admin.** Hoy
+      `admin_cambiar_competidor` cambia la tienda sin dejar rastro de quién ni cuándo. Si hace
+      falta auditar, se agregan columnas en un SQL nuevo.
 - [ ] **(Punto de retención, pendiente) Limpieza de fotos descartadas.** Los archivos de las
       fotos quitadas **siguen en Storage**. Se borrarán en la limpieza del punto de retención
       (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
@@ -1401,3 +1416,151 @@ navegador** (sin `007` ejecutada, la app nueva no puede leer fotos).
 
 **Commit:** ver `git log` — `Quitar fotos: botón ✕ en la esquina y guardado inmediato`
 
+
+---
+
+## Autenticación y propiedad de visitas (2026-11-24) — 🟡 falta que el usuario ejecute `008`, despliegue, pruebe y ejecute `009`
+
+Fase nueva, **fuera del plan original**, pedida por el usuario. **Reemplaza la decisión "sin
+login".** **No** se ejecutó nada en Supabase, **no** se leyó `.env.local`, **no** se usa la
+secret key en la app, **no** se empezaron fases 🤖 ni se llamó a la API de Anthropic.
+
+**Decisiones del usuario (2026-11-24):**
+1. Login con **correo y contraseña** (Supabase Auth). Sin registro público (ya estaba
+   desactivado). Las cuentas las crea el dueño en el panel.
+2. **Admin** = `app_metadata.rol = 'admin'`. **Nunca** `user_metadata` (cada quien lo edita).
+3. **Personal de campo:** ve SOLO sus visitas y las fotos de esas visitas; crea visitas; sube
+   fotos a SUS visitas; quita (descarta) fotos pendientes de SUS visitas; no modifica visitas
+   ni otra columna; no borra.
+4. **Admin:** ve todas las visitas y fotos (también las sin dueño). Preguntas respondidas:
+   - (a) Desde la app: **corregir la tienda**, **quitar cualquier foto pendiente** y
+     **restaurar fotos quitadas**. Lo demás se queda en el panel de Supabase.
+   - (b) Quién creó cada visita: se muestra el **correo** de la cuenta.
+   - (c) URLs firmadas: duran **24 horas**.
+5. Etapa 2 sigue cerrada para `anon` **y** `authenticated` (también el admin en la app).
+6. Las visitas de antes quedan con `usuario_id` nulo: solo las ve el admin.
+7. Bucket **privado** (en `009`); la app muestra las fotos con URLs firmadas.
+
+**Qué se hizo:**
+- `supabase/008_autenticacion.sql` (**migración A, aditiva**; la app actual sigue funcionando):
+  - `visitas.usuario_id` y `fotos.subida_por` (`uuid` → `auth.users`, `on delete set null`,
+    default `auth.uid()`, con índice). Se agregan **sin** default y luego se pone el default,
+    para que las filas viejas queden en null. Sin `grant insert` de esas columnas: nadie puede
+    mandar el dueño.
+  - `es_admin()`: lee `app_metadata.rol` del JWT. `authenticated` la puede usar; `anon` no.
+  - Permisos por columna para `authenticated` (los mismos de `anon` + `update (descartada_at)`).
+  - Reglas RLS de `authenticated`: competidores (activos + los de sus visitas, para que una
+    visita vieja de una tienda desactivada siga mostrando el nombre), visitas (leer las suyas
+    o todas si es admin; crear solo a su nombre con tienda activa), fotos (leer y crear en sus
+    visitas o en cualquiera si es admin; quitar solo `pendiente` no quitadas, sin restaurar).
+  - Storage: `authenticated` lee archivos de sus visitas (admin: todos) y sube solo a
+    `visitas/<uuid de SU visita>/<uuid>.<ext>` (admin: a cualquier visita). Sin UPDATE/DELETE.
+  - Funciones `security definer` que revisan `es_admin()` primero (si no, error 42501):
+    `admin_cambiar_competidor`, `admin_restaurar_foto`, `admin_correos_usuarios`.
+  - Comprobación final (solo lee): 20 filas `ok`.
+- `supabase/009_cerrar_anon.sql` (**migración B, restrictiva**): freno si falta A; quita a
+  `anon` todo permiso y las 6 reglas de las 3 tablas y las 2 de Storage; bucket privado;
+  comprobación final de `anon` y `authenticated` (12 filas `ok`).
+- `supabase/pruebas/008_prueba_autenticacion.sql`: 41 casos con usuarios inventados creados
+  **dentro de la transacción** en `auth.users` (correos `@ejemplo.invalid`), simulando cada
+  persona con `set local role authenticated` + `request.jwt.claims`. Cubre: un usuario no ve
+  visitas de otro; el admin ve todas; `user_metadata.rol` no da admin; no se crea una visita a
+  nombre de otro; descarta solo sus fotos pendientes; no restaura ni modifica otras columnas;
+  no borra; funciones del admin (y que el personal no las puede usar); correos; tiendas;
+  Storage; Etapa 2 cerrada para el admin; `anon` sin `es_admin`; y (solo antes de `009`) que
+  `anon` sigue funcionando. Termina con `rollback`.
+- `supabase/pruebas/009_prueba_sin_anon.sql`: 12 casos: `anon` no lee, no crea, no quita, no ve
+  ni sube archivos; bucket privado; una cuenta con sesión sigue funcionando. Termina con `rollback`.
+- App (sin librerías nuevas; solo `@supabase/supabase-js`, que ya estaba):
+  - `src/lib/supabase.ts`: `persistSession: true`, `autoRefreshToken: true`,
+    `detectSessionInUrl: false`.
+  - `src/components/PuertaSesion.tsx` (nuevo, en `src/app/layout.tsx`): ninguna ruta se
+    muestra sin sesión. Arriba: correo, "Administrador" si aplica y **"Cerrar sesión"**
+    (`signOut({ scope: "local" })`, funciona sin internet, y recarga la app). **Sesión
+    caducada:** al recibir `SIGNED_OUT` sin haber tocado "Cerrar sesión", muestra "Entrar" con
+    "Tu sesión terminó" y **esconde** (no borra) la pantalla de antes; si vuelve a entrar la
+    misma persona, sigue donde estaba; si entra otra cuenta, recarga la página.
+  - `src/components/PantallaEntrar.tsx` (nuevo): correo, contraseña con "Mostrar/Ocultar",
+    mensajes de error en español (credenciales, sin conexión, cuenta desactivada, demasiados
+    intentos). Sin registro: "¿No tienes cuenta? Pide tu acceso al responsable."
+  - `src/lib/sesion.ts` (nuevo): `useSesion()` → `{ usuario: { id, correo, esAdmin }, cerrarSesion }`.
+  - `src/lib/urlsFirmadas.ts` (nuevo): `useUrlsFirmadas(rutas)` pide links de 24 h con
+    `createSignedUrls` y los renueva cuando les queda menos de 1 h (temporizador, al volver a
+    la pestaña y si una imagen no carga). Funciona con el bucket público y con el privado.
+    Se quitó `urlFoto` (`getPublicUrl`) de `src/lib/fotos.ts`.
+  - `src/lib/correos.ts` (nuevo): correos de las cuentas (solo admin) y texto "creada por".
+  - Lista (`ListaVisitas.tsx`, `page.tsx`): "Mis visitas" / "Todas las visitas"; el admin ve
+    "👤 correo" (o "Tú", o "Sin usuario (visita de antes del login)").
+  - Visita (`DetalleVisita.tsx`, `CorregirTienda.tsx` nuevo, `FotosVisita.tsx`,
+    `FotosQuitadas.tsx` nuevo, `GaleriaFotos.tsx`, `ConfirmarQuitar.tsx`): el admin ve
+    "Creada por", "Corregir tienda (admin)" y "Fotos quitadas (N)" con "Restaurar". Las fotos
+    usan URLs firmadas. Una visita ajena dice "no existe o no es tuya".
+  - `src/lib/tipos.ts`: `usuario_id`, `subida_por` y las 4 funciones.
+  - `noindex` sin cambios (verificado en el HTML del build).
+- Docs: `PLAN.md` (decisiones, 4.1, 4.2, 4.3, 5 y 8), `PLAN_ETAPA2.md` (tabla 5.0) y
+  `RESUMEN_PROYECTO.md`.
+
+**⚠️ ORDEN DE DESPLIEGUE (no cambiar):**
+0. **Cuentas** (panel de Supabase → **Authentication → Users → Add user → Create new user**):
+   escribe correo y contraseña y marca **Auto Confirm User** (si no, al entrar sale "Tu cuenta
+   todavía no está confirmada"). Una por persona de campo y una para el dueño.
+   Para hacer **admin** la cuenta del dueño, en **SQL Editor** (cambia el correo):
+   `update auth.users set raw_app_meta_data = raw_app_meta_data || '{"rol": "admin"}' where email = 'correo-del-dueño';`
+   Comprueba: `select email, raw_app_meta_data ->> 'rol' from auth.users;` → solo el dueño dice `admin`.
+1. **Yo (usuario) ejecuto A:** `supabase/008_autenticacion.sql` → todas las filas `ok = true`.
+   Luego `supabase/pruebas/008_prueba_autenticacion.sql` → fila `0. RESUMEN` con `ok = true`
+   (41 casos). La app publicada (sin login) sigue funcionando igual.
+2. **Push** de la app y esperar **Ready** en Vercel (Deployments).
+3. **Probar** con una cuenta de campo y con la de admin (ver "Cómo probarlo").
+4. **Yo ejecuto B:** `supabase/009_cerrar_anon.sql` → todas las filas `ok = true`. Luego
+   `supabase/pruebas/009_prueba_sin_anon.sql` → `0. RESUMEN` con `ok = true`. (Opcional:
+   volver a correr la prueba `008`: deben salir 39 casos, sin los dos de "antes de 009".)
+   **Después de B, el link sin sesión deja de funcionar** y los links públicos viejos de
+   fotos dejan de abrir.
+
+**Cómo probarlo (paso 3):**
+1. Abrir el link en el celular → sale **"Entrar"**. Contraseña mala → "Correo o contraseña
+   incorrectos…".
+2. Entrar con la cuenta de **campo** → "Mis visitas" vacía (las de antes no tienen dueño).
+   Crear una visita, subir 2 fotos (se ven), quitar una con la ✕ → desaparece.
+3. Cerrar la pestaña y volver a abrir el link → **sigue la sesión** (no pide entrar).
+4. "Cerrar sesión" → "Entrar". Entrar con la cuenta de **admin** → "Todas las visitas": las
+   de antes ("Sin usuario…") y la nueva con el correo de la cuenta de campo.
+5. Como admin, en la visita nueva: "Corregir tienda (admin)" → elegir otra → "Guardar" → cambia
+   el título. "Fotos quitadas (1) — admin" → "Restaurar" → la foto vuelve a la galería.
+6. Con la cuenta de campo, abrir el link de una visita vieja (copiado de la sesión del admin)
+   → "Esta visita no existe o no es tuya".
+7. En Supabase → Table Editor → `visitas`: la visita nueva tiene `usuario_id` = id de la
+   cuenta de campo; `fotos.subida_por` igual.
+
+**Decisiones tomadas por el agente (y por qué):**
+- **Sin `@supabase/ssr`:** toda la app ya lee los datos desde el navegador, así que basta la
+  sesión de supabase-js en `localStorage`. La "puerta" es solo de pantalla; la seguridad la dan
+  las reglas de la base (después de `009`, sin sesión no se lee nada aunque alguien se salte
+  la pantalla). Con cacheComponents, el servidor solo prerenderiza "Revisando tu sesión…".
+- **`fotos.subida_por`** además de `visitas.usuario_id`: el admin puede subir fotos a la visita
+  de otra persona (decisión 4, "puede modificarlas"); así se sabe quién subió cada una.
+- **El admin también sube fotos** a cualquier visita (incluidas las sin dueño), y quitar fotos
+  usa la misma regla de la base (no una función), porque solo cambia `descartada_at`.
+- **Competidores:** la petición decía "leer activos"; se agregaron los inactivos que aparecen en
+  visitas que la persona puede ver, para que esas visitas no digan "Competidor desconocido".
+- **Restaurar** y **corregir tienda** van por funciones `security definer` (no por `update`
+  general), como pidió el usuario. Corregir tienda solo acepta tiendas **activas**.
+- **Sesión caducada:** la librería renueva el pase sola (incluido al volver a la pestaña); si ya
+  no puede, la app pide entrar sin perder lo que había en pantalla (por ejemplo, subidas con
+  error que se pueden reintentar).
+
+**Riesgos y límites conocidos:**
+- Un link de foto copiado abre la foto **hasta 24 h** para cualquiera (decisión (c)).
+- El rol admin viaja en el JWT: si el dueño lo pone o lo quita, se nota cuando esa persona
+  vuelve a entrar (o como máximo en 1 hora).
+- La sesión se guarda en el navegador: en un **celular compartido** hay que tocar
+  "Cerrar sesión" al terminar.
+- Borrar una cuenta en el panel deja sus visitas **sin dueño** (solo las ve el admin).
+- **No probado en el navegador** (para no consultar Supabase antes de `008`). `npm run lint` y
+  `npm run build` pasan. Las pruebas SQL **no se ejecutaron** (las ejecuta el usuario). Si en la
+  prueba `008` el paso de `auth.users` falla con "permission denied", Supabase ya no permite crear
+  usuarios así: avisar y se cambia el método. Si los casos de Storage (33–37) dicen "otro error",
+  avisar: es el entorno de Storage, no las reglas.
+
+**Commit:** ver `git log` — `Autenticación y propiedad de visitas: login, dueño, admin, URLs firmadas (008/009)`

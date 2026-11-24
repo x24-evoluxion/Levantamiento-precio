@@ -2,7 +2,9 @@
 
 // Formulario de nueva visita.
 // Todo vive en la pantalla hasta tocar "Guardar visita": entonces se crea la
-// visita de una sola vez, porque "anon" no puede cambiarla después (PLAN 4.3).
+// visita de una sola vez, porque nadie puede cambiarla después desde la app (PLAN 4.3;
+// solo el admin corrige la tienda, con una función aparte). La visita queda a nombre de
+// quien entró: el servidor pone usuario_id solo (008); la app no lo manda.
 // Se necesitan dos cosas: el competidor y la ubicación (obligatoria).
 
 import { useRouter } from "next/navigation";

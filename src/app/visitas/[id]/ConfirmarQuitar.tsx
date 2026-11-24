@@ -6,17 +6,19 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef } from "react";
-import { urlFoto } from "@/lib/fotos";
 import type { Foto } from "@/lib/tipos";
+import type { UrlsFirmadas } from "@/lib/urlsFirmadas";
 
 type Props = {
   /** La foto que se quiere quitar; null = ventana cerrada. */
   foto: Foto | null;
   alConfirmar: (foto: Foto) => void;
   alCancelar: () => void;
+  /** Links firmados de las fotos (los pide FotosVisita). */
+  urls: UrlsFirmadas;
 };
 
-export default function ConfirmarQuitar({ foto, alConfirmar, alCancelar }: Props) {
+export default function ConfirmarQuitar({ foto, alConfirmar, alCancelar, urls }: Props) {
   const dialogo = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -38,11 +40,16 @@ export default function ConfirmarQuitar({ foto, alConfirmar, alCancelar }: Props
           <h2 id="titulo-confirmar-quitar" className="text-2xl font-bold">
             ¿Quitar esta foto?
           </h2>
-          <img
-            src={urlFoto(foto.ruta)}
-            alt="La foto que vas a quitar"
-            className="max-h-56 w-full rounded-lg border-2 border-borde bg-tarjeta object-contain"
-          />
+          {urls.urlDe(foto.ruta) ? (
+            <img
+              src={urls.urlDe(foto.ruta)!}
+              alt="La foto que vas a quitar"
+              onError={() => urls.alFallarImagen(foto.ruta)}
+              className="max-h-56 w-full rounded-lg border-2 border-borde bg-tarjeta object-contain"
+            />
+          ) : (
+            <p className="caja-info">La foto no se puede mostrar en este momento.</p>
+          )}
           <p className="text-lg text-texto-suave">
             Ya no se verá en esta visita.
           </p>

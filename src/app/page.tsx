@@ -1,5 +1,5 @@
 import Link from "next/link";
-import ListaVisitas from "./ListaVisitas";
+import ListaVisitas, { TituloVisitas } from "./ListaVisitas";
 import ReiniciarAlSalir from "@/components/ReiniciarAlSalir";
 
 // Página de inicio: botón "Nueva visita" y lista de visitas.
@@ -16,7 +16,7 @@ export default function Inicio() {
       </Link>
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-xl font-semibold">Visitas</h2>
+        <TituloVisitas />
         {/* Al volver a esta pantalla, la lista se lee de nuevo (no se muestra la de antes). */}
         <ReiniciarAlSalir>
           <ListaVisitas />

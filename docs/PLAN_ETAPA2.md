@@ -312,9 +312,12 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/pruebas/006_prueba_comparacion.sql` | E2-4 | Prueba con datos inventados; termina con `rollback` (no deja nada) |
 | `supabase/007_descartar_fotos.sql` | Fuera del plan (2026-11-23) | Quitar fotos: `fotos.descartada_at`, permiso de `anon` solo para esa columna en fotos `pendiente`, *trigger* con la hora del servidor, y `lecturas_analisis` / `comparacion_precios` sin fotos descartadas |
 | `supabase/pruebas/007_prueba_descartar_fotos.sql` | Fuera del plan (2026-11-23) | Prueba como `anon` con datos inventados; termina con `rollback` |
+| `supabase/008_autenticacion.sql` | Fuera del plan (2026-11-24) | Login: `visitas.usuario_id`, `fotos.subida_por`, `es_admin()`, reglas de `authenticated` y funciones del admin. **No toca la Etapa 2** (sigue cerrada para `anon` y `authenticated`, también para el admin) |
+| `supabase/009_cerrar_anon.sql` | Fuera del plan (2026-11-24) | Quita todo a `anon` y pone el bucket en privado. Se ejecuta **después** de probar la app nueva |
+| `supabase/pruebas/008_prueba_autenticacion.sql`, `009_prueba_sin_anon.sql` | Fuera del plan (2026-11-24) | Pruebas con usuarios y datos inventados; terminan con `rollback` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
-equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (`007_...`).
+equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ el siguiente número libre: `010_...`).
 
 Todos se ejecutan **a mano** en el SQL Editor, se pueden ejecutar varias veces, y el agente
 **avisa y explica cada bloque antes** de que el usuario los ejecute.

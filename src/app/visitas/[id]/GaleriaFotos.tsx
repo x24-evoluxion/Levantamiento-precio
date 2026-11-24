@@ -11,12 +11,16 @@
 // Se usa <img> normal (no el <Image> de Next.js): las fotos ya llegan reducidas
 // (2200 px de lado mayor; las de antes, 2000 px) y así no hay que configurar ni pagar la
 // optimización de imágenes de Vercel.
+//
+// Los links de las fotos son URLs firmadas (duran 24 h y se renuevan solas; ver
+// src/lib/urlsFirmadas.ts). Mientras llega el link se ve "…"; si la foto no está
+// disponible, "Sin imagen".
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef, useState } from "react";
 import { formatearFecha } from "@/lib/fechas";
-import { urlFoto } from "@/lib/fotos";
 import type { Foto } from "@/lib/tipos";
+import type { UrlsFirmadas } from "@/lib/urlsFirmadas";
 
 type Props = {
   fotos: Foto[];
@@ -24,9 +28,20 @@ type Props = {
   alQuitar: (foto: Foto) => void;
   /** Fotos cuyo descarte se está guardando: su botón queda desactivado. */
   guardando: ReadonlySet<string>;
+  /** Links firmados de las fotos (los pide FotosVisita). */
+  urls: UrlsFirmadas;
 };
 
-export default function GaleriaFotos({ fotos, alQuitar, guardando }: Props) {
+/** Lo que se ve en lugar de la foto mientras llega su link, o si no está disponible. */
+export function SinImagen({ url }: { url: string | null | undefined }) {
+  return (
+    <span className="flex h-full w-full items-center justify-center p-1 text-center text-base text-texto-suave">
+      {url === null ? "Sin imagen" : "…"}
+    </span>
+  );
+}
+
+export default function GaleriaFotos({ fotos, alQuitar, guardando, urls }: Props) {
   // Id de la foto abierta en grande; null = ninguna. Se guarda el id (y no la
   // posición) para que, si llega una foto nueva mientras está abierta, no cambie.
   const [abiertaId, setAbiertaId] = useState<string | null>(null);
@@ -84,13 +99,18 @@ export default function GaleriaFotos({ fotos, alQuitar, guardando }: Props) {
               className="block aspect-square w-full overflow-hidden rounded-lg border-2 border-borde bg-tarjeta active:opacity-70"
               aria-label={`Ver foto ${i + 1} de ${fotos.length} en grande`}
             >
-              <img
-                src={urlFoto(f.ruta)}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                className="h-full w-full object-cover"
-              />
+              {urls.urlDe(f.ruta) ? (
+                <img
+                  src={urls.urlDe(f.ruta)!}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  onError={() => urls.alFallarImagen(f.ruta)}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <SinImagen url={urls.urlDe(f.ruta)} />
+              )}
             </button>
             {/* Botón "Quitar foto": esquina superior derecha, 44 × 44 px (size-11).
                 Círculo negro semitransparente con borde blanco: se ve sobre
@@ -146,12 +166,17 @@ export default function GaleriaFotos({ fotos, alQuitar, guardando }: Props) {
             </div>
 
             <div className="flex min-h-0 flex-1 items-center justify-center">
-              <img
-                key={foto.id}
-                src={urlFoto(foto.ruta)}
-                alt={`Foto ${abierta + 1} de ${fotos.length}`}
-                className="max-h-full max-w-full object-contain"
-              />
+              {urls.urlDe(foto.ruta) ? (
+                <img
+                  key={foto.id}
+                  src={urls.urlDe(foto.ruta)!}
+                  alt={`Foto ${abierta + 1} de ${fotos.length}`}
+                  onError={() => urls.alFallarImagen(foto.ruta)}
+                  className="max-h-full max-w-full object-contain"
+                />
+              ) : (
+                <SinImagen url={urls.urlDe(foto.ruta)} />
+              )}
             </div>
 
             <p className="px-3 pt-2 text-center text-base text-texto-suave">
