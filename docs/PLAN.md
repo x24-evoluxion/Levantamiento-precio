@@ -30,7 +30,8 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
 > original; reemplaza la decisión "sin login"). Antes del paso 2, la persona **entra con su
 > correo y contraseña** (Supabase Auth). Cada quien ve **solo sus visitas** (el paso 7 dice
 > "cualquiera" de las suyas). Un **admin** ve todas. Detalle en la sección 4.3 y en
-> `docs/PROGRESO.md` ("Autenticación y propiedad de visitas").
+> `docs/PROGRESO.md` ("Autenticación y propiedad de visitas"). **Fase cerrada el 2026-11-24:**
+> `008`, `008b` y `009` ejecutadas y probadas; sin sesión ya no se ve nada.
 
 ### Fuera de alcance (no lo hagas)
 - ~~**Login de usuarios.** La app es abierta: cualquiera con el link puede usarla.~~
@@ -159,7 +160,8 @@ qué sirve y espera a que diga que sí.
   `009_cerrar_anon.sql` (2026-11-24).** La app muestra las fotos con **URLs firmadas** que
   pide con la sesión de la persona; duran **24 horas** y se renuevan solas antes de caducar
   (`src/lib/urlsFirmadas.ts`). Mientras no caduca, un link copiado abre la foto para
-  cualquiera. Entre `008` y `009` el bucket sigue público, y la app nueva funciona igual.
+  cualquiera. Las URLs firmadas solo se pueden pedir para fotos de visitas que la persona
+  puede ver (reglas de Storage de `authenticated`). Los links públicos viejos ya no abren.
 - Ruta de cada foto: **`visitas/<visita_id>/<uuid-nuevo>.jpg`**. Así todas las fotos
   de una visita quedan en su propia carpeta, y el nombre único evita que una foto
   reemplace a otra.
@@ -188,11 +190,30 @@ función `es_admin()`, que lee el JWT.
 | Storage `fotos` | leer y subir en `visitas/<uuid de SU visita>/<uuid>.jpg` | leer todo; subir a cualquier visita | reemplazar, borrar |
 | Correos de las cuentas | — | verlos con `admin_correos_usuarios` (quién creó cada visita) | — |
 | Tablas, vistas y funciones de la Etapa 2 | nada | **nada** (también cerradas para el admin dentro de la app) | — |
-| `anon` (sin sesión) | Antes de `009`: lo de la tabla de abajo (la app vieja). Después de `009`: **nada** | | |
+| `anon` (sin sesión) | **nada** (desde `009`, ejecutada el 2026-11-24) | | |
 
 Las reglas filtran **filas**; las **columnas** las limitan los permisos (`grant`) por
 columna. Por eso el admin **no** tiene `update` general: sus cambios van por funciones
 `security definer` que primero revisan `es_admin()`.
+
+**Esquema `privado` y funciones auxiliares (`008b_romper_ciclo_rls.sql`).** Las reglas RLS
+**no leen otras tablas directamente** (en `008` eso hacía un ciclo visitas → competidores →
+visitas y Postgres cortaba con "infinite recursion" al guardar una visita). En su lugar
+llaman a funciones del esquema `privado`, que la API de Supabase no publica (la app no las
+puede llamar; solo `authenticated` las ejecuta desde las reglas, `anon` no):
+
+| Función | Qué responde |
+|---|---|
+| `privado.es_dueno_de_visita(uuid)` | ¿La visita es de quien consulta? |
+| `privado.puede_usar_visita(uuid)` | ¿Es suya, o es admin y la visita existe? |
+| `privado.competidor_activo(bigint)` | ¿La tienda está activa? |
+| `privado.competidor_en_visita_visible(bigint)` | ¿La tienda aparece en alguna visita que quien consulta puede ver? |
+| `privado.visita_de_ruta(text)` | El uuid de la visita en una ruta `visitas/<uuid>/…` (no lee tablas) |
+
+Las cuatro primeras son `security definer` con `search_path` vacío: leen la tabla sin
+aplicar sus reglas (por eso no hay ciclo), solo responden sí/no sobre quien consulta (su id y
+su rol salen del JWT) y nunca devuelven datos de filas. Una regla nueva que necesite mirar
+otra tabla debe usar una función así, no una subconsulta.
 
 *Histórico (antes del login):*
 
@@ -208,16 +229,28 @@ app (salvo el admin, solo la tienda), la visita se guarda **de una sola vez** (c
 ubicación + timestamps) cuando el usuario toca "Guardar visita". Antes de eso, todo vive en
 la pantalla.
 
-⚠️ **Después de `009`, no vuelvas a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`:**
-vuelven a crear permisos y reglas de `anon` (abrirían la base sin sesión). Si hiciera falta
-algo de ellos, va en un archivo nuevo.
+⚠️ **No vuelvas a ejecutar `008_autenticacion.sql` después de `008b`:** regresa las reglas
+viejas con el ciclo y guardar una visita vuelve a fallar. Si pasa, ejecuta `008b` otra vez.
+
+⚠️ **No vuelvas a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`:** vuelven a crear
+permisos y reglas de `anon` (abrirían la base sin sesión). Si hiciera falta algo de ellos, va
+en un archivo nuevo.
+
+Para deshacer `009` en una emergencia existe `supabase/reversa_009.sql` (devuelve `anon` y
+el bucket público). **No está ejecutado**; para volver a cerrar se ejecuta `009` otra vez.
 
 ### 4.4 Archivos SQL (se ejecutan a mano en el SQL Editor de Supabase)
 
 ```
 supabase/
-├── 001_esquema.sql          ← tablas, RLS, bucket y políticas de Storage
-├── 002_..., 003_..., 004_... ← migraciones de la Etapa 2 (ver PLAN_ETAPA2 sección 5.0)
+├── 001_esquema.sql          ← tablas, RLS, bucket y políticas de Storage (histórico: no volver a ejecutar)
+├── 002_... a 006_...        ← migraciones de la Etapa 2 (ver PLAN_ETAPA2 sección 5.0)
+├── 007_descartar_fotos.sql  ← quitar fotos (histórico: no volver a ejecutar)
+├── 008_autenticacion.sql    ← login: dueño de visitas, reglas de authenticated, funciones del admin
+├── 008b_romper_ciclo_rls.sql← esquema privado y funciones auxiliares (no volver a ejecutar 008 después)
+├── 009_cerrar_anon.sql      ← quita todo a anon y pone el bucket privado
+├── reversa_009.sql          ← SOLO emergencia: deshace 009 (no ejecutado)
+├── pruebas/                 ← pruebas con datos inventados (terminan con rollback)
 └── seed_competidores.sql    ← SOLO la lista de competidores (el usuario la va a editar)
 ```
 
@@ -415,4 +448,4 @@ que se sepa de dónde salió cada una.
 |---|---|---|
 | Las fotos HEIC/HEIF de iPhone se convierten a JPEG en el navegador antes de subirlas. Primero se intenta con lo que trae el navegador (canvas) y solo si no basta se propone una librería, con permiso del usuario. Si una foto no se puede convertir, se avisa y se suben las demás. | Decisión nuestra (2026-11-18), **no viene de la grabación**. Motivo: el bucket solo acepta JPEG, PNG y WebP, y parte del equipo usa iPhone. | Fase 5 |
 | La app **no debe aparecer en buscadores** (noindex), porque es de uso interno. Se hace con `robots: { index: false, follow: false }` en `src/app/layout.tsx` y el encabezado `X-Robots-Tag: noindex, nofollow` en todas las respuestas (`next.config.ts`). **No** se usa `Disallow` en `robots.txt`, porque eso impide que el buscador vea el aviso. Las fotos viven en Supabase Storage (otro dominio) y no reciben este encabezado; sus links solo aparecen dentro de la app. | Pedido del usuario (2026-11-18), **no viene de la grabación**. | Fase 7 |
-| **Login con correo y contraseña** (Supabase Auth, sin registro público). Rol admin en `app_metadata.rol = 'admin'` (nunca `user_metadata`). Personal de campo: solo sus visitas y fotos; crea visitas, sube fotos a las suyas y quita fotos pendientes de las suyas. Admin: ve todo; desde la app corrige la tienda, quita cualquier foto pendiente y restaura fotos quitadas; ve el **correo** de quien creó cada visita. Las visitas de antes quedan sin dueño (solo las ve el admin). Bucket **privado** con **URLs firmadas de 24 h** que se renuevan solas. Sesión solo en el navegador (supabase-js, sin librerías nuevas). Dos migraciones: `008` (aditiva) y `009` (quita a `anon`; se ejecuta después de probar la app nueva). | Pedido del usuario (2026-11-24), **no viene de la grabación**. Reemplaza "sin login". Las preguntas (qué edita el admin en la app, cómo se muestra quién creó la visita y cuánto duran los links) las respondió el usuario ese día. | Fase "Autenticación y propiedad de visitas" (`PROGRESO.md`) |
+| **Login con correo y contraseña** (Supabase Auth, sin registro público). Rol admin en `app_metadata.rol = 'admin'` (nunca `user_metadata`). Personal de campo: solo sus visitas y fotos; crea visitas, sube fotos a las suyas y quita fotos pendientes de las suyas. Admin: ve todo; desde la app corrige la tienda, quita cualquier foto pendiente y restaura fotos quitadas; ve el **correo** de quien creó cada visita. Las visitas de antes quedan sin dueño (solo las ve el admin). Bucket **privado** con **URLs firmadas de 24 h** que se renuevan solas. Sesión solo en el navegador (supabase-js, sin librerías nuevas). Migraciones: `008` (aditiva), `008b` (corrige el ciclo de reglas con el esquema `privado`) y `009` (quita a `anon` y pone el bucket privado). Las tres ejecutadas y probadas el 2026-11-24. | Pedido del usuario (2026-11-24), **no viene de la grabación**. Reemplaza "sin login". Las preguntas (qué edita el admin en la app, cómo se muestra quién creó la visita y cuánto duran los links) las respondió el usuario ese día. | Fase "Autenticación y propiedad de visitas" (`PROGRESO.md`) |

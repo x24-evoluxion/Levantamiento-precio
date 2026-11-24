@@ -28,7 +28,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 | Etapa 1: app de captura (visitas, ubicación, fotos) | Terminada, publicada y probada en iPhone y Android |
 | Etapa 2, base: tablas de lectura, catálogo propio, equivalencias, vista de comparación | Terminada y probada con datos inventados |
 | Quitar fotos de una visita (descarte reversible, migración 007) | Terminado, ejecutado y probado en el celular (2026-11-23) |
-| Login y dueño de cada visita (migraciones 008 y 009) | Código listo en un commit (sin push). Falta: crear cuentas, ejecutar 008 y su prueba, publicar, probar con una cuenta de campo y la de admin, y al final ejecutar 009 (ver `PROGRESO.md`) |
+| Login y dueño de cada visita (migraciones 008, 008b y 009) | **Terminado (2026-11-24).** Migraciones ejecutadas y probadas: login obligatorio, `anon` sin acceso y bucket privado |
 | Etapa 2, agentes: lectura de fotos con la API de Claude | **No iniciada.** Las fases de agentes solo empiezan cuando se piden |
 | Cambios pedidos en revisión (sección 8.3) | Por decidir o por implementar |
 
@@ -48,7 +48,14 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 8. Cada foto tiene una **✕ arriba a la derecha**. Al tocarla aparece "¿Quitar esta foto?" con **Cancelar** y **Quitar**. Al confirmar, la foto se *descarta* (se oculta, no se borra el archivo). Solo se pueden quitar fotos que aún no leyó un agente.
 9. **Volver a la lista** muestra **sus** visitas, la más reciente primero. Se puede entrar a cualquiera de ellas y agregar más fotos.
 
-**Login (desde 2026-11-24):** cada persona entra con correo y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). El personal de campo solo ve sus visitas. El **admin** ve todas, con el correo de quien creó cada una; además puede corregir la tienda de una visita, quitar cualquier foto pendiente y restaurar fotos quitadas. Las visitas de antes del login no tienen dueño y solo las ve el admin.
+**Login (desde 2026-11-24; reemplaza la decisión "sin login"):** sin sesión la app no muestra nada; cada persona entra con correo y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). Hay dos roles:
+
+| Rol | Qué ve | Qué puede hacer desde la app |
+|---|---|---|
+| **Campo** (cualquier cuenta sin rol admin) | "Mis visitas": **solo sus** visitas y sus fotos | Crear visitas (quedan a su nombre), subir fotos a sus visitas y quitar fotos pendientes de sus visitas |
+| **Admin** (`app_metadata.rol = 'admin'`) | "Todas las visitas", incluidas las de antes del login (sin dueño), con el **correo** de quien creó cada una, y la sección "Fotos quitadas" | Lo mismo que campo en cualquier visita, más **corregir la tienda** de una visita y **restaurar** fotos quitadas |
+
+Las fotos se muestran con **URLs firmadas** (links temporales de 24 h) porque el bucket es privado.
 
 ### 3.2 Flujo de la etapa 2 (aún no implementado)
 
@@ -204,6 +211,7 @@ Una **vista** es una consulta guardada: no almacena datos propios, los junta de 
 | `guardar_lecturas` | Función | Guardará lo que lean los agentes |
 | `es_admin()` | Función | ¿Quien consulta es admin? Lee `app_metadata.rol` del JWT (008) |
 | `admin_cambiar_competidor`, `admin_restaurar_foto`, `admin_correos_usuarios` | Funciones | Lo que el admin hace desde la app (corregir tienda, restaurar foto, ver correos). Cada una revisa `es_admin()` primero (008) |
+| `privado.es_dueno_de_visita`, `privado.puede_usar_visita`, `privado.competidor_activo`, `privado.competidor_en_visita_visible`, `privado.visita_de_ruta` | Funciones auxiliares (esquema `privado`, 008b) | Las usan las reglas RLS para preguntar "¿esta visita es mía o soy admin?", "¿la tienda está activa?" o "¿de qué visita es este archivo?" sin leer otra tabla con RLS. Ver sección 6 |
 
 Las columnas de precio por pieza, `unidad_base` y `contenido_base` las calcula la base de datos, no los agentes.
 
@@ -244,12 +252,16 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - Quita fotos pendientes de cualquier visita. Corrige la tienda y restaura fotos **solo con funciones** que revisan `es_admin()`; no tiene permiso general para modificar.
 
 **Sin sesión (`anon`)**
-- Entre 008 y 009: lo mismo que antes del login (para que la app vieja siga funcionando durante el cambio).
-- **Después de 009: nada.** No lee, no crea, no ve fotos.
+- **Nada** (desde 009, ejecutada el 2026-11-24). No lee, no crea, no ve fotos. Los links públicos viejos de fotos ya no abren.
 
 **Fotos (Storage)**
-- Bucket `fotos` **privado** (desde 009). La app muestra cada foto con una **URL firmada** que dura **24 horas** y se renueva sola. Mientras no caduca, un link copiado abre la foto para cualquiera.
+- Bucket `fotos` **privado** (desde 009). La app pide con la sesión de la persona una **URL firmada** por foto (`src/lib/urlsFirmadas.ts`); dura **24 horas** y la app la renueva sola antes de que caduque. Solo se puede pedir para fotos de visitas que la persona puede ver. Mientras no caduca, un link copiado abre la foto para cualquiera.
 - Nadie puede reemplazar ni borrar archivos desde la app.
+
+**Esquema `privado` y funciones auxiliares (008b)**
+- Problema que resuelven: en 008 la regla para crear una visita leía `competidores`, cuya regla leía `visitas`, y Postgres cortaba con "infinite recursion" al guardar una visita.
+- Solución: las reglas ya no leen otras tablas directamente; llaman a funciones pequeñas del esquema `privado` (ver 5.2). Cuatro son `security definer` (leen `visitas` o `competidores` sin aplicar sus reglas, por eso no hay ciclo) y solo responden sí/no sobre la persona que consulta (su id y su rol salen del JWT); nunca devuelven datos de filas. La quinta, `visita_de_ruta`, no lee tablas: solo saca el id de la visita de la ruta `visitas/<uuid>/…`.
+- El esquema `privado` no lo publica la API de Supabase: la app no puede llamar esas funciones. Solo `authenticated` las puede ejecutar (desde las reglas); `anon` no.
 
 **Tablas, vistas y funciones de la etapa 2**
 - Tienen RLS (seguridad por fila) activado y **sin permisos** para `anon` ni `authenticated`, **también para el admin** dentro de la app.
@@ -266,7 +278,9 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - La sesión se guarda en el navegador del celular. En un celular compartido hay que tocar **Cerrar sesión**.
 - Un link de foto copiado sirve hasta 24 h.
 - Borrar una cuenta deja sus visitas sin dueño (solo las ve el admin).
-- Después de 009 **no** se deben volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`: vuelven a abrir permisos a `anon`.
+- ⚠️ **No volver a ejecutar `008_autenticacion.sql` después de `008b`:** regresa las reglas con el ciclo y guardar una visita vuelve a fallar. Si pasa, ejecutar `008b` otra vez.
+- **No** se deben volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`: vuelven a abrir permisos a `anon`.
+- `supabase/reversa_009.sql` deshace 009 (devuelve `anon` y el bucket público). **Solo para emergencias**; no está ejecutado.
 - `noindex` evita que Google muestre la app, pero no es seguridad.
 - La hora de captura de una foto la manda el navegador y puede falsearse. La referencia confiable es `created_at`, que pone el servidor.
 
@@ -281,7 +295,8 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 | Las visitas de antes del login quedan sin dueño | No se sabe quién las hizo | Solo las ve el admin |
 | El admin edita con **funciones** (corregir tienda, restaurar foto), no con permiso general | Las reglas filtran filas, no columnas | Cada edición nueva del admin es una función nueva |
 | Se muestra el **correo** de quien creó la visita (solo al admin) | Sale solo de la cuenta; no hay que capturar nada | La app lo pide con `admin_correos_usuarios` |
-| Dos migraciones: 008 (agrega) y 009 (cierra a `anon`) | Que la app publicada no se rompa durante el cambio | 009 se ejecuta solo después de probar la app nueva |
+| Dos migraciones: 008 (agrega) y 009 (cierra a `anon`) | Que la app publicada no se rompa durante el cambio | Ejecutadas en ese orden (con 008b entre ellas) el 2026-11-24 |
+| Reglas RLS que no leen otras tablas: usan funciones del esquema `privado` (008b) | Evitar el ciclo de reglas ("infinite recursion") | No volver a ejecutar 008 después de 008b |
 | Sesión solo en el navegador, sin librerías nuevas | Todos los datos ya se leían desde el navegador | La seguridad la dan las reglas de la base, no las páginas |
 | La visita se guarda completa de una vez (tienda + ubicación) | Nadie puede modificar visitas desde la app | El admin corrige la tienda desde la app; lo demás, en Supabase |
 | Quitar fotos = **descartar**, no borrar | Cualquiera puede quitar fotos, pero el error es recuperable | La foto sigue en Storage hasta la limpieza programada. Para restaurar: vaciar `descartada_at` en Supabase |
@@ -321,8 +336,6 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 
 ### 8.2 Tareas y verificaciones
 
-- [x] Migración 007 (descarte de fotos) ejecutada, publicada y probada (2026-11-23).
-- [ ] **Login (008/009), en este orden:** crear las cuentas (y poner `rol = admin` al dueño) → ejecutar 008 y su prueba → push y **Ready** en Vercel → probar con una cuenta de campo y la de admin → ejecutar 009 y su prueba. Pasos detallados en `PROGRESO.md`.
 - [ ] (Opcional) Registrar quién y cuándo corrigió la tienda de una visita (hoy no queda rastro).
 - [ ] Verificar que la columna `competidor_elegido_at` de `visitas` ya fue eliminada (su migración tiene un freno de seguridad).
 - [ ] Cuenta de la API de Claude con **límite de gasto mensual** (antes de la primera fase de agentes).
@@ -510,6 +523,8 @@ Reglas que cada agente sigue:
 - **anon**: el usuario anónimo, o sea cualquiera que abre el link de la app **sin** haber entrado. Después de 009 no puede nada.
 - **authenticated**: una persona que entró con su correo y contraseña.
 - **Admin**: cuenta con `app_metadata.rol = 'admin'`. Ve todo y hace algunas correcciones desde la app.
+- **Campo**: cualquier cuenta sin rol admin. Ve y usa solo sus visitas.
+- **Esquema `privado`**: parte de la base que la API de Supabase no publica. Guarda las funciones auxiliares de las reglas (008b).
 - **JWT**: el "pase" firmado que la app manda en cada consulta. Dice quién es la persona y trae su rol. Dura 1 hora y se renueva solo.
 - **URL firmada**: link temporal a una foto de un bucket privado. Aquí dura 24 horas.
 - **security definer**: función de la base que corre con permisos de quien la creó. Por eso cada una revisa primero que quien la llama sea admin.

@@ -19,7 +19,7 @@
 | — | Ajuste visual (tema oscuro) | ✅ |
 | — | Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB, tema claro | 🟡 falta prueba del usuario |
 | — | Quitar fotos (descarte reversible) — fuera del plan original | ✅ (cerrada el 2026-11-23, ver su sección) |
-| — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | 🟡 `008` ejecutada; falta: **`008b`** + prueba `008`, prueba con cuentas, `009` + prueba |
+| — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | ✅ (cerrada el 2026-11-24: `008`, `008b` y `009` ejecutadas, pruebas ok; ver su sección) |
 | — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
@@ -56,9 +56,6 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       volviéndolo a ejecutar en el SQL Editor (para renombrar, ver el comentario del archivo).
 - [ ] **Markdown de referencia del jefe.** No está disponible todavía. Si llega,
       ponerlo en `docs/` y revisar si cambia algo del plan.
-- [x] Confirmar los **nombres** de las variables de `.env.local` (Fase 1). Confirmado:
-      `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. (Primero se
-      confirmó `..._ANON_KEY` por error; se corrigió después de la Fase 1 y el PLAN ya está actualizado).
 - [ ] **(Opcional) Ubicación obligatoria también en la base de datos.** Hoy solo la app la
       exige; `latitud`/`longitud` aceptan nulos porque hay visitas de la Fase 3 sin ubicación.
       Si se quiere, más adelante se puede agregar un `check` (por ejemplo, solo para visitas
@@ -68,52 +65,16 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       poder aplicar nuestras promociones regionales (PLAN_ETAPA2 5.8).
 - [ ] **(Etapa 2, fase de agentes) Método de equivalencias.** No está definido; se decide en
       E2-7 (PLAN_ETAPA2 5.7).
-- [x] **(Etapa 2, E2-1) Pasos del usuario para cerrar la fase:** `002`, despliegue, prueba en
-      iPhone y Android, y `003`. Hecho el 2026-11-20.
 - [ ] **(Etapa 2, E2-9) Verificar el nivel de resolución de visión** de Sonnet 5.5 y Haiku 5.5.
       Se supuso alta resolución (2576 px / 4 784 tokens) porque la documentación dice "Claude
       4.7 y posteriores" sin nombrarlos. Se comprueba en la evaluación (PLAN_ETAPA2 3.2 y 9.2).
       Revisado otra vez el 2026-11-23: la documentación sigue igual (no los nombra).
-- [x] **(Etapa 2) Confirmar `articulos_competencia` y `piezas`** (PLAN_ETAPA2 sección 12).
-      Confirmados por el usuario el 2026-11-20, junto con precio = total de la etiqueta y
-      unidades `g`/`kg`/`ml`/`l`/`pza`.
-- [x] **(Etapa 2, E2-2) Ejecutar `supabase/004_tablas_competencia.sql`** en el SQL Editor y
-      revisar que todas las filas de la comprobación salgan `ok = true`. Hecho el 2026-11-20.
 - [ ] **(Etapa 2, E2-3) `.env.example` y secret key de Supabase:** agregar los nombres de
       PLAN_ETAPA2 4.1 y guiar al usuario para copiar la secret key a `.env.local`. Se pasó
       de E2-2 a E2-3 porque el usuario pidió no tocar llaves en E2-2.
-- [x] **(Etapa 2, E2-4) Ejecutar `supabase/006_equivalencias_comparacion.sql`** (todas las
-      filas `ok = true`) y después la prueba `supabase/pruebas/006_prueba_comparacion.sql`.
-      Hecho el 2026-11-20.
 - [ ] **(Etapa 2, E2-4) Confirmar con el responsable de los datos el umbral de `en_linea`**
       (hoy ±3 %: índice entre −3 y +3, PLAN_ETAPA2 5.9). Si cambia, se ajusta la vista
       `comparacion_precios` en una migración nueva.
-- [x] **(Quitar fotos, 2026-11-23) Pasos del usuario, EN ESTE ORDEN:** (1) ejecutar
-      `supabase/007_descartar_fotos.sql` (todas las filas `ok = true`); (2) ejecutar
-      `supabase/pruebas/007_prueba_descartar_fotos.sql` (fila `0. RESUMEN` con `ok = true`);
-      (3) **después** hacer push de la app. Hecho el 2026-11-23 (ver la sección "Quitar fotos").
-- [ ] **(Autenticación, 2026-11-24) Pasos del usuario, EN ESTE ORDEN** (detalle en la sección
-      "Autenticación y propiedad de visitas" al final): (1) crear las cuentas y ponerle
-      `rol = admin` a la del dueño; (2) ejecutar `supabase/008_autenticacion.sql` (A) y
-      `supabase/pruebas/008_prueba_autenticacion.sql`; (3) push y **Ready** en Vercel;
-      (4) probar con una cuenta de campo y con la de admin; (5) ejecutar
-      `supabase/009_cerrar_anon.sql` (B) y `supabase/pruebas/009_prueba_sin_anon.sql`.
-      **Después de B, el link sin sesión deja de funcionar.**
-- [ ] **(Autenticación, 2026-11-24) Error al guardar una visita** ("infinite recursion detected in
-      policy for relation visitas"). Corrección en `supabase/008b_romper_ciclo_rls.sql`. Pasos del
-      usuario, EN ESTE ORDEN: (1) ejecutar `008b` (todas las filas `ok = true`); (2) ejecutar
-      `supabase/pruebas/008_prueba_autenticacion.sql` → `0. RESUMEN` con `ok = true` (57 casos);
-      (3) volver a probar en la app guardar una visita con la cuenta de admin y con una de campo;
-      (4) seguir con `009` como estaba. **No volver a ejecutar `008` después de `008b`** (regresa
-      el ciclo; si pasa, ejecutar `008b` otra vez).
-- [ ] **(Autenticación, emergencia) Deshacer `009`:** `supabase/reversa_009.sql` (2026-11-24).
-      **No se ejecuta salvo emergencia.** Devuelve a `anon` sus permisos y reglas y pone el bucket
-      público. Para volver a cerrar: ejecutar `009` otra vez y su prueba. Ver la sección
-      "Archivo de reversa de 009".
-- [ ] **(Autenticación) No volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`
-      después de `009`:** vuelven a crear permisos y reglas de `anon`. La comprobación final de
-      `007` ya no sale toda `ok` después de `008` (espera que `authenticated` no pueda cambiar
-      fotos y que haya una sola regla de UPDATE); es normal.
 - [ ] **(Autenticación, opcional) Registro de correcciones del admin.** Hoy
       `admin_cambiar_competidor` cambia la tienda sin dejar rastro de quién ni cuándo. Si hace
       falta auditar, se agregan columnas en un SQL nuevo.
@@ -122,6 +83,17 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
+
+### Avisos permanentes (no son pendientes)
+
+- ⚠️ **No volver a ejecutar `008_autenticacion.sql` después de `008b`:** regresa las reglas
+  viejas con el ciclo ("infinite recursion" al guardar una visita). Si pasa, ejecutar `008b` otra vez.
+- ⚠️ **No volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql` (después de `009`):**
+  vuelven a crear permisos y reglas de `anon` (abrirían la base sin sesión). La comprobación final
+  de `007` ya no sale toda `ok` después de `008`; es normal.
+- **Deshacer `009` solo en emergencia:** `supabase/reversa_009.sql` devuelve a `anon` sus permisos
+  y reglas y pone el bucket público. Para volver a cerrar: ejecutar `009` otra vez y su prueba.
+  Ver la sección "Archivo de reversa de 009".
 
 ---
 
@@ -1431,7 +1403,7 @@ navegador** (sin `007` ejecutada, la app nueva no puede leer fotos).
 
 ---
 
-## Autenticación y propiedad de visitas (2026-11-24) — 🟡 falta que el usuario ejecute `008`, despliegue, pruebe y ejecute `009`
+## Autenticación y propiedad de visitas (2026-11-24) — ✅ cerrada 2026-11-24 (ver "Cierre de la fase de autenticación")
 
 Fase nueva, **fuera del plan original**, pedida por el usuario. **Reemplaza la decisión "sin
 login".** **No** se ejecutó nada en Supabase, **no** se leyó `.env.local`, **no** se usa la
@@ -1579,7 +1551,7 @@ secret key en la app, **no** se empezaron fases 🤖 ni se llamó a la API de An
 
 ---
 
-## Corrección: ciclo de reglas al guardar una visita (008b) (2026-11-24) — 🟡 falta que el usuario ejecute `008b` y la prueba
+## Corrección: ciclo de reglas al guardar una visita (008b) (2026-11-24) — ✅ ejecutada y probada 2026-11-24
 
 **El problema:** el usuario ya ejecutó `008` (A). Al guardar una visita en la app con la cuenta de
 admin salió `infinite recursion detected in policy for relation "visitas"`. Pasa con **cualquier**
@@ -1784,3 +1756,26 @@ archivo es este).
 algo sale mal: SQL Editor → `supabase/reversa_009.sql` → 12 filas `ok = true`.
 
 **Commit:** ver `git log` — `Agregar reversa_009.sql para deshacer 009 en emergencia (no ejecutado)`
+
+---
+
+## Cierre de la fase de autenticación (2026-11-24) — ✅
+
+**Qué confirmó el usuario:** se ejecutaron en Supabase `008`, `008b` y `009`; la comprobación de
+`009` salió con todas las filas `ok`; `anon` ya no tiene acceso, el bucket `fotos` es privado y
+las pruebas pasaron. `reversa_009.sql` **no** se ejecutó.
+
+**Qué se hizo (solo documentación, sin código ni SQL nuevo):**
+- Tabla de estado: la fase queda ✅. Las secciones de `008` y `008b` se marcan como cerradas.
+- "Pendientes": se quitaron los puntos ya resueltos (todos los `[x]`, los pasos de `008`/`009` y
+  el error de `008b`). Los avisos que siguen valiendo (no volver a ejecutar `008` después de
+  `008b`; no volver a ejecutar `001`/`007`; reversa solo en emergencia) pasaron a
+  "Avisos permanentes".
+- `docs/RESUMEN_PROYECTO.md` y `docs/PLAN.md`: "sin login" queda reemplazado; describen el login,
+  los roles (admin y campo) y qué ve cada uno, el bucket privado con URLs firmadas, el esquema
+  `privado` con sus funciones auxiliares y el aviso sobre `008`/`008b`.
+
+**Sigue abierto (no es de esta fase):** "Mensajes de error claros" falta probarlo en el celular
+(este push lo publica); el registro de correcciones del admin sigue como opcional.
+
+**Commit:** ver `git log` — `Cerrar fase de autenticación: PROGRESO, RESUMEN y PLAN al día`
