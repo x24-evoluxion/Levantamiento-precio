@@ -78,6 +78,12 @@ export default function PuertaSesion({ children }: { children: React.ReactNode }
     window.location.replace("/");
   }
 
+  async function entrarOtraVez() {
+    // scope "local": borra la sesión guardada en este celular (sirve aunque el pase ya
+    // no valga). La librería avisa SIGNED_OUT y arriba se muestra "Entrar".
+    await supabase.auth.signOut({ scope: "local" });
+  }
+
   if (conSesion === null) {
     return (
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-4 py-8">
@@ -92,7 +98,7 @@ export default function PuertaSesion({ children }: { children: React.ReactNode }
     <>
       {usuario && (
         <div hidden={!conSesion} className="flex flex-1 flex-col">
-          <SesionContexto value={{ usuario, cerrarSesion }}>
+          <SesionContexto value={{ usuario, cerrarSesion, entrarOtraVez }}>
             <header className="mx-auto w-full max-w-md px-4 pt-4">
               <div className="flex items-center justify-between gap-3 rounded-xl border-2 border-borde bg-tarjeta px-3 py-2">
                 <p className="min-w-0 text-base text-texto-suave">

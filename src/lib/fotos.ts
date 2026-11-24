@@ -1,3 +1,5 @@
+import { clasificarFalla, mensajeDeFalla, type Falla } from "./errores";
+
 // Preparar y nombrar fotos antes de subirlas a Supabase Storage.
 //
 // Cada foto (JPEG, PNG, WebP, HEIC si el navegador la abre…) se "pinta" en un
@@ -159,21 +161,24 @@ export function rutaFoto(visitaId: string, extension: string): string {
 // Los links para MOSTRAR las fotos ya no se arman aquí: son URLs firmadas que se
 // piden con la sesión de la persona (src/lib/urlsFirmadas.ts, 2026-11-24).
 
-/** Convierte un error de Supabase (Storage o tabla) en un mensaje en español. */
-export function mensajeErrorSubida(error: { message?: string; statusCode?: string | number } | null): string {
-  const texto = (error?.message ?? "").toLowerCase();
-  const codigo = String(error?.statusCode ?? "");
-  if (texto.includes("failed to fetch") || texto.includes("network") || texto.includes("load failed")) {
-    return "No hay conexión a internet o es muy débil. Revisa tu señal y toca «Reintentar».";
+/**
+ * Convierte un error al subir o registrar una foto (Storage o tabla) en un mensaje.
+ * Distingue red / sesión caducada / error de Supabase (src/lib/errores.ts). Solo dos
+ * errores de Supabase tienen un mensaje propio porque la persona sí puede arreglarlos:
+ * la foto pesa demasiado o el formato no se acepta.
+ */
+export function mensajeErrorSubida(error: unknown): { falla: Falla; mensaje: string } {
+  const falla = clasificarFalla(error);
+  if (falla.tipo === "supabase") {
+    const e = (error ?? {}) as { message?: unknown; statusCode?: unknown; status?: unknown };
+    const texto = String(e.message ?? "").toLowerCase();
+    const estado = String(e.status ?? e.statusCode ?? "");
+    if (estado === "413" || texto.includes("exceeded the maximum") || texto.includes("too large")) {
+      return { falla, mensaje: "La foto pesa más de 5 MB. Intenta con otra foto." };
+    }
+    if (texto.includes("mime type") || texto.includes("invalid_mime_type")) {
+      return { falla, mensaje: "El servidor no aceptó el formato de la foto. Intenta con otra foto." };
+    }
   }
-  if (codigo === "413" || texto.includes("exceeded the maximum") || texto.includes("too large")) {
-    return "La foto pesa más de 5 MB. Intenta con otra foto.";
-  }
-  if (texto.includes("mime") || texto.includes("not supported")) {
-    return "El servidor no aceptó el formato de la foto. Intenta con otra foto.";
-  }
-  if (texto.includes("row-level security") || texto.includes("policy") || codigo === "403") {
-    return "El servidor no permitió guardar la foto. Si tu sesión terminó, vuelve a entrar; si sigue igual, avisa al responsable de la app.";
-  }
-  return `No se pudo subir la foto. Toca «Reintentar». (Detalle: ${error?.message || "desconocido"})`;
+  return { falla, mensaje: mensajeDeFalla(falla) };
 }

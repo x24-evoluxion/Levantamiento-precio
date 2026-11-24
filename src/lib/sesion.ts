@@ -21,6 +21,11 @@ export type ContextoSesion = {
   usuario: Usuario;
   /** Cierra la sesión en este celular y vuelve a la pantalla de entrar. */
   cerrarSesion: () => Promise<void>;
+  /**
+   * Para cuando la sesión caducó: muestra "Entrar" SIN recargar. La pantalla de antes
+   * se esconde y reaparece igual si vuelve a entrar la misma persona.
+   */
+  entrarOtraVez: () => Promise<void>;
 };
 
 export const SesionContexto = createContext<ContextoSesion | null>(null);

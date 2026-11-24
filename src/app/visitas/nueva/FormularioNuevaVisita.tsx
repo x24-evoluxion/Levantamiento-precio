@@ -14,6 +14,8 @@ import type { Competidor, NuevaVisita } from "@/lib/tipos";
 import type { Ubicacion } from "@/lib/ubicacion";
 import BotonUbicacion from "./BotonUbicacion";
 import TituloError from "@/components/TituloError";
+import BotonEntrarOtraVez from "@/components/BotonEntrarOtraVez";
+import { clasificarFalla, mensajeDeFalla, type Falla } from "@/lib/errores";
 
 type OpcionCompetidor = Pick<Competidor, "id" | "nombre">;
 
@@ -34,7 +36,7 @@ export default function FormularioNuevaVisita() {
   const [ubicacion, setUbicacion] = useState<Ubicacion | null>(null);
 
   const [guardando, setGuardando] = useState(false);
-  const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
+  const [errorGuardar, setErrorGuardar] = useState<Falla | null>(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -78,14 +80,15 @@ export default function FormularioNuevaVisita() {
       ubicacion_at: ubicacion.ubicacion_at,
     };
 
-    const { data, error } = await supabase
+    const { data, error, status } = await supabase
       .from("visitas")
       .insert(nueva)
       .select("id")
       .single();
 
     if (error) {
-      setErrorGuardar(error.message || "Error desconocido");
+      // Red, sesión caducada o error de Supabase: cada uno con su mensaje (src/lib/errores.ts).
+      setErrorGuardar(clasificarFalla(error, status));
       setGuardando(false);
       return;
     }
@@ -159,10 +162,10 @@ export default function FormularioNuevaVisita() {
       />
 
       {errorGuardar && (
-        <div className="caja-error">
+        <div role="alert" className="caja-error">
           <TituloError>No se pudo guardar la visita</TituloError>
-          <p className="mt-1 text-base break-words">{errorGuardar}</p>
-          <p className="mt-1 text-base">Revisa tu conexión a internet y vuelve a intentar.</p>
+          <p className="mt-1 text-base break-words">{mensajeDeFalla(errorGuardar)}</p>
+          {errorGuardar.tipo === "sesion" && <BotonEntrarOtraVez />}
         </div>
       )}
 

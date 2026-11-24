@@ -20,6 +20,7 @@
 | — | Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB, tema claro | 🟡 falta prueba del usuario |
 | — | Quitar fotos (descarte reversible) — fuera del plan original | ✅ (cerrada el 2026-11-23, ver su sección) |
 | — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | 🟡 `008` ejecutada; falta: **`008b`** + prueba `008`, prueba con cuentas, `009` + prueba |
+| — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -1648,3 +1649,76 @@ un caso que hiciera el recorrido completo de la app con visitas creadas con las 
 
 **Commit:** ver `git log` — `008b: romper el ciclo de reglas RLS al crear visitas`
 
+---
+
+## Mensajes de error claros: red, sesión caducada o error de Supabase (2026-11-24) — 🟡 falta prueba del usuario y despliegue
+
+**El problema:** al guardar una visita, subir una foto o quitar una foto, cualquier falla decía
+"Revisa tu conexión a internet", aunque el error fuera de permisos de la base de datos (por ejemplo
+el `infinite recursion` de `008`). Eso manda a la persona a revisar su señal cuando el problema
+es otro.
+
+**Qué se hizo (solo la app; la base de datos NO se tocó, no hay SQL nuevo):**
+- `src/lib/errores.ts` (nuevo): `clasificarFalla(error, status?)` decide entre tres tipos y
+  `mensajeDeFalla()` da el texto:
+  - **red** (Supabase no respondió: sin internet, señal débil, tiempo agotado) →
+    "No hay conexión a internet o tardó demasiado en responder. Revisa tu señal e inténtalo otra vez."
+  - **sesión caducada** (JWT caducado o inválido) → "Tu sesión caducó. Inicia sesión otra vez y
+    vuelve a intentarlo." + botón **"Iniciar sesión otra vez"**.
+  - **error de Supabase** (respondió con error) → "No se pudo guardar. Avisa al responsable e
+    indica este código: `<código>`". Sin texto técnico.
+- Cómo se reconoce (revisado en el código de `@supabase` 2.119 en `node_modules`):
+  - Tablas/funciones: si fetch falla, postgrest-js devuelve `status 0`, `code ""` y un mensaje
+    `TypeError: Failed to fetch` / `AbortError: …` (tiempo agotado). También cuenta
+    `navigator.onLine === false`.
+  - Storage: `StorageUnknownError` (no hubo respuesta) = red; `StorageApiError` = Supabase.
+  - Sesión: códigos `PGRST301` / `PGRST302` / `PGRST303`, `InvalidJWT` de Storage, o mensajes
+    "JWT expired" / `"exp" claim`.
+- **Códigos que puede ver el responsable:**
+  - Código de Postgres/PostgREST tal cual: `42501` (regla de permisos), `42P17` (recursión en
+    reglas), `23503`, `PGRST116`…
+  - `S<status>-<código>` para Storage, por ejemplo `S403-Unauthorized`.
+  - `HTTP-<status>` si Supabase respondió sin código (por ejemplo `HTTP-502`).
+  - `SIN-CAMBIO`: al quitar una foto, Supabase respondió bien pero no cambió nada y la foto sigue
+    pendiente (casi siempre una regla de permisos de UPDATE que no deja; no da error, da 0 filas).
+  - `APP`: error de la propia app (no de Supabase). `SIN-CODIGO` / `DESCONOCIDO`: no se pudo saber.
+- "Iniciar sesión otra vez": nueva función `entrarOtraVez()` en la sesión (`PuertaSesion`). Cierra
+  la sesión solo en este celular **sin recargar**: aparece "Entrar" y la pantalla de antes queda
+  escondida; si entra la misma persona, vuelve tal cual (por ejemplo, las fotos con error se
+  pueden reintentar).
+- Se conservan los mensajes que la persona sí puede arreglar: foto de más de 5 MB y formato no
+  aceptado (subir foto); "Solo el administrador…" (restaurar foto, corregir tienda).
+
+**Archivos creados o cambiados:**
+- `src/lib/errores.ts` — clasificación y mensajes (nuevo).
+- `src/lib/errores.test.ts` — 10 pruebas con las clases de error reales de storage-js y la forma
+  exacta de postgrest-js (nuevo). Correr: `npm run test:errores` (nuevo script en `package.json`).
+- `src/components/BotonEntrarOtraVez.tsx` — botón "Iniciar sesión otra vez" (nuevo).
+- `src/lib/sesion.ts`, `src/components/PuertaSesion.tsx` — `entrarOtraVez()`.
+- `src/app/visitas/nueva/FormularioNuevaVisita.tsx` — guardar visita.
+- `src/lib/fotos.ts` (`mensajeErrorSubida`), `src/app/visitas/[id]/SubirFotos.tsx` — subir foto.
+- `src/app/visitas/[id]/FotosVisita.tsx` — quitar y restaurar foto.
+- `src/app/visitas/[id]/CorregirTienda.tsx` — corregir tienda (admin), mismo criterio.
+
+**Resultados:** `npm run lint` ✅, `npm run build` ✅, `npm run test:errores` 10/10 ✅.
+No se probó en el celular ni contra Supabase real.
+
+**Cómo probarlo (después de desplegar):**
+1. **Red:** con el celular en modo avión, tocar "Guardar visita", subir una foto y quitar una foto
+   → los tres dicen "No hay conexión a internet o tardó demasiado…".
+2. **Supabase:** mientras `008b` no esté ejecutada, guardar una visita → "No se pudo guardar. Avisa
+   al responsable e indica este código: 42P17" (ya no dice "Revisa tu conexión").
+3. **Sesión:** difícil de forzar a mano (la librería renueva la sesión sola). Si se quiere probar:
+   en la computadora, DevTools → Application → Local Storage, cambiar el `access_token` guardado
+   por otro texto y tocar "Guardar visita" → "Tu sesión caducó…" con el botón; al tocarlo aparece
+   "Entrar" y, al entrar, la pantalla vuelve como estaba.
+
+**Decisiones tomadas (y por qué):**
+- Un solo módulo para los tres tipos de falla, así todas las pantallas dicen lo mismo.
+- Sesión caducada no cierra la sesión sola: primero se muestra el aviso y la persona toca el
+  botón, para que entienda qué pasó.
+- Se dejaron igual los mensajes al **cargar** datos (lista de competidores, lista de fotos,
+  imágenes) y al entrar/cerrar sesión: no los pidió esta tarea. Pendiente opcional: usar
+  `src/lib/errores.ts` también ahí.
+
+**Commit:** ver `git log` — `Mensajes de error: distinguir red, sesión caducada y error de Supabase`

@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { BUCKET_FOTOS, type Foto } from "@/lib/tipos";
 import { IconoAlerta } from "@/components/TituloError";
+import BotonEntrarOtraVez from "@/components/BotonEntrarOtraVez";
 import { ErrorFoto, mensajeErrorSubida, prepararFoto, rutaFoto, type FotoPreparada } from "@/lib/fotos";
 import { leerHoraCaptura, type HoraCaptura } from "@/lib/exif";
 
@@ -25,6 +26,8 @@ type ItemFoto = {
   mensaje?: string;
   /** false si reintentar no sirve (por ejemplo, un formato que el navegador no abre). */
   reintentable?: boolean;
+  /** true si falló porque la sesión caducó: se ofrece iniciar sesión otra vez. */
+  sesionCaducada?: boolean;
 };
 
 /** Lo que se va logrando con cada foto, para que un reintento siga donde se quedó. */
@@ -129,8 +132,13 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
         if (e instanceof ErrorFoto) {
           actualizar(claves[i], { estado: "error", mensaje: e.message, reintentable: false });
         } else {
-          const err = e as { message?: string; statusCode?: string | number };
-          actualizar(claves[i], { estado: "error", mensaje: mensajeErrorSubida(err), reintentable: true });
+          const { falla, mensaje } = mensajeErrorSubida(e);
+          actualizar(claves[i], {
+            estado: "error",
+            mensaje,
+            reintentable: true,
+            sesionCaducada: falla.tipo === "sesion",
+          });
         }
       }
     }
@@ -212,6 +220,7 @@ export default function SubirFotos({ visitaId, alSubir }: Props) {
                 </span>
               </div>
               {it.mensaje && <p className="mt-1 text-base text-error-texto">{it.mensaje}</p>}
+              {it.estado === "error" && it.sesionCaducada && <BotonEntrarOtraVez />}
               {it.estado === "error" && it.reintentable && (
                 <button
                   type="button"

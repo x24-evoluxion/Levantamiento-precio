@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Competidor } from "@/lib/tipos";
 import TituloError from "@/components/TituloError";
+import { clasificarFalla, mensajeDeFalla } from "@/lib/errores";
 
 type Opcion = Pick<Competidor, "id" | "nombre">;
 
@@ -19,11 +20,12 @@ type Props = {
   alGuardar: () => void;
 };
 
-function mensajeError(error: { message?: string; code?: string }): string {
+function mensajeError(error: { message?: string; code?: string }, estado?: number): string {
   if (error.code === "42501") return "Solo el administrador puede corregir la tienda.";
   if (error.code === "22023") return "Esa tienda ya no está activa. Elige otra.";
   if (error.code === "P0002") return "La visita ya no existe.";
-  return `No se pudo guardar. Revisa tu conexión e inténtalo otra vez. (Detalle: ${error.message || "desconocido"})`;
+  // Red, sesión caducada o cualquier otro error de Supabase (con su código).
+  return mensajeDeFalla(clasificarFalla(error, estado));
 }
 
 export default function CorregirTienda({ visitaId, competidorActualId, alGuardar }: Props) {
@@ -61,13 +63,13 @@ export default function CorregirTienda({ visitaId, competidorActualId, alGuardar
     if (guardando || elegido === competidorActualId) return;
     setGuardando(true);
     setError(null);
-    const { error } = await supabase.rpc("admin_cambiar_competidor", {
+    const { error, status } = await supabase.rpc("admin_cambiar_competidor", {
       p_visita_id: visitaId,
       p_competidor_id: elegido,
     });
     setGuardando(false);
     if (error) {
-      setError(mensajeError(error));
+      setError(mensajeError(error, status));
       return;
     }
     setAbierto(false);

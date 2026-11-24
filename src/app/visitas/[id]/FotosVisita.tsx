@@ -37,14 +37,29 @@ import GaleriaFotos from "./GaleriaFotos";
 import ConfirmarQuitar from "./ConfirmarQuitar";
 import FotosQuitadas from "./FotosQuitadas";
 import TituloError, { IconoAlerta } from "@/components/TituloError";
+import BotonEntrarOtraVez from "@/components/BotonEntrarOtraVez";
+import { clasificarFalla, fallaConCodigo, mensajeDeFalla, type Falla } from "@/lib/errores";
 
 type Estado =
   | { tipo: "cargando" }
   | { tipo: "ok"; fotos: Foto[] }
   | { tipo: "error"; detalle: string };
 
-/** Mensaje que se muestra arriba de la galería (se cierra con "Entendido"). */
-type Aviso = { tipo: "aviso" | "error"; texto: string };
+/**
+ * Mensaje que se muestra arriba de la galería (se cierra con "Entendido").
+ * sesionCaducada: además se ofrece "Iniciar sesión otra vez".
+ */
+type Aviso = { tipo: "aviso" | "error"; texto: string; sesionCaducada?: boolean };
+
+/** Aviso de error para una falla al guardar (red, sesión o Supabase; ver src/lib/errores.ts). */
+function avisoDeFalla(inicio: string, falla: Falla): Aviso {
+  return {
+    tipo: "error",
+    // El error de Supabase ya dice "No se pudo guardar…": no se repite el inicio.
+    texto: falla.tipo === "supabase" ? mensajeDeFalla(falla) : `${inicio} ${mensajeDeFalla(falla)}`,
+    sesionCaducada: falla.tipo === "sesion",
+  };
+}
 
 /** Resultado de intentar guardar un descarte. */
 type Resultado = { tipo: "quitada" } | Aviso;
@@ -77,46 +92,44 @@ function textoNoSePuedeQuitar(estado: EstadoProcesoFoto): string {
  */
 async function guardarDescarte(foto: Foto): Promise<Resultado> {
   try {
-    const { data, error } = await supabase
+    const { data, error, status } = await supabase
       .from("fotos")
       .update({ descartada_at: new Date().toISOString() })
       .eq("id", foto.id)
       .select("id");
-    if (error) throw error;
+    if (error) return avisoDeFalla("No se pudo quitar la foto.", clasificarFalla(error, status));
     if (data.length > 0) return { tipo: "quitada" };
 
-    const { data: actual, error: errorLectura } = await supabase
+    const { data: actual, error: errorLectura, status: estadoLectura } = await supabase
       .from("fotos")
       .select("estado_proceso, descartada_at")
       .eq("id", foto.id)
       .maybeSingle();
-    if (errorLectura) throw errorLectura;
+    if (errorLectura) {
+      return avisoDeFalla("No se pudo quitar la foto.", clasificarFalla(errorLectura, estadoLectura));
+    }
     // Ya no existe o alguien más ya la quitó: el resultado es el mismo.
     if (!actual || actual.descartada_at) return { tipo: "quitada" };
     if (actual.estado_proceso !== "pendiente") {
       return { tipo: "aviso", texto: textoNoSePuedeQuitar(actual.estado_proceso) };
     }
-    throw new Error("La foto no cambió");
-  } catch {
-    return {
-      tipo: "error",
-      texto: "No se pudo quitar la foto. Revisa tu conexión a internet e inténtalo otra vez.",
-    };
+    // Supabase respondió bien pero no cambió la foto aunque sigue pendiente: casi
+    // siempre es una regla de permisos que no deja (no da error, solo 0 filas).
+    return avisoDeFalla("No se pudo quitar la foto.", fallaConCodigo("SIN-CAMBIO"));
+  } catch (e) {
+    return avisoDeFalla("No se pudo quitar la foto.", clasificarFalla(e));
   }
 }
 
 /** Restaura una foto quitada (solo admin; la base lo revisa). */
 async function guardarRestauracion(foto: Foto): Promise<Aviso | null> {
   try {
-    const { error } = await supabase.rpc("admin_restaurar_foto", { p_foto_id: foto.id });
+    const { error, status } = await supabase.rpc("admin_restaurar_foto", { p_foto_id: foto.id });
     if (!error) return null;
     if (error.code === "42501") return { tipo: "error", texto: "Solo el administrador puede restaurar fotos." };
-    throw error;
-  } catch {
-    return {
-      tipo: "error",
-      texto: "No se pudo restaurar la foto. Revisa tu conexión a internet e inténtalo otra vez.",
-    };
+    return avisoDeFalla("No se pudo restaurar la foto.", clasificarFalla(error, status));
+  } catch (e) {
+    return avisoDeFalla("No se pudo restaurar la foto.", clasificarFalla(e));
   }
 }
 
@@ -287,6 +300,7 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
               <span>{aviso.texto}</span>
             </p>
           )}
+          {aviso.sesionCaducada && <BotonEntrarOtraVez />}
           <button
             type="button"
             onClick={() => setAviso(null)}
