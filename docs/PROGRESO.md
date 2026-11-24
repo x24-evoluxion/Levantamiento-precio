@@ -19,7 +19,7 @@
 | — | Ajuste visual (tema oscuro) | ✅ |
 | — | Ajustes de la app: pantalla limpia, fotos 0.92 / 5 MB, tema claro | 🟡 falta prueba del usuario |
 | — | Quitar fotos (descarte reversible) — fuera del plan original | ✅ (cerrada el 2026-11-23, ver su sección) |
-| — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | 🟡 falta: `008` + prueba, push, prueba con cuentas, `009` + prueba |
+| — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | 🟡 `008` ejecutada; falta: **`008b`** + prueba `008`, prueba con cuentas, `009` + prueba |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -98,6 +98,13 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (4) probar con una cuenta de campo y con la de admin; (5) ejecutar
       `supabase/009_cerrar_anon.sql` (B) y `supabase/pruebas/009_prueba_sin_anon.sql`.
       **Después de B, el link sin sesión deja de funcionar.**
+- [ ] **(Autenticación, 2026-11-24) Error al guardar una visita** ("infinite recursion detected in
+      policy for relation visitas"). Corrección en `supabase/008b_romper_ciclo_rls.sql`. Pasos del
+      usuario, EN ESTE ORDEN: (1) ejecutar `008b` (todas las filas `ok = true`); (2) ejecutar
+      `supabase/pruebas/008_prueba_autenticacion.sql` → `0. RESUMEN` con `ok = true` (57 casos);
+      (3) volver a probar en la app guardar una visita con la cuenta de admin y con una de campo;
+      (4) seguir con `009` como estaba. **No volver a ejecutar `008` después de `008b`** (regresa
+      el ciclo; si pasa, ejecutar `008b` otra vez).
 - [ ] **(Autenticación) No volver a ejecutar `001_esquema.sql` ni `007_descartar_fotos.sql`
       después de `009`:** vuelven a crear permisos y reglas de `anon`. La comprobación final de
       `007` ya no sale toda `ok` después de `008` (espera que `authenticated` no pueda cambiar
@@ -1564,3 +1571,80 @@ secret key en la app, **no** se empezaron fases 🤖 ni se llamó a la API de An
   avisar: es el entorno de Storage, no las reglas.
 
 **Commit:** ver `git log` — `Autenticación y propiedad de visitas: login, dueño, admin, URLs firmadas (008/009)`
+
+---
+
+## Corrección: ciclo de reglas al guardar una visita (008b) (2026-11-24) — 🟡 falta que el usuario ejecute `008b` y la prueba
+
+**El problema:** el usuario ya ejecutó `008` (A). Al guardar una visita en la app con la cuenta de
+admin salió `infinite recursion detected in policy for relation "visitas"`. Pasa con **cualquier**
+cuenta (campo o admin) y solo al **crear** una visita. **No** se ejecutó nada en Supabase, **no**
+se editó `008`, **no** se ejecutó `009`.
+
+**Diagnóstico (el ciclo exacto):**
+- `visitas` INSERT → regla "authenticated crea sus visitas" → `exists (select … from competidores …)`
+- → `competidores` SELECT → regla "authenticated lee competidores" → `exists (select … from visitas …)`
+- → `visitas` SELECT → regla "authenticated lee sus visitas" (tiene subconsultas `(select auth.uid())`)
+  → Postgres ve que ya estaba aplicando reglas de `visitas` y corta con "infinite recursion".
+- Las reglas de `fotos` y de Storage leen `visitas`, pero la regla de `visitas` no regresa a ellas:
+  no hacen ciclo. Se cambiaron igual (pedido del usuario: ninguna regla lee otra tabla con RLS).
+- `anon` no tiene el problema: su regla de competidores es `using (true)` (no lee visitas).
+- Reproducido en local con PGlite (Postgres en WASM, en el scratchpad, fuera del repo) cargando
+  `001`–`008` reales: la prueba `008` sale `RESUMEN ok = false` con los casos 6, 7 y 8 en
+  "infinite recursion".
+
+**Qué se hizo:**
+- `supabase/008b_romper_ciclo_rls.sql` (nuevo, repetible, en una transacción, con freno si falta 008):
+  - Esquema `privado` (la API de Supabase no lo publica): `usage` solo para `authenticated`.
+  - Funciones `security definer`, `stable`, `search_path = ''`, sin `execute` para `anon` ni
+    `public`: `es_dueno_de_visita(uuid)`, `puede_usar_visita(uuid)` (mía, o admin y existe),
+    `competidor_activo(bigint)`, `competidor_en_visita_visible(bigint)`. Más
+    `visita_de_ruta(text)` (no definer, no lee tablas: saca el uuid de `visitas/<uuid>/…`).
+  - `alter policy` (sin borrar reglas) de las 5 reglas de tablas que leían otra tabla y las 2 de
+    Storage. "authenticated lee sus visitas" no cambia.
+  - Comprobación final: 9 filas `ok`.
+- `supabase/pruebas/008_prueba_autenticacion.sql`: casos 42–56 con el **flujo real de la app**
+  (C1 de campo y el admin crean su visita con sus reglas, `insert … returning`, la abren con su
+  tienda, aparece en la lista, suben archivo a Storage, registran fotos, las ven, quitan una; C2
+  y C1 no pueden hacer nada de eso en la visita ajena; el admin sí, por diseño), caso 57
+  (ningún caso dio "infinite recursion") y mínimo de 55 casos en el RESUMEN.
+- App: **sin cambios**. Se revisó el flujo (ver abajo).
+
+**Flujo de la app revisado:**
+1. `FormularioNuevaVisita.tsx`: `from("visitas").insert({competidor_id, latitud, longitud,
+   precision_metros, ubicacion_at}).select("id").single()` → INSERT con RETURNING (aquí salía el error).
+2. `DetalleVisita.tsx`: `select("*, competidores(nombre)")`; `ListaVisitas.tsx`:
+   `select("id, created_at, usuario_id, competidores(nombre), fotos(count)")`.
+3. `SubirFotos.tsx`: `storage.upload(visitas/<visita>/<uuid>.jpg, upsert: false)` y luego
+   `from("fotos").insert({...}).select().single()`.
+4. `urlsFirmadas.ts`: `createSignedUrls` (lee `storage.objects`).
+5. `FotosVisita.tsx`: `update({descartada_at}).eq("id", …).select("id")`.
+
+**Resultados en local (PGlite, NO es Supabase):** `008b` dos veces seguidas → OK, 9/9 `ok`.
+Prueba `008`: sin `008b` 16 casos fallan; con `008b` 57/57. Después de `009`: prueba `009` 12/12
+y prueba `008` 55/55. Límites: en local el dueño de las funciones es superusuario y Storage es una
+tabla mínima (sin la API ni sus triggers). `npm run lint` y `npm run build` pasan.
+
+**Por qué la prueba `008` no avisó:** la prueba **sí** marca el error (casos 6–8 y RESUMEN false
+en la reproducción local), pero no se corrió antes de que llegara a la app y el agente anterior no
+tenía cómo correrla. Además era fácil pasarlo por alto: el resto de los casos (fotos, Storage) usa
+visitas creadas por el SQL Editor, que se salta las reglas, así que 38 de 41 casos pasaban; no había
+un caso que hiciera el recorrido completo de la app con visitas creadas con las reglas.
+
+**Decisiones tomadas (y por qué):**
+- Funciones en `privado` y no en `public`: así no se pueden llamar como `/rpc/…` desde la app y no
+  cambian las comprobaciones de `008`/`009` ("ninguna función de public abierta salvo es_admin y admin_*").
+- `alter policy` en vez de `drop` + `create`: nunca hay un momento sin regla y se puede repetir.
+- Cambio pequeño: en Storage, el admin ahora ve archivos de visitas que **existen** (antes, todo el
+  bucket). La app solo pide archivos de fotos registradas, que siempre tienen visita.
+
+**Pasos del usuario, EN ESTE ORDEN:**
+1. SQL Editor → `supabase/008b_romper_ciclo_rls.sql` → todas las filas `ok = true`.
+2. SQL Editor → `supabase/pruebas/008_prueba_autenticacion.sql` → `0. RESUMEN` con `ok = true`
+   (57 casos antes de `009`).
+3. En la app (no hace falta push: la app no cambió), guardar una visita con el admin y con una
+   cuenta de campo, subir y quitar una foto.
+4. Seguir con `009` y su prueba como dice la sección anterior.
+
+**Commit:** ver `git log` — `008b: romper el ciclo de reglas RLS al crear visitas`
+

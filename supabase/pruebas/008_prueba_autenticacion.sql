@@ -2,9 +2,15 @@
 -- pruebas/008_prueba_autenticacion.sql — Prueba de login y dueño de visitas (A)
 -- =============================================================================
 -- NO es una migración: es una PRUEBA que NO deja nada en la base.
--- Ejecútala DESPUÉS de 008_autenticacion.sql (y ANTES o DESPUÉS de 009: los
--- casos 40–41, "anon sigue funcionando", solo aplican ANTES de 009; después de
--- 009 usa pruebas/009_prueba_sin_anon.sql).
+-- Ejecútala DESPUÉS de 008_autenticacion.sql Y DE 008b_romper_ciclo_rls.sql
+-- (y ANTES o DESPUÉS de 009: los casos 40–41, "anon sigue funcionando", solo
+-- aplican ANTES de 009; después de 009 usa también pruebas/009_prueba_sin_anon.sql).
+-- Sin 008b fallan los casos 6–8, 42–56 y 57 con "infinite recursion".
+--
+-- Casos 42–56 (agregados con 008b): el FLUJO REAL DE LA APP. Cada persona (C1
+-- de campo y el admin) crea su visita CON SUS REGLAS (insert … returning), la
+-- abre, sube el archivo a Storage, registra la foto, la ve y la quita; y otra
+-- cuenta de campo intenta lo mismo en esa visita (no debe poder).
 --
 -- Cómo usarla: copia TODO este archivo en Supabase → SQL Editor → Run.
 --   - Todo va dentro de una transacción (begin … rollback): los usuarios, la
@@ -162,6 +168,7 @@ declare
 
   c1 constant uuid := '00000000-0000-4000-8000-000000000801';
   c2 constant uuid := '00000000-0000-4000-8000-000000000802';
+  ad constant uuid := '00000000-0000-4000-8000-000000000803';
   v1  constant uuid := '00000000-0000-4000-8000-000000000811';
   v2  constant uuid := '00000000-0000-4000-8000-000000000813';
   v0  constant uuid := '00000000-0000-4000-8000-000000000814';
@@ -193,6 +200,13 @@ declare
   v_uuid uuid;
   v_hora timestamptz;
   v_storage boolean;
+  -- Flujo real de la app (casos 42–56): ids que crean las propias personas.
+  v_nueva_c1 uuid;
+  v_nueva_ad uuid;
+  v_foto_c1a uuid;
+  v_foto_c1b uuid;
+  v_foto_ad  uuid;
+  v_foto_ad2 uuid;
 begin
   select id into v_tienda_activa   from public.competidores where nombre = 'PRUEBA 008 activa (se deshace)';
   select id into v_tienda_inactiva from public.competidores where nombre = 'PRUEBA 008 inactiva sin usar (se deshace)';
@@ -631,6 +645,270 @@ begin
     perform pg_temp.anotar(37, 'Storage: C1 NO reemplaza ni borra archivos', 'sigue igual', v_obt);
   end if;
 
+  -- ===== FLUJO REAL DE LA APP (agregado con 008b) ==============================
+  -- Los casos 1–37 usan visitas creadas por el SQL Editor (sin reglas). Aquí cada
+  -- persona hace, CON SUS REGLAS, lo mismo que la app y en el mismo orden:
+  --   nueva visita  → insert … returning id          (FormularioNuevaVisita)
+  --   abrirla       → select con su tienda; la lista  (DetalleVisita, ListaVisitas)
+  --   subir foto    → insert en storage.objects … returning (Storage API)
+  --                 → insert en fotos … returning *    (SubirFotos)
+  --   verla         → leer su archivo de Storage       (URLs firmadas)
+  --   quitarla      → update descartada_at … returning id (FotosVisita)
+  -- y luego OTRA cuenta de campo intenta lo mismo en esa visita.
+  -- Sin 008b, el primer insert da "infinite recursion" (casos 6–8 y 42, 53).
+
+  -- 42. C1 crea una visita como la app (con todas las columnas que manda).
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    insert into public.visitas (competidor_id, latitud, longitud, precision_metros, ubicacion_at)
+    values (v_tienda_activa, 19.3, -99.3, 12, now())
+    returning id, usuario_id into v_nueva_c1, v_uuid;
+    reset role;
+    v_obt := case when v_uuid = c1 then 'creada a nombre de C1' else 'creada a nombre de ' || coalesce(v_uuid::text, 'nadie') end;
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(42, 'App: C1 crea una visita (insert … returning id)', 'creada a nombre de C1', v_obt);
+
+  -- 43. C1 la abre (con el nombre de la tienda) y la ve en "Mis visitas".
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    select coalesce(c.nombre, 'SIN TIENDA') into v_obt
+    from public.visitas v left join public.competidores c on c.id = v.competidor_id
+    where v.id = v_nueva_c1;
+    select count(*) into v_n
+    from public.visitas v
+    left join lateral (select count(*) from public.fotos f
+                       where f.visita_id = v.id and f.descartada_at is null) cuenta on true
+    where v.id = v_nueva_c1;
+    reset role;
+    v_obt := case when v_obt like 'PRUEBA 008 activa%' then 'la abre con su tienda' else coalesce(v_obt, 'NO LA VE') end
+             || format('; en la lista: %s', v_n);
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(43, 'App: C1 abre su visita nueva y la ve en la lista', 'la abre con su tienda; en la lista: 1', v_obt);
+
+  -- 44. C1 sube el archivo a Storage en su visita nueva.
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    insert into storage.objects (bucket_id, name)
+    values ('fotos', 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000851.jpg')
+    returning name into v_obt;
+    reset role;
+    v_obt := 'aceptado';
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(44, 'App: C1 sube el archivo a Storage (su visita nueva)', 'aceptado', v_obt);
+
+  -- 45. C1 registra dos fotos en su visita nueva (A se quita en el 47; B la
+  -- intenta quitar C2 en el 51).
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    insert into public.fotos (visita_id, ruta, nombre_original, tamano_bytes, capturada_at, capturada_origen)
+    values (v_nueva_c1, 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000851.jpg',
+            'IMG_0001.jpg', 123456, now(), 'exif')
+    returning id, subida_por into v_foto_c1a, v_uuid;
+    insert into public.fotos (visita_id, ruta, capturada_origen)
+    values (v_nueva_c1, 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000852.jpg', 'sin_dato')
+    returning id into v_foto_c1b;
+    reset role;
+    v_obt := case when v_uuid = c1 and v_foto_c1b is not null then 'registradas por C1' else 'subida por ' || coalesce(v_uuid::text, 'nadie') end;
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(45, 'App: C1 registra fotos en su visita nueva (insert … returning)', 'registradas por C1', v_obt);
+
+  -- 46. C1 ve sus fotos y lee su archivo (lo que hace pedir la URL firmada).
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    select count(*) into v_n from public.fotos where visita_id = v_nueva_c1;
+    v_obt := format('fotos %s', v_n);
+    select count(*) into v_n from storage.objects
+    where bucket_id = 'fotos' and name like 'visitas/' || v_nueva_c1 || '/%';
+    reset role;
+    v_obt := v_obt || format('; archivos %s', v_n);
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(46, 'App: C1 ve sus fotos nuevas y su archivo (URL firmada)', 'fotos 2; archivos 1', v_obt);
+
+  -- 47. C1 quita la foto A (como la app: update … returning id).
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    with cambio as (
+      update public.fotos set descartada_at = now() where id = v_foto_c1a returning id
+    ) select count(*) into v_n from cambio;
+    reset role;
+    v_obt := format('%s fila', v_n);
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(47, 'App: C1 quita una foto de su visita nueva (update … returning)', '1 fila', v_obt);
+
+  -- 48. C2 (otra cuenta de campo) NO ve la visita nueva de C1, ni sus fotos, ni su archivo.
+  begin
+    perform set_config('request.jwt.claims', jwt_c2, true); set local role authenticated;
+    select count(*) into v_n from public.visitas where id = v_nueva_c1;
+    v_obt := format('visita %s', v_n);
+    select count(*) into v_n from public.fotos where visita_id = v_nueva_c1;
+    v_obt := v_obt || format('; fotos %s', v_n);
+    select count(*) into v_n from storage.objects
+    where bucket_id = 'fotos' and name like 'visitas/' || v_nueva_c1 || '/%';
+    reset role;
+    v_obt := v_obt || format('; archivos %s', v_n);
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(48, 'Ajena: C2 NO ve la visita nueva de C1 (ni fotos ni archivos)', 'visita 0; fotos 0; archivos 0', v_obt);
+
+  -- 49. C2 NO sube un archivo a la carpeta de la visita nueva de C1.
+  begin
+    perform set_config('request.jwt.claims', jwt_c2, true); set local role authenticated;
+    insert into storage.objects (bucket_id, name)
+    values ('fotos', 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000853.jpg');
+    reset role;
+    v_obt := 'ACEPTADO';
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(49, 'Ajena: C2 NO sube archivos a la visita nueva de C1', 'rechazado (regla RLS de objects)', v_obt);
+
+  -- 50. C2 NO registra una foto en la visita nueva de C1.
+  begin
+    perform set_config('request.jwt.claims', jwt_c2, true); set local role authenticated;
+    insert into public.fotos (visita_id, ruta)
+    values (v_nueva_c1, 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000853.jpg');
+    reset role;
+    v_obt := 'ACEPTADO';
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(50, 'Ajena: C2 NO registra fotos en la visita nueva de C1', 'rechazado (regla RLS de fotos)', v_obt);
+
+  -- 51. C2 NO quita la foto B de la visita nueva de C1.
+  begin
+    perform set_config('request.jwt.claims', jwt_c2, true); set local role authenticated;
+    with cambio as (
+      update public.fotos set descartada_at = now() where id = v_foto_c1b returning id
+    ) select count(*) into v_n from cambio;
+    reset role;
+    select format('%s filas; %s', v_n, case when descartada_at is null then 'sigue a la vista' else 'QUITADA' end)
+      into v_obt from public.fotos where id = v_foto_c1b;
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(51, 'Ajena: C2 NO quita fotos de la visita nueva de C1', '0 filas; sigue a la vista', v_obt);
+
+  -- 52. El admin crea una visita como la app (el error del 2026-11-24 fue aquí).
+  begin
+    perform set_config('request.jwt.claims', jwt_ad, true); set local role authenticated;
+    insert into public.visitas (competidor_id, latitud, longitud, precision_metros, ubicacion_at)
+    values (v_tienda_activa, 19.4, -99.4, 8, now())
+    returning id, usuario_id into v_nueva_ad, v_uuid;
+    reset role;
+    v_obt := case when v_uuid = ad then 'creada a nombre del admin' else 'creada a nombre de ' || coalesce(v_uuid::text, 'nadie') end;
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(52, 'App: el admin crea una visita (insert … returning id)', 'creada a nombre del admin', v_obt);
+
+  -- 53. El admin la abre con su tienda y la ve en "Todas las visitas".
+  begin
+    perform set_config('request.jwt.claims', jwt_ad, true); set local role authenticated;
+    select coalesce(c.nombre, 'SIN TIENDA') into v_obt
+    from public.visitas v left join public.competidores c on c.id = v.competidor_id
+    where v.id = v_nueva_ad;
+    select count(*) into v_n
+    from public.visitas v
+    left join lateral (select count(*) from public.fotos f
+                       where f.visita_id = v.id and f.descartada_at is null) cuenta on true
+    where v.id = v_nueva_ad;
+    reset role;
+    v_obt := case when v_obt like 'PRUEBA 008 activa%' then 'la abre con su tienda' else coalesce(v_obt, 'NO LA VE') end
+             || format('; en la lista: %s', v_n);
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(53, 'App: el admin abre su visita nueva y la ve en la lista', 'la abre con su tienda; en la lista: 1', v_obt);
+
+  -- 54. El admin sube el archivo, registra la foto, la ve y la quita.
+  begin
+    perform set_config('request.jwt.claims', jwt_ad, true); set local role authenticated;
+    insert into storage.objects (bucket_id, name)
+    values ('fotos', 'visitas/' || v_nueva_ad || '/00000000-0000-4000-8000-000000000861.jpg')
+    returning name into v_obt;
+    v_obt := 'sube';
+    insert into public.fotos (visita_id, ruta, nombre_original, tamano_bytes, capturada_origen)
+    values (v_nueva_ad, 'visitas/' || v_nueva_ad || '/00000000-0000-4000-8000-000000000861.jpg',
+            'IMG_0002.jpg', 654321, 'sin_dato')
+    returning id, subida_por into v_foto_ad, v_uuid;
+    v_obt := v_obt || case when v_uuid = ad then '; registra' else '; registra a nombre de OTRO' end;
+    -- Segunda foto, pendiente, para que C1 intente quitarla en el caso 55.
+    insert into public.fotos (visita_id, ruta)
+    values (v_nueva_ad, 'visitas/' || v_nueva_ad || '/00000000-0000-4000-8000-000000000864.jpg')
+    returning id into v_foto_ad2;
+    select count(*) into v_n from storage.objects
+    where bucket_id = 'fotos' and name like 'visitas/' || v_nueva_ad || '/%';
+    v_obt := v_obt || format('; ve %s archivo', v_n);
+    with cambio as (
+      update public.fotos set descartada_at = now() where id = v_foto_ad returning id
+    ) select count(*) into v_n from cambio;
+    reset role;
+    v_obt := v_obt || format('; quita %s', v_n);
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(54, 'App: el admin sube, registra, ve y quita una foto en su visita nueva',
+                         'sube; registra; ve 1 archivo; quita 1', v_obt);
+
+  -- 55. C1 NO hace nada en la visita nueva del admin: no la ve, no sube archivo,
+  -- no registra foto, no quita fotos.
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    select count(*) into v_n from public.visitas where id = v_nueva_ad;
+    v_obt := format('ve %s', v_n);
+    reset role;
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    insert into storage.objects (bucket_id, name)
+    values ('fotos', 'visitas/' || v_nueva_ad || '/00000000-0000-4000-8000-000000000862.jpg');
+    reset role;
+    v_obt := v_obt || '; sube ACEPTADO';
+  exception when others then v_obt := v_obt || '; sube ' || pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    insert into public.fotos (visita_id, ruta)
+    values (v_nueva_ad, 'visitas/' || v_nueva_ad || '/00000000-0000-4000-8000-000000000862.jpg');
+    reset role;
+    v_obt := v_obt || '; registra ACEPTADO';
+  exception when others then v_obt := v_obt || '; registra ' || pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  begin
+    perform set_config('request.jwt.claims', jwt_c1, true); set local role authenticated;
+    with cambio as (
+      update public.fotos set descartada_at = now() where id = v_foto_ad2 returning id
+    ) select count(*) into v_n from cambio;
+    reset role;
+    select v_obt || format('; quita %s filas (%s)', v_n,
+                           case when descartada_at is null then 'sigue a la vista' else 'QUITADA' end)
+      into v_obt from public.fotos where id = v_foto_ad2;
+  exception when others then v_obt := v_obt || '; quita ' || pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(55, 'Ajena: C1 NO ve, sube, registra ni quita en la visita nueva del admin',
+                         've 0; sube rechazado (regla RLS de objects); registra rechazado (regla RLS de fotos); quita 0 filas (sigue a la vista)', v_obt);
+
+  -- 56. Por diseño (decisión 4), el admin SÍ trabaja en la visita nueva de C1:
+  -- la ve con sus 2 fotos (también la quitada), sube archivo y registra foto.
+  begin
+    perform set_config('request.jwt.claims', jwt_ad, true); set local role authenticated;
+    select count(*) into v_n from public.visitas where id = v_nueva_c1;
+    v_obt := format('ve %s', v_n);
+    select count(*) into v_n from public.fotos where visita_id = v_nueva_c1;
+    v_obt := v_obt || format('; fotos %s', v_n);
+    insert into storage.objects (bucket_id, name)
+    values ('fotos', 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000863.jpg');
+    insert into public.fotos (visita_id, ruta)
+    values (v_nueva_c1, 'visitas/' || v_nueva_c1 || '/00000000-0000-4000-8000-000000000863.jpg')
+    returning subida_por into v_uuid;
+    reset role;
+    v_obt := v_obt || case when v_uuid = ad then '; sube y registra (subida por admin)' else '; registra a nombre de OTRO' end;
+  exception when others then v_obt := pg_temp.error_texto(sqlstate, sqlerrm);
+  end;
+  perform pg_temp.anotar(56, 'Admin (por diseño) SÍ ve y sube fotos en la visita nueva de C1',
+                         've 1; fotos 2; sube y registra (subida por admin)', v_obt);
+
   -- ===== ETAPA 2 Y ANON ========================================================
   -- 38. Las tablas y vistas de la Etapa 2 siguen cerradas, también para el admin.
   begin
@@ -697,6 +975,17 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 3. Resultado visible (todas las filas deben tener ok = true).
 -- -----------------------------------------------------------------------------
+-- 57. Guardia: ningún caso terminó en "infinite recursion" (el error de reglas
+-- que se llaman en círculo, corregido en 008b). Si sale false, ejecuta 008b.
+insert into prueba_resultado
+select 57, 'Ningún caso dio "infinite recursion" (si falla: ejecuta 008b)',
+       'ninguno',
+       coalesce(nullif(string_agg(n::text, ', ' order by n) filter (where obtenido like '%infinite recursion%'), ''), 'ninguno'),
+       count(*) filter (where obtenido like '%infinite recursion%') = 0
+from prueba_resultado;
+
+-- Mínimo de casos: 1–39, 42–57 = 55 (más 40–41 antes de 009). Si salen menos,
+-- la prueba se cortó a la mitad.
 insert into prueba_resultado
 select 0, 'RESUMEN',
        'todos los casos con ok = true',
@@ -705,7 +994,7 @@ select 0, 'RESUMEN',
             else count(*) filter (where ok is not true) || ' caso(s) FALLARON: '
                  || string_agg(n::text, ', ' order by n) filter (where ok is not true)
        end,
-       count(*) >= 39 and count(*) filter (where ok is not true) = 0
+       count(*) >= 55 and count(*) filter (where ok is not true) = 0
 from prueba_resultado;
 
 select n, caso, esperado, obtenido, ok from prueba_resultado order by n;
