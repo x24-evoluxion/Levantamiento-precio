@@ -33,6 +33,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 | Captura manual de datos con sugerencias (migración 010) | Hecho (2026-11-25); reemplazada en pantalla por la captura rápida (011) |
 | **Captura rápida de productos** (migración 011): 4 campos, sugerencias de artículo del catálogo propio | Hecho (2026-11-25); falta ejecutar `010` (si aún no), `010b`, `011` y su prueba, publicar y probar (orden en `PROGRESO.md`) |
 | **Editar y borrar lo capturado** (migración 012; `012b` para la etapa 2, por revisar) | Hecho (2026-11-25); falta ejecutar `012` y su prueba después de `011`, publicar y probar (orden en `PROGRESO.md`) |
+| **Lista de visitas por día** con conteo de fotos y artículos (solo app, sin cambios en la base) | Hecho (2026-11-25); falta publicar y probar en el celular |
 | Etapa 2, agentes: lectura de fotos con la API de Claude | **No iniciada.** Las fases de agentes solo empiezan cuando se piden |
 | Cambios pedidos en revisión (sección 8.3) | Por decidir o por implementar |
 
@@ -51,7 +52,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 7. Si una foto falla, las demás siguen subiendo y se muestra un mensaje en español.
 8. Cada foto tiene una **✕ arriba a la derecha**. Al tocarla aparece "¿Quitar esta foto?" con **Cancelar** y **Quitar**. Al confirmar, la foto se *descarta* (se oculta, no se borra el archivo). Solo se pueden quitar fotos que aún no leyó un agente.
 9. **(Opcional, desde 2026-11-25; captura rápida desde `011`)** Debajo de las fotos, la sección **"Datos del levantamiento (manual)"**, pensada para capturar en segundos mientras se recorre la tienda. Solo 4 campos: **Artículo** (obligatorio; al escribir 2 letras o más sugiere hasta 6 descripciones de **nuestro** catálogo que contengan todas las palabras escritas, en cualquier orden; tocar una la llena y pasa a precio; se puede dejar lo escrito), **Precio regular** (obligatorio; teclado numérico), **Precio de promoción individual** (opcional, por pieza: "2x$42" → 21 y "2x42" en observaciones) y **Observaciones** (opcional). Enter pasa al siguiente campo; **Agregar** (o Enter en el último) pone el producto en una lista de una línea y deja el formulario listo para el siguiente. Tocar un producto de la lista lo corrige; **Quitar** lo saca (con **Deshacer**). **Guardar datos** guarda toda la lista junta (todo o nada). Lo escrito se guarda como borrador en el celular, y la app avisa si sale sin guardar. Para corregir un producto ya guardado se quita y se vuelve a escribir. La app avisa (sin impedir) si el precio es 0, si la promoción no es menor que el regular o si un precio pasa de $10,000. Estos datos todavía no los usa ningún agente.
-10. **Volver a la lista** muestra **sus** visitas, la más reciente primero. Se puede entrar a cualquiera de ellas y agregar más fotos.
+10. **Volver a la lista** muestra **sus** visitas, la más reciente primero, **agrupadas por día** (desde 2026-11-25): "Hoy", "Ayer" y luego la fecha ("lunes 23 de noviembre", con año si no es el actual), en hora de México. Cada día dice sus totales ("3 visitas · 24 fotos · 41 artículos") y cada visita su tienda, su hora y cuántas fotos y artículos tiene; "Sin fotos" y "Sin artículos" salen resaltados para ver rápido qué visita quedó incompleta. Solo cuentan fotos y artículos no borrados. Se cargan 14 días a la vez; **Ver días anteriores** trae los siguientes 14 (hasta "No hay más visitas"). Al regresar de una visita, los números ya están al día. Se puede entrar a cualquiera de ellas y agregar más fotos.
 11. **(Desde 2026-11-25, `012`) Editar y borrar.** En los productos guardados: **Editar** (abre el mismo formulario con los datos) y **Borrar** ("¿Borrar este producto?"). En la visita: **Cambiar tienda** y **Borrar visita** ("¿Borrar esta visita?"), solo mientras ningún agente haya leído sus fotos; si ya se leyeron, la app lo explica. **Borrar = descartar**: no se borra nada, pero lo borrado ya no aparece (una visita borrada desaparece con sus fotos y productos). Solo el admin lo puede recuperar.
 
 **Login (desde 2026-11-24; reemplaza la decisión "sin login"):** sin sesión la app no muestra nada; cada persona entra con su **usuario** (o su correo) y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). Hay dos roles:
@@ -360,6 +361,7 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 | Borrar = descartar; campo edita/borra solo lo suyo; admin todo y restaura (012, 2026-11-25) | Corregir errores sin perder datos ni historial | Reemplaza "el personal de campo no modifica visitas" **solo para cambiar la tienda**, y solo si ningún agente leyó sus fotos |
 | Captura rápida de 4 campos (011, 2026-11-25) | En la tienda, capturar un producto debe tomar segundos | Contenido, unidad, marca, área y tipo de promoción ya no se piden; la promoción es **por pieza** y el detalle ("2x42") va en observaciones |
 | Sugerencias de artículo = descripciones de nuestro catálogo, en **un** arreglo | La API corta en ~1,000 filas y el catálogo tiene más de 3,000 | La lista se carga una vez y se filtra en el celular; si no carga, se escribe a mano |
+| Lista principal por día, con conteos en la misma consulta (`fotos(count)`, `capturas_manuales(count)` filtrando `descartada_at` nulo) y carga por tramos de 14 días (2026-11-25) | La API corta en ~1,000 filas; no hizo falta una vista nueva en la base | Si falla el conteo de artículos (p. ej., sin la tabla de `010`), la lista sale solo con fotos y un aviso. Al volver a la lista se regresa al primer tramo |
 | Decimales de más se **rechazan** en la base (no se redondean) | Que un dato mal escrito no se guarde cambiado | La app avisa antes con un mensaje en español |
 
 ### Valores vigentes de las fotos (pueden cambiar, ver 8.3)
@@ -463,7 +465,7 @@ Levantamiento-precio/
 │   ├── app/                  # Pantallas (Next.js App Router)
 │   │   └── visitas/[id]/     # Pantalla de una visita: galería de fotos, quitar foto, captura manual
 │   ├── components/           # PuertaSesion (pide entrar), PantallaEntrar, mensajes de error, campo con sugerencias
-│   └── lib/                  # Cliente de Supabase, sesión, URLs firmadas, tipos, lectura de EXIF, captura manual, tipos de la etapa 2
+│   └── lib/                  # Cliente de Supabase, sesión, URLs firmadas, tipos, lectura de EXIF, captura manual, lista por día (listaVisitas.ts), tipos de la etapa 2
 ├── supabase/                 # Migraciones SQL numeradas (se ejecutan a mano)
 │   └── pruebas/              # Pruebas con datos inventados (terminan con rollback)
 ├── scripts/                  # Scripts locales (importación del catálogo); no son parte de la app publicada

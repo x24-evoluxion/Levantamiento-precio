@@ -25,6 +25,7 @@
 | — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 la prueba vieja dio `42P01`; correr la nueva `010b` (ver "Corrección de la prueba de 010"). La pantalla la reemplaza la captura rápida (`011`) |
 | — | Captura rápida de productos (`011`) — fuera del plan original | 🟡 falta ejecutar; el orden completo está en "Editar y borrar lo capturado" |
 | — | Editar y borrar lo capturado (`012`, `012b` por revisar) — fuera del plan original | 🟡 falta: `010` (si aún no) → `010b` → `011` → prueba `011` → `012` → prueba `012` → (`012b` si se aprueba) → push → prueba en el celular |
+| — | Lista de visitas por día con conteos (solo app) — fuera del plan original | 🟡 falta publicar y probar en el celular |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -2428,3 +2429,92 @@ tienda** (y borrar = descartar), y solo si ningún agente leyó sus fotos.
   10/10, `test:etapa2` 14/14.
 
 **Commit:** ver `git log` — `Editar y borrar lo capturado (012): descartar, restaurar, app y docs`
+
+---
+
+## Lista de visitas por día con conteos de fotos y artículos (2026-11-25) — 🟡 falta publicar y probar en el celular
+
+Cambio **solo de la app**, fuera del plan original, pedido por el usuario. **No** se cambiaron
+tablas, reglas ni migraciones, **no** se ejecutó nada en Supabase, **no** se leyó `.env.local`
+ni `datos-privados/`, **no** se usó la secret key y **no** se instaló nada.
+
+**Qué se hizo:**
+- La pantalla principal agrupa las visitas por **día de ingreso** (`visitas.created_at`) en hora
+  de México (`America/Mexico_City`, con `Intl.DateTimeFormat`; una visita de las 8 pm no cae en el
+  día siguiente). Títulos: "Hoy", "Ayer" y luego "lunes 23 de noviembre" (con " de 2025" si no es
+  del año actual). Días y visitas de la más reciente a la más antigua; cada visita con su hora.
+- Encabezado de cada día (se queda arriba al bajar): "3 visitas · 24 fotos · 41 artículos", con
+  singular y plural. Si el admin tiene visitas borradas ese día, se agrega "· 1 borrada".
+- Cada visita: tienda, hora, "📷 N fotos" y "📝 N artículos". Sin fotos o sin artículos → aviso
+  amarillo discreto "Sin fotos" / "Sin artículos". Admin: "👤 quién la creó" (con
+  `admin_correos_usuarios`, que ya existía; no se abre `auth.users`). Toda la tarjeta abre la visita.
+- Conteos en la **misma consulta** con PostgREST: `fotos(count)` y `capturas_manuales(count)`
+  filtrando `fotos.descartada_at is null` y `capturas_manuales.descartada_at is null`. Ese filtro
+  va sobre el recurso **anidado** (sin `!inner`), así que **no quita visitas**: las que no tienen
+  fotos o artículos salen con 0 (se revisó la URL que arma supabase-js). Visitas borradas: el
+  personal de campo no las recibe (regla de la base, `012`); el admin las ve atenuadas, con línea
+  tachada y "Borrada … · toca para restaurar", y **no suman** a los totales del día.
+- **Carga por tramos de 14 días** (la API corta cada respuesta en 1,000 filas): cada tramo va de
+  medianoche a medianoche (hora de México), así **un día nunca queda partido**. Los tramos son
+  intervalos pegados `[desde, antesDe)`: no se repite ni se salta nada. Dentro de un tramo se piden
+  páginas de **500** filas (menos que el corte, para no confundir un corte del servidor con "ya no
+  hay más") avanzando "después de la última fila" (`created_at`, `id`), no por número de fila.
+  **"Ver días anteriores"** trae el siguiente tramo; si hay semanas sin visitas, salta directo al día
+  de la visita más antigua que sí existe. Si ya no hay más, el botón desaparece y dice "No hay más
+  visitas".
+- **Datos al día:** la lista se lee en el navegador al abrir la pantalla y, al volver de una visita,
+  se lee de nuevo (ya lo hacía `ReiniciarAlSalir`, necesario por `cacheComponents`). Los conteos
+  reflejan fotos subidas y artículos agregados o borrados sin recargar el navegador.
+- **Robustez:** si falla el conteo de artículos con un error de Supabase (por ejemplo, la tabla de
+  `010` aún no existe en esa base → `PGRST200`), la lista se vuelve a pedir **solo con fotos** y
+  sale un aviso discreto con el código; los tramos siguientes ya no piden artículos. Fallas de red
+  o de sesión no se confunden con eso: se muestran con el criterio actual (mensaje de red; sesión
+  caducada con "Iniciar sesión otra vez"; Supabase con código) y "Reintentar". Si falla "Ver días
+  anteriores", lo ya cargado se queda y el botón dice "Reintentar: ver días anteriores".
+- Diseño: tema actual, encabezados de día en negritas con línea negra, tarjetas compactas, botones
+  de 48 px y tarjetas de más de 44 px, texto de 16 px o más.
+
+**Archivos creados o cambiados:**
+- `src/lib/listaVisitas.ts` (nuevo) — lógica pura: día en México, títulos, horas, plurales,
+  agrupar y totales, carga por tramos y páginas, respaldo sin artículos.
+- `src/lib/listaVisitas.test.ts` (nuevo) — 25 pruebas con datos inventados (`npm run test:lista`).
+- `src/app/ListaVisitas.tsx` — la pantalla nueva (las consultas a Supabase y el diseño).
+- `package.json` — script `test:lista` (sin librerías nuevas).
+- `docs/PLAN.md` (sección 5, fila `/`), `docs/RESUMEN_PROYECTO.md` y este archivo.
+- `src/lib/tipos.ts` **no** cambió: las relaciones `fotos → visitas` y `capturas_manuales → visitas`
+  ya estaban; los conteos se leen con su propio tipo (`FilaCruda`).
+
+**Pasos que hizo el usuario a mano:**
+- Ninguno todavía. Falta publicar (push) y probar en el celular.
+
+**Cómo probarlo:**
+1. `npm run test:lista` → 25/25. (Cubre: 23:30 y 00:30 en México, "Hoy"/"Ayer", totales,
+   singular/plural, borrados que no suman, visitas con 0, tramos sin repetir ni saltar ni partir
+   días, más de 1,000 visitas en un día, una visita nueva a mitad de la carga, semanas vacías,
+   falla del conteo de artículos y fallas de red/sesión.)
+2. En el celular (campo): la lista sale por días con sus totales. Abrir una visita, subir una foto
+   y agregar un artículo → "← Volver a la lista" → los números ya cambiaron, sin recargar.
+3. Borrar un artículo → volver → baja el número. Una visita nueva sin nada sale con "Sin fotos" y
+   "Sin artículos".
+4. Admin: ve "Todas las visitas", "👤" en cada una, y las borradas atenuadas que no suman al día.
+5. Si hay visitas de hace más de 14 días: "Ver días anteriores" las trae; al final, "No hay más visitas".
+
+**Decisiones tomadas (y por qué):**
+- **No hizo falta cambiar la base** (ni una vista para los conteos): el conteo anidado de PostgREST
+  ya respeta las reglas de acceso de cada tabla (campo ve solo lo suyo; admin todo) y filtra lo
+  descartado. La app ya usaba `fotos(count)` así.
+- **Tramos que saltan semanas vacías:** para que "Ver días anteriores" nunca muestre un tramo vacío.
+  Cuesta una consulta pequeña extra por tramo (la visita más reciente antes del tramo, 1 fila).
+- **La primera carga no tiene tope de arriba:** si el reloj del celular va atrasado, una visita
+  recién guardada no se pierde.
+- **Al volver a la lista se regresa al primer tramo** (14 días): es lo que asegura que los conteos
+  estén al día. Si se habían abierto días anteriores, hay que volver a tocar el botón.
+- "Borrada" (no "Borrado") en las visitas, igual que en la fase de editar y borrar.
+
+**Problemas encontrados / pendientes:**
+- **No probado en el navegador ni contra Supabase real** (no se ejecutó nada en Supabase). La
+  lógica está probada con datos inventados y la URL de la consulta se revisó sin conectarse.
+- `npm run lint` ✅, `npm run build` ✅, `test:lista` 25/25, `test:errores` 10/10,
+  `test:capturas` 17/17, `test:etapa2` 14/14.
+
+**Commit:** ver `git log` — `Lista de visitas por día con conteos de fotos y artículos (solo app)`
