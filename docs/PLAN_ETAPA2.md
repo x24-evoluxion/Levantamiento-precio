@@ -316,7 +316,8 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/009_cerrar_anon.sql` | Fuera del plan (2026-11-24) | Quita todo a `anon` y pone el bucket en privado. Se ejecuta **después** de probar la app nueva |
 | `supabase/pruebas/008_prueba_autenticacion.sql`, `009_prueba_sin_anon.sql` | Fuera del plan (2026-11-24) | Pruebas con usuarios y datos inventados; terminan con `rollback` |
 | `supabase/010_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Captura manual: tabla `capturas_manuales` (abierta a `authenticated` con reglas, **no** es de la Etapa 2), función `sugerencias_captura()` (solo nombres de área y marca) y dos envoltorios en `privado`. **No abre** ninguna tabla de la Etapa 2. Ver 9.5 |
-| `supabase/pruebas/010_prueba_capturas_manuales.sql` | Fuera del plan (2026-11-25) | 45 casos con datos inventados; termina con `rollback` |
+| ~~`supabase/pruebas/010_prueba_capturas_manuales.sql`~~ | Fuera del plan (2026-11-25) | ~~45 casos~~. Reemplazada por `010b` (ocultaba la causa de un error; ver PROGRESO "Corrección de la prueba de 010") |
+| `supabase/pruebas/010b_prueba_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Freno si falta `010` + 46 casos con datos inventados; termina con `rollback` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
 equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ el siguiente número libre: `011_...`; `010` ya es la captura manual).

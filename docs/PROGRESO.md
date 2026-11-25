@@ -22,7 +22,7 @@
 | — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | ✅ (cerrada el 2026-11-24: `008`, `008b` y `009` ejecutadas, pruebas ok; ver su sección) |
 | — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 | — | Entrar con usuario (`<usuario>@x24.com.mx`) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
-| — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 falta que el usuario ejecute `010` y su prueba, push y prueba con dos cuentas de campo y el admin |
+| — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 la prueba vieja dio `42P01`; correr la nueva `010b` (ver "Corrección de la prueba de 010"), luego push y prueba con dos cuentas de campo y el admin |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -85,8 +85,8 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
-- [ ] **(Captura manual, 2026-11-25) Pasos del usuario:** ejecutar `010` y su prueba, push y
-      probar (ver "Captura manual de datos", ORDEN DE DESPLIEGUE).
+- [ ] **(Captura manual, 2026-11-25) Pasos del usuario:** correr la consulta de diagnóstico y la
+      prueba **`010b`** (no la `010` vieja), push y probar (ver "Corrección de la prueba de 010").
 - [ ] **(Etapa 2, fases 🤖) Uso de `capturas_manuales`** para validación y evaluación: propuesta en
       PLAN_ETAPA2 9.5, **no decidida**. Regla ya fija: los agentes **no** ven estas filas al leer.
 
@@ -1952,8 +1952,9 @@ consume estas filas.**
 
 **⚠️ ORDEN DE DESPLIEGUE (no cambiar):**
 1. **Yo (usuario) ejecuto la migración (aditiva):** SQL Editor → `supabase/010_capturas_manuales.sql`
-   → las 15 filas con `ok = true`. Luego `supabase/pruebas/010_prueba_capturas_manuales.sql` →
-   fila `0. RESUMEN` con `ok = true` (45 casos). La app publicada sigue igual (no usa nada nuevo).
+   → las 15 filas con `ok = true`. Luego ~~`010_prueba_capturas_manuales.sql`~~
+   **`supabase/pruebas/010b_prueba_capturas_manuales.sql`** → fila `0. RESUMEN` con `ok = true`
+   (46 casos). *(Cambio del 2026-11-25: ver "Corrección de la prueba de 010".)* La app publicada sigue igual (no usa nada nuevo).
 2. **Push** de la app y esperar **Ready** en Vercel (Deployments).
 3. **Pruebo con dos cuentas de campo y con el admin** (ver "Cómo probarlo").
 
@@ -2011,3 +2012,73 @@ consume estas filas.**
   14/14 ✅.
 
 **Commit:** ver `git log` — `Captura manual de datos con sugerencias (010): tabla, reglas, app y docs`
+
+---
+
+## Corrección de la prueba de 010: error 42P01 (2026-11-25) — 🟡 falta que el usuario corra el diagnóstico y `010b`
+
+**Qué pasó:** el usuario ejecutó `010` y, al correr `supabase/pruebas/010_prueba_capturas_manuales.sql`
+en el SQL Editor, salió `ERROR: 42P01: relation "public.capturas_manuales" does not exist` en la
+consulta del caso 2 (`line 62`). **No** se ejecutó nada en Supabase, **no** se editó la migración.
+
+**Causa raíz (comprobada en local):**
+- **No es un cambio de rol ni de `search_path`.** Con un nombre completo (`public.…`), Postgres
+  responde `42501 permission denied for schema/table` si falta un permiso, y el `search_path` no
+  influye. Se probó cada caso en local: solo una tabla **que no está en el catálogo** da `42P01`.
+  La prueba tampoco inserta ni renombra filas o tablas con otro nombre.
+- O sea: en la base y transacción donde corrió la prueba, **`public.capturas_manuales` no existía**.
+  Reproducido en local corriendo la prueba en una base con `001`→`009` **sin** `010`: sale
+  **exactamente** el mismo error, en la misma `line 62`.
+- **Por qué señalaba el caso 2 y no la causa:** el caso 1 (el primero que usa la tabla) fallaba con
+  ese mismo `42P01`, pero su `exception when others` lo guardaba y seguía. El caso 2 era la
+  **única** consulta sin protección: ahí salía el error y se cortaba toda la prueba (por eso no se
+  veía la tabla de resultados).
+- Razones posibles de que la tabla no esté donde corrió la prueba (no se pueden saber desde el
+  repo; lo confirma la consulta de diagnóstico): `010` se ejecutó en **otro proyecto** (otra
+  pestaña u organización); la ejecución de `010` falló a la mitad y su transacción se deshizo (el
+  SQL Editor solo muestra el último resultado o error); o se usó "Run selected" con solo una
+  parte seleccionada.
+
+**Por qué la prueba local no lo detectó:**
+- En local, `010` se carga **en la misma base y justo antes** de la prueba, siempre completa: el
+  escenario "la prueba corre donde `010` no está" nunca se dio. La prueba no revisaba al inicio que
+  `010` existiera (las migraciones sí tienen freno; la prueba no).
+- El manejo de errores (cada caso atrapa todo) ocultaba la causa y solo una consulta sin protección
+  la dejaba salir, en un lugar engañoso. En local todos los casos pasaban, así que eso no se notaba.
+- Límites del arnés local (PGlite): un solo usuario superusuario y una sola base, sin el SQL Editor
+  ni los roles de Supabase.
+
+**Qué se hizo:**
+- `supabase/pruebas/010b_prueba_capturas_manuales.sql` (nueva; **reemplaza** a la `010`, que se
+  deja sin cambios como historial):
+  - **Paso 0 (freno):** antes de crear datos, revisa que existan la tabla, sus 3 reglas, la función
+    de sugerencias y los 2 envoltorios de `privado`. Si falta algo, se detiene con: qué falta, en
+    qué base, con qué rol actual y con qué usuario de conexión, y qué hacer.
+  - **Caso 2 protegido** (y el bloque externo del caso 35): ya no queda ninguna consulta sin
+    protección; un error aparece como fila del resultado.
+  - **Caso 46 (nuevo):** después de `reset role` se vuelve al mismo rol con el que se abrió el SQL
+    Editor (descarta la hipótesis de rol en Supabase real).
+  - RESUMEN: mínimo 46 casos.
+- Resultados en local (PGlite, **no es Supabase**): sin `010` → se detiene con el mensaje del paso 0;
+  con `010` → 46/46; pruebas `008` (55/55) y `009` (12/12) siguen pasando.
+- Docs: este apartado, el estado, los pendientes, el orden de despliegue de la fase anterior y la
+  tabla 5.0 de `PLAN_ETAPA2.md`.
+
+**Pasos del usuario, EN ESTE ORDEN:**
+1. En el **mismo proyecto y pestaña** donde corrió la prueba, SQL Editor → esta consulta (solo lee):
+   ```sql
+   select current_database() as base, current_user as rol, session_user as conexion,
+          to_regclass('public.capturas_manuales') as tabla,
+          to_regprocedure('public.sugerencias_captura()') as funcion,
+          (select count(*) from pg_policies
+           where schemaname = 'public' and tablename = 'capturas_manuales') as reglas;
+   ```
+   Esperado: `tabla = capturas_manuales`, `funcion = sugerencias_captura()`, `reglas = 3`.
+   - Si `tabla` sale vacío: `010` no está en este proyecto. Ejecuta `supabase/010_capturas_manuales.sql`
+     **completo** (sin seleccionar texto) y revisa que las 15 filas salgan `ok = true`.
+2. SQL Editor → `supabase/pruebas/010b_prueba_capturas_manuales.sql` (completo) → fila
+   `0. RESUMEN` con `ok = true` (46 casos). Si se detiene en el paso 0, el mensaje dice qué falta.
+   Si alguna fila sale `false`, mándame la tabla de resultados.
+3. Seguir con el push y la prueba en la app (sección "Captura manual de datos").
+
+**Commit:** ver `git log` — `Prueba 010b: freno si falta 010 y sin consultas sin protección (42P01)`
