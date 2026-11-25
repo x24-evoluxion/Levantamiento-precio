@@ -2,17 +2,19 @@
 
 // Campo de texto con sugerencias ("combobox" accesible, patrón ARIA 1.2).
 //
-// - Al escribir, muestra hasta 5 coincidencias debajo del campo: primero las que
-//   EMPIEZAN con lo escrito y luego las que lo CONTIENEN, sin distinguir mayúsculas
-//   ni acentos (src/lib/capturas.ts → filtrarSugerencias).
+// - Al escribir (desde 2 letras), muestra hasta 6 coincidencias debajo del campo: lo
+//   escrito se parte en palabras y TODAS deben aparecer, en cualquier orden; primero
+//   las que EMPIEZAN con lo escrito y luego las demás, sin distinguir mayúsculas ni
+//   acentos (src/lib/capturas.ts → filtrarSugerencias).
 // - Tocar una sugerencia llena el campo con ese valor (alElegir).
 // - Si no hay coincidencia, o la persona sigue escribiendo, se respeta EXACTAMENTE
 //   lo que escribió (alEscribir). Nunca obliga a elegir de la lista.
-// - Teclado: flechas para moverse, Enter para elegir, Escape para cerrar.
+// - Teclado: flechas para moverse, Enter para elegir, Escape para cerrar. Enter sin
+//   sugerencia marcada llama a alEnter (por ejemplo, pasar al siguiente campo).
 // - Lectores de pantalla: role="combobox" + role="listbox", aria-activedescendant y
 //   un aviso de cuántas sugerencias hay.
 // - Celular: letra de 18 px (más de 16 px: iOS no hace zoom), opciones de al menos
-//   48 px de alto y, al abrir el teclado, el campo sube para que la lista no quede
+//   48 px de alto (área táctil de más de 44 px) y, al abrir el teclado, el campo sube para que la lista no quede
 //   tapada (se usa visualViewport, que mide lo que queda visible sobre el teclado).
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
@@ -32,11 +34,16 @@ type Props = {
   ayuda?: string;
   maxLength: number;
   /** Para llevar el foco a este campo desde fuera (por ejemplo, al primer error). */
-  refCampo?: (el: HTMLInputElement | null) => void;
+  campoRef?: React.RefObject<HTMLInputElement | null>;
   claseCampo: string;
+  /** Enter sin una sugerencia marcada (por ejemplo, pasar al siguiente campo). */
+  alEnter?: () => void;
+  obligatorio?: boolean;
+  /** id de un texto que también describe el campo (por ejemplo, un aviso). */
+  describeExtra?: string;
 };
 
-/** Alto aproximado de la lista con 5 opciones (para saber si cabe sobre el teclado). */
+/** Alto aproximado de la lista llena (para saber si cabe sobre el teclado). */
 const ALTO_LISTA = MAX_SUGERENCIAS * 48 + 16;
 
 /** Si la lista no cabe entre el campo y el teclado, sube el campo. */
@@ -61,8 +68,11 @@ export default function CampoSugerencias({
   error,
   ayuda,
   maxLength,
-  refCampo,
+  campoRef,
   claseCampo,
+  alEnter,
+  obligatorio,
+  describeExtra,
 }: Props) {
   const id = useId();
   const idCampo = `${id}-campo`;
@@ -116,6 +126,11 @@ export default function CampoSugerencias({
       if (abierta && activa >= 0 && activa < sugerencias.length) {
         e.preventDefault();
         elegir(sugerencias[activa]);
+      } else if (alEnter) {
+        e.preventDefault();
+        setListaPermitida(false);
+        setActiva(-1);
+        alEnter();
       }
     } else if (e.key === "Escape") {
       if (abierta) {
@@ -126,7 +141,8 @@ export default function CampoSugerencias({
     }
   }
 
-  const describe = [ayuda ? idAyuda : "", error ? idError : ""].filter(Boolean).join(" ") || undefined;
+  const describe =
+    [ayuda ? idAyuda : "", error ? idError : "", describeExtra ?? ""].filter(Boolean).join(" ") || undefined;
 
   return (
     <div className="flex flex-col gap-2">
@@ -138,7 +154,7 @@ export default function CampoSugerencias({
         <input
           ref={(el) => {
             campo.current = el;
-            refCampo?.(el);
+            if (campoRef) campoRef.current = el;
           }}
           id={idCampo}
           type="text"
@@ -148,6 +164,7 @@ export default function CampoSugerencias({
           aria-controls={idLista}
           aria-activedescendant={abierta && activa >= 0 ? `${idLista}-${activa}` : undefined}
           aria-invalid={error ? true : undefined}
+          aria-required={obligatorio || undefined}
           aria-describedby={describe}
           autoComplete="off"
           autoCorrect="off"
@@ -188,7 +205,7 @@ export default function CampoSugerencias({
                 // pointerdown sin acción: así el campo no pierde el foco antes del clic.
                 onPointerDown={(e) => e.preventDefault()}
                 onClick={() => elegir(opcion)}
-                className={`flex min-h-12 cursor-pointer items-center border-b border-tarjeta-presionada px-4 py-2 text-lg last:border-b-0 ${
+                className={`flex min-h-12 cursor-pointer items-center break-words border-b border-tarjeta-presionada px-4 py-2 text-lg last:border-b-0 ${
                   i === activa ? "bg-tarjeta-presionada" : "active:bg-tarjeta-presionada"
                 }`}
               >

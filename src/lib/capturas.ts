@@ -1,80 +1,41 @@
-// Captura manual de datos del levantamiento (supabase/010_capturas_manuales.sql).
+// Captura rápida de productos (supabase/010_capturas_manuales.sql + 011_captura_rapida.sql).
 //
-// Aquí vive todo lo que NO es pantalla: listas de valores, cómo se leen los números
-// (con coma o punto), la validación en español, el filtro de sugerencias y el
-// borrador guardado en el celular. La pantalla está en
+// Aquí vive todo lo que NO es pantalla: cómo se limpian y leen los precios (con coma o
+// punto), qué falta para poder agregar un producto, los avisos en español, el filtro de
+// sugerencias de artículo y el borrador guardado en el celular. La pantalla está en
 // src/app/visitas/[id]/CapturaManual.tsx.
 //
-// Las reglas son las MISMAS que la base de datos (los CHECK de 010). La app las
+// El formulario tiene SOLO 4 campos: artículo y precio regular (obligatorios), precio de
+// promoción por pieza y observaciones (opcionales: NUNCA impiden agregar un producto).
+// Las reglas son las MISMAS que la base de datos (los CHECK de 010 y 011). La app las
 // revisa antes para dar mensajes claros; si algo se escapara, la base lo rechaza.
 
 import type { NuevaCapturaManual } from "./tipos";
 
-// --- Listas de valores (iguales a los CHECK de 010 y a lecturas_precio) ---------
+// --- Límites (los mismos de 011) ----------------------------------------------------
 
-export const UNIDADES = ["g", "kg", "ml", "l", "pza"] as const;
-export type Unidad = (typeof UNIDADES)[number];
-
-export const NOMBRE_UNIDAD: Record<Unidad, string> = {
-  g: "g (gramos)",
-  kg: "kg (kilos)",
-  ml: "ml (mililitros)",
-  l: "l (litros)",
-  pza: "pza (piezas)",
-};
-
-export const PROMO_TIPOS = ["precio_rebajado", "n_por_precio", "nxm", "otro"] as const;
-export type PromoTipo = "ninguna" | (typeof PROMO_TIPOS)[number];
-
-export const NOMBRE_PROMO: Record<(typeof PROMO_TIPOS)[number], string> = {
-  precio_rebajado: "Precio rebajado (antes / ahora)",
-  n_por_precio: "Varias por un precio (ej. 2 x $30)",
-  nxm: "Lleva N, paga M (ej. 3 x 2)",
-  otro: "Otra promoción",
-};
-
-export const CONDICIONES = ["ninguna", "tarjeta", "app", "otro"] as const;
-export type PromoCondicion = (typeof CONDICIONES)[number];
-
-export const NOMBRE_CONDICION: Record<PromoCondicion, string> = {
-  ninguna: "Para todos (sin condición)",
-  tarjeta: "Solo con tarjeta",
-  app: "Solo con la app de la tienda",
-  otro: "Otra condición",
-};
-
-// Límites (los mismos de 010).
 export const MAX_ARTICULO = 200;
-export const MAX_MARCA_AREA = 100;
-export const MAX_OBSERVACIONES = 300;
-const MAX_PIEZAS = 1000;
-const MAX_CANTIDAD = 10_000_000; // menor que
-const MAX_PRECIO = 100_000_000; // menor que
+export const MAX_OBSERVACIONES = 500;
+/** Enteros de un precio: 7 dígitos (hasta 9,999,999.99; la base acepta < 100,000,000). */
+const MAX_DIGITOS_ENTEROS = 7;
+const MAX_DECIMALES = 2;
+/** Arriba de esto se avisa ("¿seguro?"), pero se puede agregar igual. */
+export const PRECIO_SOSPECHOSO = 10_000;
 
-// --- Una fila en pantalla (todo como texto, tal como lo escribe la persona) -----
+// --- Un producto en pantalla (todo como texto, tal como lo escribe la persona) -----
 
-export type FilaBorrador = {
-  /** Solo para la pantalla (React key y focos). No se guarda en la base. */
+export type ProductoBorrador = {
+  /** Solo para la pantalla (React key y correcciones). No se guarda en la base. */
   clave: string;
   articulo: string;
-  cantidad: string;
-  unidad: "" | Unidad;
-  piezas: string;
+  /** true solo si el texto es EXACTAMENTE una sugerencia elegida (si se edita, false). */
+  articulo_de_lista: boolean;
   precio_regular: string;
-  marca: string;
-  marca_de_lista: boolean;
-  area: string;
-  area_de_lista: boolean;
-  tiene_promo: boolean;
-  promo_tipo: "" | (typeof PROMO_TIPOS)[number];
-  promo_piezas: string;
-  promo_precio_total: string;
-  promo_paga_piezas: string;
-  promo_condicion: PromoCondicion;
+  promo_precio_pieza: string;
   observaciones: string;
 };
 
-export type CampoFila = Exclude<keyof FilaBorrador, "clave">;
+export type CampoProducto = Exclude<keyof ProductoBorrador, "clave" | "articulo_de_lista">;
 
 function claveNueva(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -82,182 +43,114 @@ function claveNueva(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function filaVacia(): FilaBorrador {
+export function productoVacio(): ProductoBorrador {
   return {
     clave: claveNueva(),
     articulo: "",
-    cantidad: "",
-    unidad: "",
-    piezas: "1",
+    articulo_de_lista: false,
     precio_regular: "",
-    marca: "",
-    marca_de_lista: false,
-    area: "",
-    area_de_lista: false,
-    tiene_promo: false,
-    promo_tipo: "",
-    promo_piezas: "",
-    promo_precio_total: "",
-    promo_paga_piezas: "",
-    promo_condicion: "ninguna",
+    promo_precio_pieza: "",
     observaciones: "",
   };
 }
 
-export function duplicarFila(fila: FilaBorrador): FilaBorrador {
-  return { ...fila, clave: claveNueva() };
-}
-
-/** true si la persona ya escribió algo en la fila (una fila recién agregada no cuenta). */
-export function filaTieneDatos(fila: FilaBorrador): boolean {
-  const vacia = filaVacia();
-  return (Object.keys(vacia) as (keyof FilaBorrador)[]).some(
-    (k) => k !== "clave" && fila[k] !== vacia[k],
+/** true si la persona ya escribió algo en el formulario. */
+export function productoTieneDatos(p: ProductoBorrador): boolean {
+  return (
+    p.articulo.trim() !== "" ||
+    p.precio_regular.trim() !== "" ||
+    p.promo_precio_pieza.trim() !== "" ||
+    p.observaciones.trim() !== ""
   );
 }
 
-// --- Números: aceptan coma o punto decimal --------------------------------------
+// --- Precios: solo números, con punto o coma, hasta 2 decimales ---------------------
 
-type Numero = { ok: true; valor: number; decimales: number } | { ok: false };
+const SEPARADOR = /[.,]/;
 
 /**
- * Lee "12,50", "12.50", "12" o " 12.5 ". Solo un separador decimal y sin signos
- * (ni miles, ni "$", ni negativos). Devuelve también cuántos decimales tenía.
+ * Limpia lo que la persona ESCRIBE en un precio: descarta todo lo que no sea número,
+ * deja solo el PRIMER separador (punto o coma, el que haya escrito), corta en 2
+ * decimales y en 7 enteros. Ej.: "$18,50" → "18,50"; "12.5.3" → "12.53"; "1.999" → "1.99".
  */
-export function leerNumero(texto: string): Numero {
-  const limpio = texto.trim();
-  const m = /^(\d+)(?:[.,](\d+))?$/.exec(limpio);
-  if (!m) return { ok: false };
-  const decimales = m[2]?.length ?? 0;
-  const valor = Number(`${m[1]}.${m[2] ?? "0"}`);
-  return Number.isFinite(valor) ? { ok: true, valor, decimales } : { ok: false };
-}
-
-/** Lee un entero ("1", "12"). */
-function leerEntero(texto: string): number | null {
-  const limpio = texto.trim();
-  return /^\d+$/.test(limpio) ? Number(limpio) : null;
-}
-
-// --- Validación -------------------------------------------------------------------
-
-export type ErroresFila = Partial<Record<CampoFila, string>>;
-export type AvisosFila = Partial<Record<CampoFila, string>>;
-
-function validarPrecio(texto: string, nombre: string, obligatorio: boolean): string | undefined {
-  if (texto.trim() === "") return obligatorio ? `Escribe ${nombre}.` : undefined;
-  const n = leerNumero(texto);
-  if (!n.ok) return `Escribe ${nombre} solo con números, por ejemplo 18.50 o 18,50 (sin $).`;
-  if (n.decimales > 2) return "Usa como máximo 2 decimales (centavos).";
-  if (n.valor >= MAX_PRECIO) return "El precio es demasiado grande. Revísalo.";
-  return undefined;
-}
-
-function validarPiezas(texto: string, minimo: number, mensajeMinimo: string): string | undefined {
-  const n = leerEntero(texto);
-  if (n === null) return "Escribe un número entero (sin decimales).";
-  if (n < minimo) return mensajeMinimo;
-  if (n > MAX_PIEZAS) return `Como máximo ${MAX_PIEZAS}.`;
-  return undefined;
-}
-
-/** Errores que impiden guardar la fila (texto en español para la persona). */
-export function validarFila(f: FilaBorrador): ErroresFila {
-  const e: ErroresFila = {};
-
-  const articulo = f.articulo.trim();
-  if (articulo === "") e.articulo = "Escribe el nombre del artículo.";
-  else if (articulo.length > MAX_ARTICULO) e.articulo = `Como máximo ${MAX_ARTICULO} letras.`;
-
-  if (f.cantidad.trim() === "") {
-    e.cantidad = "Escribe el contenido (por ejemplo 600).";
-  } else {
-    const n = leerNumero(f.cantidad);
-    if (!n.ok) e.cantidad = "Escribe solo números, por ejemplo 600 o 1,5.";
-    else if (n.valor <= 0) e.cantidad = "Debe ser mayor que 0.";
-    else if (n.decimales > 3) e.cantidad = "Usa como máximo 3 decimales.";
-    else if (n.valor >= MAX_CANTIDAD) e.cantidad = "El número es demasiado grande. Revísalo.";
-  }
-
-  if (f.unidad === "") e.unidad = "Elige la unidad.";
-
-  const piezas = validarPiezas(f.piezas, 1, "Debe ser al menos 1.");
-  if (piezas) e.piezas = piezas;
-
-  const precio = validarPrecio(f.precio_regular, "el precio", true);
-  if (precio) e.precio_regular = precio;
-
-  if (f.marca.trim().length > MAX_MARCA_AREA) e.marca = `Como máximo ${MAX_MARCA_AREA} letras.`;
-  if (f.area.trim().length > MAX_MARCA_AREA) e.area = `Como máximo ${MAX_MARCA_AREA} letras.`;
-  if (f.observaciones.trim().length > MAX_OBSERVACIONES) {
-    e.observaciones = `Como máximo ${MAX_OBSERVACIONES} letras.`;
-  }
-
-  if (f.tiene_promo) {
-    if (f.promo_tipo === "") {
-      e.promo_tipo = "Elige el tipo de promoción (o quita la marca de \"Tiene promoción\").";
-    } else if (f.promo_tipo === "precio_rebajado") {
-      const p = validarPrecio(f.promo_precio_total, "el precio con promoción", true);
-      if (p) e.promo_precio_total = p;
-    } else if (f.promo_tipo === "n_por_precio") {
-      const pz = validarPiezas(f.promo_piezas, 2, "Deben ser al menos 2 piezas (por ejemplo 2 x $30).");
-      if (pz) e.promo_piezas = pz;
-      const p = validarPrecio(f.promo_precio_total, "el precio total de la promoción", true);
-      if (p) e.promo_precio_total = p;
-    } else if (f.promo_tipo === "nxm") {
-      const lleva = validarPiezas(f.promo_piezas, 2, "Deben ser al menos 2 piezas (por ejemplo lleva 3).");
-      if (lleva) e.promo_piezas = lleva;
-      const paga = validarPiezas(f.promo_paga_piezas, 1, "Debe ser al menos 1.");
-      if (paga) e.promo_paga_piezas = paga;
-      else if (!lleva && Number(f.promo_paga_piezas) >= Number(f.promo_piezas)) {
-        e.promo_paga_piezas = "Debe pagar MENOS piezas de las que lleva (por ejemplo lleva 3, paga 2).";
+export function limpiarPrecio(texto: string): string {
+  let enteros = "";
+  let decimales = "";
+  let separador = "";
+  for (const c of texto) {
+    if (c >= "0" && c <= "9") {
+      if (separador) {
+        if (decimales.length < MAX_DECIMALES) decimales += c;
+      } else if (enteros.length < MAX_DIGITOS_ENTEROS) {
+        enteros += c;
       }
-    } else {
-      // "otro": piezas y precio son opcionales.
-      if (f.promo_piezas.trim() !== "") {
-        const pz = validarPiezas(f.promo_piezas, 1, "Debe ser al menos 1.");
-        if (pz) e.promo_piezas = pz;
-      }
-      const p = validarPrecio(f.promo_precio_total, "el precio de la promoción", false);
-      if (p) e.promo_precio_total = p;
+    } else if (SEPARADOR.test(c) && !separador) {
+      separador = c;
     }
   }
-
-  return e;
+  return enteros + separador + decimales;
 }
 
-/** Avisos que NO impiden guardar (por ejemplo, precio en 0). */
-export function avisosFila(f: FilaBorrador): AvisosFila {
-  const a: AvisosFila = {};
-  const precio = leerNumero(f.precio_regular);
-  if (precio.ok && precio.valor === 0) {
-    a.precio_regular = "El precio es 0. Si es correcto, puedes guardarlo así.";
+/**
+ * Limpia lo que la persona PEGA en un precio. Si trae varios separadores
+ * ("$1,234.50"), el ÚLTIMO es el decimal y los demás se quitan (eran de miles).
+ */
+export function limpiarPrecioPegado(texto: string): string {
+  const soloNumeros = texto.replace(/[^\d.,]/g, "");
+  const ultimo = Math.max(soloNumeros.lastIndexOf("."), soloNumeros.lastIndexOf(","));
+  if (ultimo < 0) return limpiarPrecio(soloNumeros);
+  const sinMiles = soloNumeros.slice(0, ultimo).replace(/[.,]/g, "") + soloNumeros.slice(ultimo);
+  return limpiarPrecio(sinMiles);
+}
+
+/** Lee un precio ya limpio: "18,50" → 18.5. Vacío o solo "." → null. */
+export function leerPrecio(texto: string): number | null {
+  const limpio = limpiarPrecio(texto.trim());
+  const [enteros = "", decimales = ""] = limpio.split(SEPARADOR);
+  if (enteros === "" && decimales === "") return null;
+  const valor = Number(`${enteros || "0"}.${decimales || "0"}`);
+  return Number.isFinite(valor) ? valor : null;
+}
+
+// --- Qué falta y avisos ----------------------------------------------------------------
+
+export type FaltaProducto = "artículo" | "precio regular";
+
+/** Lo que falta para poder agregar el producto (solo artículo y precio regular). */
+export function faltantes(p: ProductoBorrador): FaltaProducto[] {
+  const falta: FaltaProducto[] = [];
+  if (p.articulo.trim() === "") falta.push("artículo");
+  if (leerPrecio(p.precio_regular) === null) falta.push("precio regular");
+  return falta;
+}
+
+/** "Falta: artículo y precio regular" (o null si ya se puede agregar). */
+export function textoFalta(falta: FaltaProducto[]): string | null {
+  if (falta.length === 0) return null;
+  return `Falta: ${falta.join(" y ")}`;
+}
+
+export type AvisosProducto = Partial<Record<"precio_regular" | "promo_precio_pieza", string>>;
+
+/** Avisos que NO impiden agregar (la persona revisa y decide). */
+export function avisosProducto(p: ProductoBorrador): AvisosProducto {
+  const a: AvisosProducto = {};
+  const regular = leerPrecio(p.precio_regular);
+  const promo = leerPrecio(p.promo_precio_pieza);
+  if (regular === 0) {
+    a.precio_regular = "El precio regular es 0. Revísalo (si es correcto, puedes agregarlo así).";
+  } else if (regular !== null && regular > PRECIO_SOSPECHOSO) {
+    a.precio_regular = "El precio parece muy alto (más de $10,000). Revísalo.";
   }
-  if (f.tiene_promo && f.promo_tipo === "precio_rebajado" && precio.ok) {
-    const promo = leerNumero(f.promo_precio_total);
-    if (promo.ok && promo.valor >= precio.valor && precio.valor > 0) {
-      a.promo_precio_total = "El precio con promoción no es menor que el regular. Revísalo.";
+  if (promo !== null) {
+    if (regular !== null && regular > 0 && promo >= regular) {
+      a.promo_precio_pieza = "La promoción no es menor que el precio regular. Revísala.";
+    } else if (promo > PRECIO_SOSPECHOSO) {
+      a.promo_precio_pieza = "La promoción parece muy alta (más de $10,000). Revísala.";
     }
   }
   return a;
 }
-
-/** Orden de los campos en pantalla (para llevar el foco al primer error). */
-export const ORDEN_CAMPOS: CampoFila[] = [
-  "articulo",
-  "cantidad",
-  "unidad",
-  "piezas",
-  "precio_regular",
-  "marca",
-  "area",
-  "promo_tipo",
-  "promo_piezas",
-  "promo_paga_piezas",
-  "promo_precio_total",
-  "promo_condicion",
-  "observaciones",
-];
 
 /** Texto vacío → null; si no, recortado. */
 function textoONulo(t: string): string | null {
@@ -265,136 +158,156 @@ function textoONulo(t: string): string | null {
   return limpio === "" ? null : limpio;
 }
 
-function numeroONulo(t: string): number | null {
-  const n = leerNumero(t);
-  return n.ok ? n.valor : null;
-}
-
 /**
- * Convierte una fila YA VALIDADA en lo que se manda a Supabase. Manda TODAS las
- * columnas (también las vacías como null), porque en un insert de varias filas
- * supabase-js pone null en las que falten. Nunca manda usuario_id ni descartada_at.
+ * Convierte un producto YA COMPLETO en lo que se manda a Supabase. Siempre las MISMAS
+ * columnas (en un insert de varias filas, supabase-js pone null en las que falten).
+ * No manda cantidad, unidad ni piezas: la base deja vacías las dos primeras y piezas = 1.
+ * Nunca manda usuario_id ni descartada_at.
  */
-export function filaParaGuardar(visitaId: string, f: FilaBorrador): NuevaCapturaManual {
-  const promoTipo: PromoTipo = f.tiene_promo && f.promo_tipo !== "" ? f.promo_tipo : "ninguna";
-  const conPromo = promoTipo !== "ninguna";
-  const marca = textoONulo(f.marca);
-  const area = textoONulo(f.area);
+export function productoParaGuardar(visitaId: string, p: ProductoBorrador): NuevaCapturaManual {
+  const articulo = p.articulo.trim().slice(0, MAX_ARTICULO);
+  const observaciones = textoONulo(p.observaciones);
   return {
     visita_id: visitaId,
-    articulo: f.articulo.trim(),
-    cantidad: numeroONulo(f.cantidad) ?? 0,
-    unidad: f.unidad as Unidad,
-    piezas: Number(f.piezas.trim()),
-    precio_regular: numeroONulo(f.precio_regular) ?? 0,
-    marca,
-    marca_de_lista: marca !== null && f.marca_de_lista,
-    area,
-    area_de_lista: area !== null && f.area_de_lista,
-    promo_tipo: promoTipo,
-    promo_piezas:
-      promoTipo === "precio_rebajado"
-        ? 1
-        : promoTipo === "n_por_precio" || promoTipo === "nxm" || promoTipo === "otro"
-          ? (leerEntero(f.promo_piezas) ?? null)
-          : null,
-    promo_precio_total:
-      promoTipo === "precio_rebajado" || promoTipo === "n_por_precio" || promoTipo === "otro"
-        ? numeroONulo(f.promo_precio_total)
-        : null,
-    promo_paga_piezas: promoTipo === "nxm" ? leerEntero(f.promo_paga_piezas) : null,
-    promo_condicion: conPromo ? f.promo_condicion : "ninguna",
-    observaciones: textoONulo(f.observaciones),
+    articulo,
+    articulo_de_lista: p.articulo_de_lista,
+    precio_regular: leerPrecio(p.precio_regular) ?? 0,
+    promo_precio_pieza: leerPrecio(p.promo_precio_pieza),
+    observaciones: observaciones === null ? null : observaciones.slice(0, MAX_OBSERVACIONES),
   };
 }
 
-// --- Sugerencias -----------------------------------------------------------------
+// --- Sugerencias de artículo -----------------------------------------------------------
 
 /** Minúsculas, sin acentos y sin espacios de más (como normalizar_texto de 004). */
 export function normalizar(texto: string): string {
   return texto
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
 }
 
-export const MAX_SUGERENCIAS = 5;
+export const MAX_SUGERENCIAS = 6;
+export const MIN_CARACTERES_SUGERENCIA = 2;
+
+/** Cada lista de opciones se normaliza UNA vez (el catálogo tiene miles de artículos). */
+const normalizadas = new WeakMap<readonly string[], string[]>();
+
+function versionNormalizada(opciones: readonly string[]): string[] {
+  let n = normalizadas.get(opciones);
+  if (!n) {
+    n = opciones.map(normalizar);
+    normalizadas.set(opciones, n);
+  }
+  return n;
+}
 
 /**
- * Hasta 5 sugerencias para lo escrito: primero las que EMPIEZAN con el texto y
- * luego las que lo CONTIENEN, sin distinguir mayúsculas ni acentos.
- * Ej.: "BE" → "BEBIDAS". Si lo escrito ya es IDÉNTICO a una opción, no sugiere nada
- * (si solo cambian mayúsculas o acentos, sí la sugiere: "lacteos" → "LÁCTEOS").
+ * Hasta 6 sugerencias para lo escrito (mínimo 2 letras), sin distinguir mayúsculas ni
+ * acentos. Lo escrito se parte en palabras y TODAS deben aparecer, en cualquier orden:
+ * "coca zero" encuentra "Refresco coca cola zero 250 ml". Primero las que EMPIEZAN con
+ * lo escrito y luego las demás, cada grupo en orden alfabético.
+ * Si lo escrito ya es IDÉNTICO a una opción (por ejemplo, recién elegida), no sugiere nada.
  */
 export function filtrarSugerencias(opciones: readonly string[], texto: string): string[] {
   const buscado = normalizar(texto);
-  if (buscado === "") return [];
+  if (buscado.length < MIN_CARACTERES_SUGERENCIA) return [];
+  const palabras = buscado.split(" ");
   const tal = texto.trim();
+  const norm = versionNormalizada(opciones);
   const empiezan: string[] = [];
   const contienen: string[] = [];
-  for (const opcion of opciones) {
-    if (opcion === tal) return [];
-    const n = normalizar(opcion);
-    if (n.startsWith(buscado)) empiezan.push(opcion);
-    else if (n.includes(buscado)) contienen.push(opcion);
+  for (let i = 0; i < opciones.length; i++) {
+    if (opciones[i] === tal) return [];
+    const n = norm[i];
+    if (!palabras.every((p) => n.includes(p))) continue;
+    if (n.startsWith(buscado)) empiezan.push(opciones[i]);
+    else contienen.push(opciones[i]);
   }
   const porNombre = (a: string, b: string) => a.localeCompare(b, "es");
+  if (empiezan.length >= MAX_SUGERENCIAS) return empiezan.sort(porNombre).slice(0, MAX_SUGERENCIAS);
   return [...empiezan.sort(porNombre), ...contienen.sort(porNombre)].slice(0, MAX_SUGERENCIAS);
 }
 
 // --- Borrador en el celular (localStorage) -----------------------------------------
-// Por persona y por visita, para no perder lo escrito si se va la señal o se cierra
-// la pestaña. Nunca se guarda nada de otra persona. Todo con try/catch: en modo
-// privado o con el almacenamiento bloqueado simplemente no hay borrador.
+// Por persona y por visita, para no perder lo escrito si se va la señal o se cierra la
+// pestaña: el formulario a medias y la lista de productos sin guardar. Nunca se guarda
+// nada de otra persona. Todo con try/catch: en modo privado o con el almacenamiento
+// bloqueado simplemente no hay borrador.
+//
+// "v2": el formato de 011. Los borradores del formulario anterior (010) se guardaron con
+// la clave "v1" y una forma distinta: se ignoran (no se leen ni se borran).
+
+export type Borrador = { formulario: ProductoBorrador; pendientes: ProductoBorrador[] };
 
 function claveBorrador(usuarioId: string, visitaId: string): string {
-  return `levantamiento:captura:v1:${usuarioId}:${visitaId}`;
+  return `levantamiento:captura:v2:${usuarioId}:${visitaId}`;
 }
 
-function esFilaBorrador(x: unknown): x is FilaBorrador {
+function esProducto(x: unknown): x is ProductoBorrador {
   if (!x || typeof x !== "object") return false;
-  const vacia = filaVacia();
-  return (Object.keys(vacia) as (keyof FilaBorrador)[]).every(
-    (k) => typeof (x as Record<string, unknown>)[k] === typeof vacia[k],
+  const o = x as Record<string, unknown>;
+  return (
+    typeof o.clave === "string" &&
+    typeof o.articulo === "string" &&
+    typeof o.articulo_de_lista === "boolean" &&
+    typeof o.precio_regular === "string" &&
+    typeof o.promo_precio_pieza === "string" &&
+    typeof o.observaciones === "string"
   );
 }
 
-export function leerBorrador(usuarioId: string, visitaId: string): FilaBorrador[] {
+/** Lo vuelve a limpiar por si el almacenamiento trae algo raro. */
+function sanear(p: ProductoBorrador): ProductoBorrador {
+  return {
+    clave: p.clave,
+    articulo: p.articulo.slice(0, MAX_ARTICULO),
+    articulo_de_lista: p.articulo_de_lista,
+    precio_regular: limpiarPrecio(p.precio_regular),
+    promo_precio_pieza: limpiarPrecio(p.promo_precio_pieza),
+    observaciones: p.observaciones.slice(0, MAX_OBSERVACIONES),
+  };
+}
+
+export function leerBorrador(usuarioId: string, visitaId: string): Borrador | null {
   try {
     const crudo = window.localStorage.getItem(claveBorrador(usuarioId, visitaId));
-    if (!crudo) return [];
+    if (!crudo) return null;
     const datos: unknown = JSON.parse(crudo);
-    if (!Array.isArray(datos)) return [];
-    // Se aceptan solo filas con la forma esperada y valores de lista válidos.
-    return datos.filter(esFilaBorrador).map((f) => ({
-      ...f,
-      unidad: (UNIDADES as readonly string[]).includes(f.unidad) ? f.unidad : "",
-      promo_tipo: (PROMO_TIPOS as readonly string[]).includes(f.promo_tipo) ? f.promo_tipo : "",
-      promo_condicion: (CONDICIONES as readonly string[]).includes(f.promo_condicion)
-        ? f.promo_condicion
-        : "ninguna",
-    }));
+    if (!datos || typeof datos !== "object") return null;
+    const { formulario, pendientes } = datos as Record<string, unknown>;
+    const lista = Array.isArray(pendientes)
+      ? pendientes.filter(esProducto).map(sanear).filter((p) => faltantes(p).length === 0)
+      : [];
+    let form = esProducto(formulario) ? sanear(formulario) : productoVacio();
+    // Si se cerró a media corrección, el formulario trae la clave de un producto que
+    // también está en la lista: se le da otra para que no se confundan.
+    if (lista.some((p) => p.clave === form.clave)) form = { ...form, clave: claveNueva() };
+    if (lista.length === 0 && !productoTieneDatos(form)) return null;
+    return { formulario: form, pendientes: lista };
   } catch {
-    return [];
+    return null;
   }
 }
 
-/** Guarda las filas con datos; si no queda ninguna, borra el borrador. */
-export function guardarBorrador(usuarioId: string, visitaId: string, filas: FilaBorrador[]): void {
+/** Guarda el borrador; si no queda nada escrito, lo borra. */
+export function guardarBorrador(usuarioId: string, visitaId: string, b: Borrador): void {
   try {
-    const conDatos = filas.filter(filaTieneDatos);
     const clave = claveBorrador(usuarioId, visitaId);
-    if (conDatos.length === 0) window.localStorage.removeItem(clave);
-    else window.localStorage.setItem(clave, JSON.stringify(conDatos));
+    if (b.pendientes.length === 0 && !productoTieneDatos(b.formulario)) {
+      window.localStorage.removeItem(clave);
+    } else {
+      window.localStorage.setItem(clave, JSON.stringify(b));
+    }
   } catch {
     // Sin almacenamiento: no hay borrador, pero la pantalla sigue funcionando.
   }
 }
 
-// --- Aviso al salir con filas sin guardar -------------------------------------------
-// La pantalla de captura avisa aquí si tiene filas sin guardar. El enlace "Volver a
+// --- Aviso al salir con productos sin guardar ------------------------------------------
+// La pantalla de captura avisa aquí si tiene productos sin guardar. El enlace "Volver a
 // la lista" lo consulta antes de salir. Con cacheComponents, una pantalla escondida
 // limpia sus efectos, así que solo cuenta la visita que está a la vista.
 
@@ -409,7 +322,7 @@ export function hayCapturasSinGuardar(): boolean {
   return visitasConPendientes.size > 0;
 }
 
-// --- Para mostrar las filas guardadas ------------------------------------------------
+// --- Para mostrar productos ------------------------------------------------------------
 
 const formatoPesos = new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" });
 
@@ -419,44 +332,53 @@ export function formatearPesos(valor: number): string {
 
 const formatoCantidad = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 3 });
 
-/** "600 ml" o "6 × 355 ml". */
-export function textoContenido(cantidad: number, unidad: string, piezas: number): string {
+/**
+ * Filas guardadas con el formulario anterior (010): "600 ml" o "6 × 355 ml".
+ * null si la fila no tiene presentación (formulario de 011).
+ */
+export function textoContenido(cantidad: number | null, unidad: string | null, piezas: number | null): string | null {
+  if (cantidad == null || unidad == null) return null;
   const una = `${formatoCantidad.format(cantidad)} ${unidad}`;
-  return piezas > 1 ? `${piezas} × ${una}` : una;
+  return piezas != null && piezas > 1 ? `${piezas} × ${una}` : una;
 }
 
-/** "2 x $30.00 · solo con tarjeta" (o null si no hay promoción). */
+const NOMBRE_CONDICION: Record<string, string> = {
+  tarjeta: "solo con tarjeta",
+  app: "solo con la app de la tienda",
+  otro: "otra condición",
+};
+
+/**
+ * Promoción de una fila guardada en una línea: "promo $21.00" (011) o, en filas del
+ * formulario anterior (010), "2 x $30.00 · solo con tarjeta". null si no hay.
+ */
 export function textoPromocion(f: {
+  promo_precio_pieza: number | null;
   promo_tipo: string;
   promo_piezas: number | null;
   promo_precio_total: number | null;
   promo_paga_piezas: number | null;
   promo_condicion: string;
 }): string | null {
-  let texto: string;
+  const partes: string[] = [];
+  if (f.promo_precio_pieza != null) partes.push(`promo ${formatearPesos(f.promo_precio_pieza)}`);
+  const total = f.promo_precio_total != null ? formatearPesos(f.promo_precio_total) : "?";
   switch (f.promo_tipo) {
     case "precio_rebajado":
-      texto = `Precio rebajado: ${f.promo_precio_total != null ? formatearPesos(f.promo_precio_total) : "?"}`;
+      partes.push(`rebajado ${total}`);
       break;
     case "n_por_precio":
-      texto = `${f.promo_piezas ?? "?"} x ${f.promo_precio_total != null ? formatearPesos(f.promo_precio_total) : "?"}`;
+      partes.push(`${f.promo_piezas ?? "?"} x ${total}`);
       break;
     case "nxm":
-      texto = `Lleva ${f.promo_piezas ?? "?"}, paga ${f.promo_paga_piezas ?? "?"}`;
+      partes.push(`lleva ${f.promo_piezas ?? "?"}, paga ${f.promo_paga_piezas ?? "?"}`);
       break;
-    case "otro": {
-      const partes = [
-        f.promo_piezas != null ? `${f.promo_piezas} pzas` : "",
-        f.promo_precio_total != null ? formatearPesos(f.promo_precio_total) : "",
-      ].filter(Boolean);
-      texto = `Otra promoción${partes.length ? `: ${partes.join(" por ")}` : ""}`;
+    case "otro":
+      partes.push("otra promoción");
       break;
-    }
-    default:
-      return null;
   }
-  const condicion = f.promo_condicion in NOMBRE_CONDICION ? f.promo_condicion : "otro";
-  return condicion === "ninguna"
-    ? texto
-    : `${texto} · ${NOMBRE_CONDICION[condicion as PromoCondicion].toLowerCase()}`;
+  if (f.promo_tipo !== "ninguna" && f.promo_condicion in NOMBRE_CONDICION) {
+    partes.push(NOMBRE_CONDICION[f.promo_condicion]);
+  }
+  return partes.length > 0 ? partes.join(" · ") : null;
 }

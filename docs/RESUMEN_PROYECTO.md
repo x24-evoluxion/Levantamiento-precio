@@ -30,7 +30,8 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 | Quitar fotos de una visita (descarte reversible, migración 007) | Terminado, ejecutado y probado en el celular (2026-11-23) |
 | Login y dueño de cada visita (migraciones 008, 008b y 009) | **Terminado (2026-11-24).** Migraciones ejecutadas y probadas: login obligatorio, `anon` sin acceso y bucket privado |
 | Entrar con **usuario** (`<usuario>@x24.com.mx`), solo cambio de app | Hecho (2026-11-24); falta probar en el celular y publicar |
-| Captura manual de datos con sugerencias (migración 010) | Hecho (2026-11-25); falta ejecutar `010` y su prueba, publicar y probar con dos cuentas de campo y el admin |
+| Captura manual de datos con sugerencias (migración 010) | Hecho (2026-11-25); reemplazada en pantalla por la captura rápida (011) |
+| **Captura rápida de productos** (migración 011): 4 campos, sugerencias de artículo del catálogo propio | Hecho (2026-11-25); falta ejecutar `010` (si aún no), `010b`, `011` y su prueba, publicar y probar (orden en `PROGRESO.md`) |
 | Etapa 2, agentes: lectura de fotos con la API de Claude | **No iniciada.** Las fases de agentes solo empiezan cuando se piden |
 | Cambios pedidos en revisión (sección 8.3) | Por decidir o por implementar |
 
@@ -48,7 +49,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 6. En la pantalla de la visita sube fotos desde su galería. Antes de subir, la app convierte formatos como HEIC (iPhone) a JPEG, reduce el tamaño y lee la hora real de captura del archivo (si la trae).
 7. Si una foto falla, las demás siguen subiendo y se muestra un mensaje en español.
 8. Cada foto tiene una **✕ arriba a la derecha**. Al tocarla aparece "¿Quitar esta foto?" con **Cancelar** y **Quitar**. Al confirmar, la foto se *descarta* (se oculta, no se borra el archivo). Solo se pueden quitar fotos que aún no leyó un agente.
-9. **(Opcional, desde 2026-11-25)** Debajo de las fotos, la sección **"Datos del levantamiento (manual)"**: escribe una tarjeta por producto (artículo, contenido y unidad, piezas, precio regular, marca, área, promoción y observaciones). Marca y área sugieren valores al escribir (hasta 5; tocar uno lo llena, pero se puede dejar lo escrito). **Guardar datos** guarda todas las tarjetas juntas (todas o ninguna). Lo escrito se guarda como borrador en el celular hasta guardarlo, y la app avisa si sale sin guardar. Para corregir un producto guardado se quita y se vuelve a escribir. Estos datos todavía no los usa ningún agente.
+9. **(Opcional, desde 2026-11-25; captura rápida desde `011`)** Debajo de las fotos, la sección **"Datos del levantamiento (manual)"**, pensada para capturar en segundos mientras se recorre la tienda. Solo 4 campos: **Artículo** (obligatorio; al escribir 2 letras o más sugiere hasta 6 descripciones de **nuestro** catálogo que contengan todas las palabras escritas, en cualquier orden; tocar una la llena y pasa a precio; se puede dejar lo escrito), **Precio regular** (obligatorio; teclado numérico), **Precio de promoción individual** (opcional, por pieza: "2x$42" → 21 y "2x42" en observaciones) y **Observaciones** (opcional). Enter pasa al siguiente campo; **Agregar** (o Enter en el último) pone el producto en una lista de una línea y deja el formulario listo para el siguiente. Tocar un producto de la lista lo corrige; **Quitar** lo saca (con **Deshacer**). **Guardar datos** guarda toda la lista junta (todo o nada). Lo escrito se guarda como borrador en el celular, y la app avisa si sale sin guardar. Para corregir un producto ya guardado se quita y se vuelve a escribir. La app avisa (sin impedir) si el precio es 0, si la promoción no es menor que el regular o si un precio pasa de $10,000. Estos datos todavía no los usa ningún agente.
 10. **Volver a la lista** muestra **sus** visitas, la más reciente primero. Se puede entrar a cualquiera de ellas y agregar más fotos.
 
 **Login (desde 2026-11-24; reemplaza la decisión "sin login"):** sin sesión la app no muestra nada; cada persona entra con su **usuario** (o su correo) y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). Hay dos roles:
@@ -185,7 +186,7 @@ Cómo leer el diagrama: una flecha significa "esta tabla guarda el número de la
 | `visitas` | Una ida a una tienda: tienda, ubicación, precisión, fechas y `usuario_id` (quién la creó; nulo en las de antes del login) |
 | `fotos` | Una fila por foto: su `ruta` en Storage, hora de captura, estado de procesamiento, calidad, `descartada_at` (si se quitó) y `subida_por` (quién la subió) |
 
-| `capturas_manuales` | (2026-11-25, `010`) Datos del levantamiento escritos **a mano** en la pantalla de una visita: una fila por producto con artículo, cantidad, unidad, piezas, precio regular, marca, área, promoción, observaciones, `usuario_id` (quién la escribió) y `descartada_at` (si se quitó). Mismas listas y normalización que `lecturas_precio`, para comparar con los agentes más adelante. **Ningún agente la lee** |
+| `capturas_manuales` | (2026-11-25, `010` y `011`) Datos del levantamiento escritos **a mano** en la pantalla de una visita: una fila por producto. La captura rápida (`011`) llena `articulo`, `articulo_de_lista` (si se eligió de las sugerencias), `precio_regular`, `promo_precio_pieza` (promoción por pieza, opcional) y `observaciones`; además `usuario_id` (quién la escribió) y `descartada_at` (si se quitó). Las columnas del formulario anterior (cantidad, unidad, piezas, marca, área, tipo de promoción) siguen, **opcionales**. **Ningún agente la lee**: sirve como muestra verificada |
 
 `usuario_id` y `subida_por` apuntan a las cuentas de Supabase Auth (`auth.users`). Los pone el servidor; la app no puede mandarlos.
 
@@ -226,7 +227,8 @@ Una **vista** es una consulta guardada: no almacena datos propios, los junta de 
 | `es_admin()` | Función | ¿Quien consulta es admin? Lee `app_metadata.rol` del JWT (008) |
 | `admin_cambiar_competidor`, `admin_restaurar_foto`, `admin_correos_usuarios` | Funciones | Lo que el admin hace desde la app (corregir tienda, restaurar foto, ver correos). Cada una revisa `es_admin()` primero (008) |
 | `privado.es_dueno_de_visita`, `privado.puede_usar_visita`, `privado.competidor_activo`, `privado.competidor_en_visita_visible`, `privado.visita_de_ruta` | Funciones auxiliares (esquema `privado`, 008b) | Las usan las reglas RLS para preguntar "¿esta visita es mía o soy admin?", "¿la tienda está activa?" o "¿de qué visita es este archivo?" sin leer otra tabla con RLS. Ver sección 6 |
-| `sugerencias_captura()` | Función (010) | Listas para las sugerencias de la captura manual. Devuelve **solo** `(tipo, valor)`: nombres de **área** del catálogo y **marcas** ya capturadas. Nunca claves, precios ni descripciones |
+| `sugerencias_captura()` | Función (010) | Listas para las sugerencias del formulario anterior. Devuelve **solo** `(tipo, valor)`: nombres de **área** del catálogo y **marcas** ya capturadas. Nunca claves, precios ni descripciones. La app ya no la usa desde `011` |
+| `articulos_captura()` | Función (011) | Sugerencias de **Artículo** de la captura rápida. Devuelve **un solo valor** (un arreglo de texto) con las **descripciones** de nuestros artículos activos, sin servicios, distintas y ordenadas. Un arreglo y no una fila por artículo, porque la API corta cada respuesta en ~1,000 filas y el catálogo tiene más de 3,000. Nunca claves, precios ni ventas. Solo `authenticated` la ejecuta |
 | `privado.normalizar_unidad_base`, `privado.normalizar_contenido_base` | Funciones auxiliares (010) | Envoltorios de las funciones de normalización de la etapa 2, para que `capturas_manuales` calcule `unidad_base` y `contenido_base` igual que `lecturas_precio` sin abrir esas funciones a la app |
 
 Las columnas de precio por pieza, `unidad_base` y `contenido_base` las calcula la base de datos, no los agentes.
@@ -273,8 +275,9 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 **Captura manual (010)**
 - Cada persona ve, escribe y quita datos manuales **solo en sus visitas** (quitar: solo sus propias filas, sin restaurar, sin borrar ni cambiar otras columnas). El admin ve los de todas, pero escribe solo en las suyas.
 - `usuario_id` lo pone el servidor; la app no tiene permiso de mandarlo. Todas las reglas de valores (unidades, decimales, promociones) están **en la base** (CHECK), no solo en la app.
-- La app **no** tiene acceso a `catalogo_propio` ni a ninguna tabla de la etapa 2: los nombres de área los entrega `sugerencias_captura()`, que no devuelve claves ni precios. Las marcas sugeridas son compartidas entre personas (solo el nombre).
-- Después de `010`, las comprobaciones finales viejas de `008b` y `009` marcan `false` en las filas que cuentan funciones o tablas abiertas. Es normal (ver `PROGRESO.md`, "Avisos permanentes").
+- La app **no** tiene acceso a `catalogo_propio` ni a ninguna tabla de la etapa 2: los nombres de área los entrega `sugerencias_captura()` y las descripciones de artículos `articulos_captura()` (011); ninguna devuelve claves, precios ni ventas. Las marcas sugeridas son compartidas entre personas (solo el nombre).
+- `011` no cambia las reglas de acceso; solo agrega dos columnas que `authenticated` puede mandar al crear (`articulo_de_lista`, `promo_precio_pieza`) y CHECK en la base (artículo no vacío y hasta 200; precios ≥ 0 con 2 decimales; observaciones hasta 500).
+- Después de `010`, las comprobaciones finales viejas de `008b` y `009` marcan `false` en las filas que cuentan funciones o tablas abiertas; después de `011`, también la fila 14 de la de `010`. Es normal (ver `PROGRESO.md`, "Avisos permanentes").
 
 **Sin sesión (`anon`)**
 - **Nada** (desde 009, ejecutada el 2026-11-24). No lee, no crea, no ve fotos. Los links públicos viejos de fotos ya no abren.
@@ -343,6 +346,8 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 | Las fases de agentes solo empiezan cuando se piden | Generan costos | Cada fase la autoriza una persona |
 | Captura manual en la app (`capturas_manuales`, 010), opcional y por visita (2026-11-25) | Tener datos verificados para comparar contra los agentes | Los agentes **no** la leen; corregir = quitar y volver a escribir; guardar es todo o nada |
 | Sugerencias de área por una función que solo da nombres | La app no debe tener acceso al catálogo ni a la etapa 2 | Nunca se exponen claves, precios ni descripciones |
+| Captura rápida de 4 campos (011, 2026-11-25) | En la tienda, capturar un producto debe tomar segundos | Contenido, unidad, marca, área y tipo de promoción ya no se piden; la promoción es **por pieza** y el detalle ("2x42") va en observaciones |
+| Sugerencias de artículo = descripciones de nuestro catálogo, en **un** arreglo | La API corta en ~1,000 filas y el catálogo tiene más de 3,000 | La lista se carga una vez y se filtra en el celular; si no carga, se escribe a mano |
 | Decimales de más se **rechazan** en la base (no se redondean) | Que un dato mal escrito no se guarde cambiado | La app avisa antes con un mensaje en español |
 
 ### Valores vigentes de las fotos (pueden cambiar, ver 8.3)
@@ -370,7 +375,7 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - [ ] Verificar que la columna `competidor_elegido_at` de `visitas` ya fue eliminada (su migración tiene un freno de seguridad).
 - [ ] Cuenta de la API de Claude con **límite de gasto mensual** (antes de la primera fase de agentes).
 - [ ] Muestra verificada: 20 a 30 fotos reales con su precio escrito a mano, para evaluar a los agentes. **Propuesta (2026-11-25):** usar la captura manual de la app (`capturas_manuales`); ver `PLAN_ETAPA2.md` 9.5. Regla: los agentes **no** ven esas filas al leer.
-- [ ] Captura manual: ejecutar `010` y su prueba, publicar y probar con dos cuentas de campo y el admin (orden en `PROGRESO.md`).
+- [ ] Captura rápida: ejecutar `010` (si aún no), `010b`, `011` y su prueba `011`, publicar y probar con dos cuentas de campo y el admin (orden en `PROGRESO.md`, "Captura rápida de productos").
 - [ ] Verificar el nivel de resolución de imagen de Sonnet 5.5 y Haiku 5.5.
 - [ ] Una vez que existan datos reales, borrar visitas y fotos de prueba desde Supabase (primero `fotos`, luego `visitas`; en Storage, borrar con la API o la interfaz).
 

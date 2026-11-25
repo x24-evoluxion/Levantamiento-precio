@@ -40,6 +40,16 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
 > en la tabla `capturas_manuales` (`supabase/010_capturas_manuales.sql`). Sirve después para
 > comparar contra los agentes y como muestra verificada; **ningún agente la lee** en esta
 > fase. Detalle en 4.1, 4.3 y en `docs/PROGRESO.md` ("Captura manual de datos").
+>
+> **Cambio del 2026-11-25 (2) — Captura rápida de productos** (reemplaza el formulario de
+> arriba). La persona captura mientras recorre la tienda, así que la sección tiene **solo 4
+> campos**: **artículo** (obligatorio, con sugerencias de las descripciones de nuestro
+> catálogo; nunca obliga a elegir), **precio regular** (obligatorio), **precio de promoción
+> individual** (por pieza, opcional) y **observaciones** (opcional). Enter avanza; "Agregar"
+> pasa el producto a una lista compacta y limpia el formulario; "Guardar datos" guarda toda
+> la lista en una operación. Contenido, unidad, marca, área y tipo de promoción **ya no se
+> piden** (las columnas siguen, opcionales). Migración `supabase/011_captura_rapida.sql`
+> (aditiva). Detalle en 4.1, 4.3, 5 y en `docs/PROGRESO.md` ("Captura rápida de productos").
 
 ### Fuera de alcance (no lo hagas)
 - ~~**Login de usuarios.** La app es abierta: cualquiera con el link puede usarla.~~
@@ -147,10 +157,13 @@ qué sirve y espera a que diga que sí.
 | `descartada_at` | `timestamptz` | **2026-11-23 (`007`).** Hora (reloj del servidor, la pone un *trigger*) en que alguien **quitó** la foto desde la app. Nula = a la vista. Descarte reversible: no se borra la fila ni el archivo |
 | `subida_por` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | **2026-11-24 (`008`).** Quién subió la foto. La pone el servidor; la app no puede mandarla |
 
-**`capturas_manuales`** (2026-11-25, `010`): datos del levantamiento escritos a mano en la
-pantalla de una visita. Una fila por producto. Mismas listas de valores y la misma
-normalización de unidad y contenido que `lecturas_precio` (PLAN_ETAPA2 5.1 y 5.5), para poder
-comparar. Todas las reglas (CHECK) están **en la base**, no solo en la app.
+**`capturas_manuales`** (2026-11-25, `010`; simplificada por `011`): datos del levantamiento
+escritos a mano en la pantalla de una visita. Una fila por producto. Mismas listas de valores
+y la misma normalización de unidad y contenido que `lecturas_precio` (PLAN_ETAPA2 5.1 y 5.5),
+para poder comparar. Todas las reglas (CHECK) están **en la base**, no solo en la app.
+**Desde `011` la app solo llena** `articulo`, `articulo_de_lista`, `precio_regular`,
+`promo_precio_pieza` y `observaciones`; las demás columnas se quedan para las filas viejas y
+para la versión anterior de la app.
 
 | Columna | Tipo | Notas |
 |---|---|---|
@@ -158,23 +171,27 @@ comparar. Todas las reglas (CHECK) están **en la base**, no solo en la app.
 | `visita_id` | `uuid`, FK → `visitas.id`, no nulo, `on delete cascade` | |
 | `usuario_id` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | Quién la escribió. La pone el servidor; la app **no tiene permiso** de mandarla |
 | `articulo` | `text` no nulo | No vacío, hasta 200 letras |
-| `cantidad` | `numeric` no nulo | Contenido de **una** pieza; > 0, hasta 3 decimales (más decimales: se **rechaza**, no se redondea) |
-| `unidad` | `text` no nulo | `g`, `kg`, `ml`, `l`, `pza` |
-| `piezas` | `int` no nulo, default 1 | 1 a 1000 ("6 × 355 ml" → 6) |
-| `unidad_base`, `contenido_base` | generadas | Con las funciones de `004` (vía envoltorios en `privado`, ver 4.3) |
-| `precio_regular` | `numeric` no nulo | ≥ 0, hasta 2 decimales. Total de la presentación completa (paquete → precio del paquete). La app avisa si es 0, pero no lo impide |
-| `marca`, `area` | `text` | Recomendados. Nulos o no vacíos, hasta 100 letras |
+| `articulo_de_lista` | `boolean` no nulo, default `false` | **`011`.** `true` solo si el texto guardado es **exactamente** una sugerencia elegida (descripción de un artículo nuestro). Si se edita después, `false` |
+| `cantidad` | `numeric` (nulo desde `011`) | Contenido de **una** pieza; > 0, hasta 3 decimales (más decimales: se **rechaza**, no se redondea). Va junto con `unidad`: las dos vacías o las dos con valor |
+| `unidad` | `text` (nulo desde `011`) | `g`, `kg`, `ml`, `l`, `pza` |
+| `piezas` | `int` (nulo desde `011`), default 1 | 1 a 1000 ("6 × 355 ml" → 6) |
+| `unidad_base`, `contenido_base` | generadas | Con las funciones de `004` (vía envoltorios en `privado`, ver 4.3). Vacías si no hay presentación |
+| `precio_regular` | `numeric` no nulo | ≥ 0, hasta 2 decimales. La app avisa si es 0 o más de $10,000, pero no lo impide |
+| `promo_precio_pieza` | `numeric` | **`011`.** Precio de promoción **por pieza** (opcional). ≥ 0, hasta 2 decimales. "2 x $42" → 21 (y "2x42" en observaciones). La app avisa si no es menor que el regular |
+| `marca`, `area` | `text` | Formulario de `010` (la captura rápida no los pide). Nulos o no vacíos, hasta 100 letras |
 | `marca_de_lista`, `area_de_lista` | `boolean` no nulo, default `false` | `true` si el valor se eligió de una sugerencia |
 | `promo_tipo` | `text` no nulo, default `'ninguna'` | `ninguna`, `precio_rebajado`, `n_por_precio`, `nxm`, `otro` |
 | `promo_piezas` | `int` | `precio_rebajado` → 1; `n_por_precio` y `nxm` → ≥ 2; `otro` → opcional |
 | `promo_precio_total` | `numeric` | Hasta 2 decimales. Obligatorio en `precio_rebajado` y `n_por_precio`; vacío en `nxm` |
 | `promo_paga_piezas` | `int` | **Solo `nxm`** ("lleva 3 paga 2" → 2; menor que `promo_piezas`). Misma columna que `lecturas_precio` |
 | `promo_condicion` | `text` no nulo, default `'ninguna'` | `ninguna`, `tarjeta`, `app`, `otro` |
-| `observaciones` | `text` | Hasta 300 letras |
+| `observaciones` | `text` | Hasta **500** letras (300 hasta `011`) |
 | `created_at` | `timestamptz`, default `now()` | |
 | `descartada_at` | `timestamptz` | Hora (del servidor, *trigger*) en que su autor la **quitó**. Nula = vigente |
 
-Sin promoción (`ninguna`) → todas las columnas de promoción vacías y condición `ninguna`.
+Sin promoción (`ninguna`) → todas las columnas de promoción **de `010`** vacías y condición
+`ninguna`. `promo_precio_pieza` (`011`) es independiente: la captura rápida deja
+`promo_tipo = 'ninguna'` y anota ahí el precio por pieza.
 
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
@@ -229,7 +246,8 @@ función `es_admin()`, que lee el JWT.
 | Storage `fotos` | leer y subir en `visitas/<uuid de SU visita>/<uuid>.jpg` | leer todo; subir a cualquier visita | reemplazar, borrar |
 | Correos de las cuentas | — | verlos con `admin_correos_usuarios` (quién creó cada visita) | — |
 | `capturas_manuales` (`010`) | leer las de **sus** visitas; crear **solo en sus** visitas (queda a su nombre solo); **quitar** (`descartada_at`) **sus** filas | leer **todas**; crear solo en **sus** visitas; quitar solo **sus** filas | mandar `usuario_id`, cambiar otra columna, restaurar, borrar |
-| `sugerencias_captura()` (`010`) | ejecutarla: devuelve solo `(tipo, valor)` con nombres de **áreas** del catálogo y **marcas** ya capturadas | (lo mismo) | ver claves, precios o descripciones del catálogo |
+| `sugerencias_captura()` (`010`) | ejecutarla: devuelve solo `(tipo, valor)` con nombres de **áreas** del catálogo y **marcas** ya capturadas. **La app ya no la usa desde `011`** | (lo mismo) | ver claves, precios o descripciones del catálogo |
+| `articulos_captura()` (`011`) | ejecutarla: devuelve **un solo valor** (arreglo de texto) con las **descripciones** de los artículos propios activos, sin servicios, distintas y ordenadas | (lo mismo) | ver claves, precios o ventas; `anon` no la ejecuta |
 | Tablas, vistas y funciones de la Etapa 2 | nada | **nada** (también cerradas para el admin dentro de la app) | — |
 | `anon` (sin sesión) | **nada** (desde `009`, ejecutada el 2026-11-24) | | |
 
@@ -282,7 +300,11 @@ en un archivo nuevo.
 `privado.es_dueno_de_visita` (crear); quitar compara `usuario_id` con el JWT (no lee otras
 tablas). `sugerencias_captura()` es `security definer` con `search_path` vacío: lee
 `catalogo_propio` como su dueño y devuelve **solo nombres**; `authenticated` sigue **sin
-acceso** a `catalogo_propio` y a toda la Etapa 2. Después de `010`, las comprobaciones finales
+acceso** a `catalogo_propio` y a toda la Etapa 2. **`011`** no cambia las reglas: agrega la
+función `articulos_captura()` (igual: `security definer`, `search_path` vacío, lee la vista
+`catalogo_propio_actual` y devuelve **solo descripciones**). Devuelve **un** arreglo y no una
+fila por artículo, porque la API de Supabase corta cada respuesta en unas 1,000 filas y el
+catálogo tiene más de 3,000 artículos. Después de `010`, las comprobaciones finales
 viejas de `008b` y `009` marcan `false` en las filas que cuentan funciones o tablas abiertas:
 es normal (ver el encabezado de `010`).
 
@@ -301,6 +323,7 @@ supabase/
 ├── 009_cerrar_anon.sql      ← quita todo a anon y pone el bucket privado
 ├── reversa_009.sql          ← SOLO emergencia: deshace 009 (no ejecutado)
 ├── 010_capturas_manuales.sql← captura manual: tabla, reglas, sugerencias (aditiva)
+├── 011_captura_rapida.sql   ← captura rápida: 4 campos, presentación opcional, articulos_captura() (aditiva)
 ├── pruebas/                 ← pruebas con datos inventados (terminan con rollback)
 └── seed_competidores.sql    ← SOLO la lista de competidores (el usuario la va a editar)
 ```
@@ -334,7 +357,7 @@ Lista **provisional** (el usuario la confirmará después):
 | *(todas)* | **Desde 2026-11-24:** sin sesión, cualquier ruta muestra **"Entrar"** (correo y contraseña; "¿No tienes cuenta? Pide tu acceso al responsable."). Con sesión, arriba se ve el correo y **"Cerrar sesión"** (`src/components/PuertaSesion.tsx`). |
 | `/` | Lista de visitas (la más reciente primero): competidor, fecha y hora, número de fotos. Botón grande **"Nueva visita"**. Campo: "Mis visitas". Admin: "Todas las visitas", con quién creó cada una. |
 | `/visitas/nueva` | Selector de competidor, botón **"Guardar mi ubicación"**, botón **"Guardar visita"**. Al guardar, lleva a la pantalla de la visita. |
-| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. Admin: "Creada por", **"Corregir tienda"** y la sección **"Fotos quitadas"** con "Restaurar". **Desde 2026-11-25:** debajo, la sección opcional **"Datos del levantamiento (manual)"**: tarjetas por producto con "+ Agregar producto", "Duplicar fila", "Quitar" y **"Guardar datos"** (todas en una sola operación), borrador en el celular, aviso al salir sin guardar, y las filas ya guardadas (solo lectura, con "Quitar"). Solo quien creó la visita escribe; el admin ve las de cualquiera. |
+| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. Admin: "Creada por", **"Corregir tienda"** y la sección **"Fotos quitadas"** con "Restaurar". **Desde 2026-11-25:** debajo, la sección opcional **"Datos del levantamiento (manual)"** — **captura rápida** (`011`): formulario de 4 campos (Artículo con sugerencias, Precio regular, Precio de promoción individual *opcional*, Observaciones *opcional*); Enter avanza; **"Agregar"** (desactivado mientras falte algo, dice "Falta: …") pasa el producto a una lista compacta de una línea (tocar = corregir, "Quitar" con "Deshacer") y deja el foco en Artículo; **"Guardar datos"** guarda toda la lista en una sola operación; borrador en el celular; aviso al salir sin guardar; y las filas ya guardadas (solo lectura, con "Quitar"). Solo quien creó la visita escribe; el admin ve las de cualquiera. |
 
 Guía de diseño:
 - Pensada para **celular primero**: botones grandes y fáciles de tocar con el pulgar,
@@ -501,3 +524,4 @@ que se sepa de dónde salió cada una.
 | La app **no debe aparecer en buscadores** (noindex), porque es de uso interno. Se hace con `robots: { index: false, follow: false }` en `src/app/layout.tsx` y el encabezado `X-Robots-Tag: noindex, nofollow` en todas las respuestas (`next.config.ts`). **No** se usa `Disallow` en `robots.txt`, porque eso impide que el buscador vea el aviso. Las fotos viven en Supabase Storage (otro dominio) y no reciben este encabezado; sus links solo aparecen dentro de la app. | Pedido del usuario (2026-11-18), **no viene de la grabación**. | Fase 7 |
 | **Login con correo y contraseña** (Supabase Auth, sin registro público). Rol admin en `app_metadata.rol = 'admin'` (nunca `user_metadata`). Personal de campo: solo sus visitas y fotos; crea visitas, sube fotos a las suyas y quita fotos pendientes de las suyas. Admin: ve todo; desde la app corrige la tienda, quita cualquier foto pendiente y restaura fotos quitadas; ve el **correo** de quien creó cada visita. Las visitas de antes quedan sin dueño (solo las ve el admin). Bucket **privado** con **URLs firmadas de 24 h** que se renuevan solas. Sesión solo en el navegador (supabase-js, sin librerías nuevas). Migraciones: `008` (aditiva), `008b` (corrige el ciclo de reglas con el esquema `privado`) y `009` (quita a `anon` y pone el bucket privado). Las tres ejecutadas y probadas el 2026-11-24. | Pedido del usuario (2026-11-24), **no viene de la grabación**. Reemplaza "sin login". Las preguntas (qué edita el admin en la app, cómo se muestra quién creó la visita y cuánto duran los links) las respondió el usuario ese día. | Fase "Autenticación y propiedad de visitas" (`PROGRESO.md`) |
 | **Captura manual de datos con sugerencias** (`capturas_manuales`, `010`). Sección opcional en la pantalla de la visita; una fila por producto con las mismas listas y normalización que `lecturas_precio`; sugerencias de **área** (nombres del catálogo, por una función SQL que no da claves ni precios) y **marca** (las ya capturadas), filtradas en el navegador (primero las que empiezan, luego las que contienen; sin mayúsculas ni acentos; nunca obliga a elegir). Guardar es todo o nada; borrador en `localStorage`; corregir = quitar y volver a escribir. Solo en visitas propias (el admin ve todas). Agregado por el agente: `promo_paga_piezas` para `nxm` (sin ella "3 x 2" no se puede guardar) y los límites de largo/decimales. | Pedido del usuario (2026-11-25), **no viene de la grabación**. | Fase "Captura manual de datos" (`PROGRESO.md`) |
+| **Captura rápida de productos** (`011`). Reemplaza el formulario de `010` por 4 campos: artículo (obligatorio; sugerencias con las **descripciones** de nuestros artículos activos, por la función `articulos_captura()` que devuelve un solo arreglo; filtro en el navegador por palabras en cualquier orden, mínimo 2 letras, máximo 6; nunca obliga a elegir; `articulo_de_lista`), precio regular (obligatorio), precio de promoción **por pieza** (opcional) y observaciones (opcional, hasta 500). Teclado numérico con punto (`inputMode="decimal"`), punto o coma, 2 decimales. Avisos sin bloquear (precio 0, promoción ≥ regular, más de $10,000). Lista compacta, corregir/quitar, guardar todo o nada. Columnas de presentación opcionales en la base (aditiva). Agregado por el agente: CHECK "cantidad y unidad juntas", tope de 7 enteros en los precios, "Deshacer" al quitar de la lista. | Pedido del usuario (2026-11-25), **no viene de la grabación**. | Fase "Captura rápida de productos" (`PROGRESO.md`) |

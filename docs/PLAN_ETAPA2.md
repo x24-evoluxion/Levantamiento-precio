@@ -317,10 +317,12 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/pruebas/008_prueba_autenticacion.sql`, `009_prueba_sin_anon.sql` | Fuera del plan (2026-11-24) | Pruebas con usuarios y datos inventados; terminan con `rollback` |
 | `supabase/010_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Captura manual: tabla `capturas_manuales` (abierta a `authenticated` con reglas, **no** es de la Etapa 2), función `sugerencias_captura()` (solo nombres de área y marca) y dos envoltorios en `privado`. **No abre** ninguna tabla de la Etapa 2. Ver 9.5 |
 | ~~`supabase/pruebas/010_prueba_capturas_manuales.sql`~~ | Fuera del plan (2026-11-25) | ~~45 casos~~. Reemplazada por `010b` (ocultaba la causa de un error; ver PROGRESO "Corrección de la prueba de 010") |
-| `supabase/pruebas/010b_prueba_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Freno si falta `010` + 46 casos con datos inventados; termina con `rollback` |
+| `supabase/pruebas/010b_prueba_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Freno si falta `010` + 46 casos con datos inventados; termina con `rollback`. Describe el formulario **anterior**: se corre **antes** de `011` |
+| `supabase/011_captura_rapida.sql` | Fuera del plan (2026-11-25) | Captura rápida (aditiva): presentación opcional en `capturas_manuales`, columnas `articulo_de_lista` y `promo_precio_pieza`, CHECK de largo/precios, y función `articulos_captura()` (solo **descripciones** de artículos propios activos, en **un** arreglo; ejecutable solo por `authenticated`). `authenticated` sigue **sin acceso** a `catalogo_propio` y a toda la Etapa 2. Ver 9.5 |
+| `supabase/pruebas/011_prueba_captura_rapida.sql` | Fuera del plan (2026-11-25) | Freno si falta `011` + 44 casos con datos inventados (1,200 artículos de prueba); solo muestra conteos; termina con `rollback` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
-equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ el siguiente número libre: `011_...`; `010` ya es la captura manual).
+equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ ~~`011_...`~~ el siguiente número libre: `012_...`; `010` y `011` ya son la captura manual).
 
 Todos se ejecutan **a mano** en el SQL Editor, se pueden ejecutar varias veces, y el agente
 **avisa y explica cada bloque antes** de que el usuario los ejecute.
@@ -1117,22 +1119,32 @@ usuario elige.** Resultado en `docs/evaluacion/RESULTADOS.md`.
 ### 9.5 Propuesta futura: captura manual para validación y evaluación *(2026-11-25, no implementada)*
 
 Desde `010`, la app permite escribir a mano, por visita, una fila por producto
-(`capturas_manuales`, PLAN.md 4.1). **En esta fase ningún agente las usa.** Propuesta para
-cuando lleguen las fases 🤖 (la decide el usuario):
+(`capturas_manuales`, PLAN.md 4.1). Desde `011` es una **captura rápida y opcional**: solo
+artículo, precio regular, precio de promoción **por pieza** (`promo_precio_pieza`) y
+observaciones. **En esta fase ningún agente las usa.** Propuesta para cuando lleguen las
+fases 🤖 (la decide el usuario):
 
 - **Muestra verificada (9.1):** las visitas con captura manual completa pueden ser la muestra
   de evaluación, en lugar de (o además de) `esperado.csv`. Una persona revisa que la captura
   cubra **todos** los productos de las fotos de esa visita antes de usarla.
 - **Comparación:** se empareja cada lectura con la captura de la **misma visita** por
-  artículo/marca normalizados (`normalizar_texto`) + `unidad_base` + `contenido_base`
-  (mismas funciones que `lecturas_precio`), y se compara precio al centavo y promoción.
-  Las métricas son las de 9.3.
+  artículo normalizado (`normalizar_texto`) y, en filas viejas de `010` que la traen,
+  `unidad_base` + `contenido_base` (mismas funciones que `lecturas_precio`). Las filas de
+  `011` **no traen presentación** (cantidad y unidad vacías): el contenido sale del texto del
+  artículo o no se compara. Se compara precio regular al centavo y, si hay, la promoción por
+  pieza (en `lecturas_precio`: precio de promoción ÷ piezas). Las métricas son las de 9.3.
+- **Pista de equivalencia (011):** si `articulo_de_lista = true`, el texto es **exactamente**
+  la descripción de un artículo **nuestro** activo: la persona dijo "este producto de la
+  competencia es como nuestro X". Puede servir para revisar o sembrar `equivalencias` (E2-7),
+  siempre con aprobación humana.
 - **Validación continua (opcional):** una vista solo para `service_role` que marque lecturas
   que no coinciden con una captura manual de la misma visita, para revisarlas primero.
 - **Reglas que deben respetarse:**
-  1. 🚫 **Los agentes NO deben ver estas filas al leer** (ni en las instrucciones, ni como
-     ejemplos, ni como "pista" del precio). Si las vieran, la evaluación ya no mediría nada.
-     El proceso de lectura no consulta `capturas_manuales`.
+  1. 🚫 **Los agentes NO deben ver estas filas al leer fotos** (ni en las instrucciones, ni
+     como ejemplos, ni como "pista" del precio o del artículo). Sirven como **muestra
+     verificada**: si las vieran, la evaluación ya no mediría nada. El proceso de lectura no
+     consulta `capturas_manuales`. La captura es **opcional**: una visita sin filas manuales
+     se procesa igual.
   2. Solo se usan filas **vigentes** (`descartada_at` nulo).
   3. La lectura de esta tabla la hace el script local con la secret key (como el resto de la
      Etapa 2); la app no cambia.

@@ -22,7 +22,8 @@
 | — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | ✅ (cerrada el 2026-11-24: `008`, `008b` y `009` ejecutadas, pruebas ok; ver su sección) |
 | — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 | — | Entrar con usuario (`<usuario>@x24.com.mx`) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
-| — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 la prueba vieja dio `42P01`; correr la nueva `010b` (ver "Corrección de la prueba de 010"), luego push y prueba con dos cuentas de campo y el admin |
+| — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 la prueba vieja dio `42P01`; correr la nueva `010b` (ver "Corrección de la prueba de 010"). La pantalla la reemplaza la captura rápida (`011`) |
+| — | Captura rápida de productos (`011`) — fuera del plan original | 🟡 falta: `010` (si aún no) → `010b` → `011` → prueba `011` → push → prueba en el celular (ver "Captura rápida de productos") |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -85,8 +86,9 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
-- [ ] **(Captura manual, 2026-11-25) Pasos del usuario:** correr la consulta de diagnóstico y la
-      prueba **`010b`** (no la `010` vieja), push y probar (ver "Corrección de la prueba de 010").
+- [ ] **(Captura manual / rápida, 2026-11-25) Pasos del usuario:** seguir el **orden de despliegue**
+      de "Captura rápida de productos": `010` (si aún no) → `010b` → `011` → prueba `011` → push →
+      Ready en Vercel → probar.
 - [ ] **(Etapa 2, fases 🤖) Uso de `capturas_manuales`** para validación y evaluación: propuesta en
       PLAN_ETAPA2 9.5, **no decidida**. Regla ya fija: los agentes **no** ven estas filas al leer.
 
@@ -104,6 +106,11 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
   correo `<usuario>@x24.com.mx` (usuario de 3 a 30 caracteres: `a-z`, `0-9`, `.`, `_`, `-`, en
   minúsculas). En la app se entra solo con `<usuario>`. El dominio vive en
   `src/lib/usuarios.ts` (`DOMINIO_INTERNO`). Ver la sección "Entrar con usuario".
+- **Comprobaciones viejas después de `011`:** la comprobación final de `010` marca `false` en la
+  fila "14. Funciones de public…", porque `011` abre a propósito `articulos_captura()` a
+  `authenticated`. La fila 13 de la comprobación de `011` revisa que el resto siga cerrado.
+  La prueba **`010b`** describe el formulario anterior: se corre **antes** de `011`; después de
+  `011` la prueba vigente es **`pruebas/011_prueba_captura_rapida.sql`** (ver "Captura rápida").
 - **Comprobaciones viejas después de `010`:** al volver a correr la comprobación final de `009`,
   salen `false` "Etapa 2: ninguna tabla o vista abierta…" y "Etapa 2: ninguna función abierta…";
   en la de `008b`, "Las 5 funciones…" y "Las reglas usan las funciones…". Es **normal**: `010`
@@ -2082,3 +2089,176 @@ consulta del caso 2 (`line 62`). **No** se ejecutó nada en Supabase, **no** se 
 3. Seguir con el push y la prueba en la app (sección "Captura manual de datos").
 
 **Commit:** ver `git log` — `Prueba 010b: freno si falta 010 y sin consultas sin protección (42P01)`
+
+---
+
+## Captura rápida de productos (2026-11-25) — 🟡 falta ejecutar `011`, desplegar y probar
+
+Fase nueva, **fuera del plan original**, pedida por el usuario. **No** se ejecutó nada en
+Supabase, **no** se leyó `.env.local`, **no** se usa la secret key en la app, **no** se instaló
+ninguna librería, **no** se abrió `datos-privados/`, **no** se empezaron fases 🤖 ni se llamó a
+la API de Anthropic. **Ningún agente consume estas filas** (sirven como muestra verificada).
+
+**Qué se hizo:**
+- `supabase/011_captura_rapida.sql` (**nuevo, aditivo**, repetible, en una transacción; `010` no
+  se editó):
+  - BLOQUE 0: freno. Si no existe `public.capturas_manuales` (falta `010`), la vista
+    `catalogo_propio_actual` (`005`) o las funciones de `privado` (`008b`), se detiene **sin
+    cambiar nada** y dice qué falta.
+  - BLOQUE 1: `cantidad`, `unidad` y `piezas` dejan de ser obligatorias (`piezas` conserva su
+    default 1). Sus CHECK de `010` siguen: un valor mandado debe ser válido; vacío pasa.
+  - BLOQUE 2: columnas nuevas `articulo_de_lista boolean not null default false` y
+    `promo_precio_pieza numeric` (nula). **No** se reutilizó `promo_precio_total`: es el total del
+    grupo y en `010` está atada a `promo_tipo` (con `'ninguna'` debe ir vacía).
+  - BLOQUE 3: CHECK en la base. Ya estaban (de `010`) y no se tocan: artículo no vacío y ≤ 200;
+    `precio_regular ≥ 0` con 2 decimales. Nuevos: `promo_precio_pieza` nula o ≥ 0 con 2 decimales;
+    observaciones ≤ **500** (se quita la regla de 300); y "cantidad y unidad juntas".
+  - BLOQUE 4: `grant insert (articulo_de_lista, promo_precio_pieza)` a `authenticated`; `revoke
+    all` a `anon`. **Las reglas RLS no cambian.**
+  - BLOQUE 5: `public.articulos_captura() returns text[]`, `security definer`, `search_path = ''`,
+    lee la vista `catalogo_propio_actual` (`activo` y `not es_servicio`) y devuelve **un solo
+    valor**: las descripciones distintas y ordenadas. Solo `authenticated` la ejecuta (se quita a
+    `public`, `anon` y `service_role`). No es una regla RLS ni consulta tablas con RLS.
+  - BLOQUE 6: comprobación (solo lee, sin descripciones): 13 filas `ok`. La fila 9 muestra cuántos
+    artículos devuelve la función y que coinciden con el catálogo activo.
+- `supabase/pruebas/011_prueba_captura_rapida.sql` (nueva): freno si falta `011` + 44 casos con
+  usuarios y datos inventados (1,200 artículos "PRUEBA011 ART …" más uno repetido, uno de
+  servicio, uno obsoleto y uno sin precio). **Solo muestra conteos**, nunca descripciones reales.
+  Cubre: solo artículo + precio entra; cantidad/unidad nulas se aceptan; la app vieja sigue
+  guardando; artículo vacío/espacios/201 letras, precio negativo o con 3 decimales, precio vacío,
+  promoción negativa o con 3 decimales, observaciones de 501 y presentación a medias se rechazan;
+  promoción vacía o 0 se acepta; todo o nada; no se falsea `usuario_id`; no se cambian columnas
+  (solo quitar); aislamiento C1/C2/admin igual que `010`; `anon` no lee, no crea ni ejecuta la
+  función; la función devuelve **1 valor `text[]`** con **más de 1,000** elementos sin truncar,
+  igual al catálogo activo, sin repetidos, ordenado, sin servicios/obsoletos/sin precio, sin
+  claves, precios ni áreas; nadie lee `catalogo_propio`; reglas sin cambios; sin "infinite
+  recursion". Termina con `rollback`.
+- App (sin librerías nuevas):
+  - `src/app/visitas/[id]/CapturaManual.tsx` (reescrito): formulario de **4 campos**. Artículo con
+    sugerencias (combobox existente); al elegir una, el foco pasa a Precio regular. Precios con
+    `inputMode="decimal"` (no `type="number"`), punto o coma, 2 decimales, limpieza al escribir y
+    al pegar, "$" a la izquierda. Promoción con "(opcional)" en la etiqueta, "Opcional" dentro de la
+    caja (gris `#5c5c5c`, 6.6:1) y la ayuda "Si es 2x$42, anota 21 y escribe 2x42 en
+    observaciones". Enter avanza (`enterKeyHint`); en Observaciones, agrega. Botón grande
+    **"Agregar"** desactivado mientras falte algo, con "Falta: precio regular" debajo. Al agregar:
+    lista compacta de una línea (artículo · $ precio · promo), formulario limpio y foco en
+    Artículo (el foco se mueve en el mismo toque, así el teclado no se cierra). Tocar un producto lo
+    sube al formulario ("Guardar corrección" / "Cancelar corrección"); "Quitar" con "Deshacer".
+    **"Guardar datos (N productos)"** = un insert (todo o nada). Avisos sin bloquear: precio 0,
+    promoción ≥ regular, precios de más de $10,000. Filas guardadas en solo lectura, compactas,
+    con "Quitar" (las filas viejas de `010` muestran además contenido, marca, área y promoción).
+    Se quitaron de la pantalla área, marca, cantidad, unidad, piezas, tipo de promoción y
+    "Duplicar fila".
+  - Sugerencias: `supabase.rpc("articulos_captura")` **una vez** al abrir la sección; la lista vive
+    solo en memoria (no en `localStorage`). Si falla, aviso + "Volver a cargar sugerencias" y la
+    captura sigue con texto libre.
+  - `src/lib/capturas.ts` (reescrito): `limpiarPrecio`, `limpiarPrecioPegado`, `leerPrecio`,
+    `faltantes`/`textoFalta`, `avisosProducto`, `productoParaGuardar` (solo las 6 columnas del
+    formulario), filtro de sugerencias (mín. 2 letras, máx. 6, todas las palabras en cualquier
+    orden, primero las que empiezan, sin mayúsculas ni acentos; normaliza el catálogo una sola
+    vez), borrador **v2** (formulario + lista) y textos de filas guardadas. Los borradores del
+    formato anterior (clave `v1`) se ignoran sin errores.
+  - `src/components/CampoSugerencias.tsx`: hasta 6 sugerencias; `alEnter` (Enter sin sugerencia
+    marcada pasa al siguiente campo), `aria-required`, ref por objeto (`campoRef`).
+  - `src/lib/capturas.test.ts` (reescrito): 17 pruebas.
+  - `src/lib/tipos.ts`: columnas nuevas, presentación nula, `Insert` de la captura rápida y la
+    función `articulos_captura`.
+  - `noindex`, tema (fondo blanco, letras negras, rojo en botones principales) y `cacheComponents`:
+    sin cambios (mismas clases de `globals.css`; la sección sigue cerrando la pregunta de
+    "Quitar" al esconderse y re-pidiendo la lista si se escondió a medio cargar).
+- Docs: `PLAN.md` (1, 4.1, 4.3, 4.4, 5 y 8), `PLAN_ETAPA2.md` (5.0, siguiente número libre `012`,
+  9.5: opcional, los agentes no ven estas filas, pista de equivalencia), `RESUMEN_PROYECTO.md` y
+  este archivo.
+
+**⚠️ ORDEN DE DESPLIEGUE (no cambiar):**
+1. **`010`** (solo si aún no se ha ejecutado en ESTE proyecto; la consulta de diagnóstico de
+   "Corrección de la prueba de 010" lo dice) → 15 filas `ok = true`.
+2. **Prueba `010b`** (`supabase/pruebas/010b_prueba_capturas_manuales.sql`) → `0. RESUMEN` con
+   `ok = true` (46 casos).
+3. **`011`** (`supabase/011_captura_rapida.sql`) → 13 filas `ok = true`. La fila 9 debe decir
+   cuántos artículos hay (más de 3,000 si el catálogo ya está cargado). La app publicada sigue
+   funcionando (es aditiva).
+4. **Prueba nueva** (`supabase/pruebas/011_prueba_captura_rapida.sql`) → `0. RESUMEN` con
+   `ok = true` (44 casos).
+5. **Push** de la app y esperar **Ready** en Vercel (Deployments).
+6. Probar en el celular (abajo).
+
+**Qué casos de `010b` dejan de aplicar después de `011`** (por eso se corre ANTES):
+- Probado en local: **`010b` sigue pasando 46/46 después de `011`** (ningún caso se rompe: `011`
+  solo afloja o agrega). Pero describe el formulario anterior:
+  - **2** (normalización 1.5 kg × 2) y **22–24, 27** (unidad, cantidad y piezas inválidas): siguen
+    siendo reglas de la base, pero la app ya no manda presentación. Las filas nuevas no tienen
+    `unidad_base` ni `contenido_base`.
+  - **29–34** (tipos y condiciones de promoción): la app ya no usa `promo_tipo`; la promoción va
+    en `promo_precio_pieza`, que `010b` no prueba.
+  - **38–42** (`sugerencias_captura`: áreas y marcas): la app ya no la llama; la de artículos es
+    `articulos_captura()`, que `010b` no prueba.
+  - **1, 4, 7, 8, 10–11, 34, 35**: insertan siempre con `cantidad` y `unidad`; no prueban que
+    ahora se puedan omitir.
+  - Lo que `010b` **no** sabe y la prueba `011` sí revisa: presentación opcional, observaciones
+    hasta 500 (no 300), `articulo_de_lista`, `promo_precio_pieza` y la función de artículos.
+- Además, la **comprobación final de `010`** (si se vuelve a ejecutar `010` después de `011`)
+  marca `false` en la fila 14 (ver "Avisos permanentes"). Volver a ejecutar `010` **no** deshace
+  `011` (no vuelve a poner los `not null` ni la regla de 300).
+
+**Cómo probarlo (paso 6, en el celular):**
+1. Campo 1: abrir una visita suya → "Datos del levantamiento (manual)". En **Artículo** escribir
+   `coca` → salen hasta 6 artículos de nuestro catálogo con "coca"; escribir `coca zero` → se
+   reduce. Tocar uno → se llena y el cursor pasa a **Precio regular** sin cerrar el teclado.
+2. En Precio regular sale el **teclado numérico con punto**. Escribir `18,50` → se acepta; intentar
+   letras o un tercer decimal → no aparecen. Copiar y pegar `$1,234.50` → queda `1234.50`.
+3. Debajo de "Agregar" dice "Falta: …" mientras falte algo; con artículo y precio se activa.
+   Enter → pasa a Promoción (dice "Opcional" en gris) → Enter → Observaciones → Enter → se agrega.
+4. El producto aparece en "Por guardar" en una línea; el formulario queda vacío con el cursor en
+   Artículo. Escribir un artículo que **no** esté en la lista → se respeta tal cual.
+5. Precio regular `0` o promoción mayor que el regular o `20000` → aviso amarillo, pero deja
+   agregar. Tocar un producto de la lista → sube al formulario → cambiar el precio → "Guardar
+   corrección". "Quitar" → "Deshacer" lo regresa.
+6. Recargar la página antes de guardar → el navegador avisa; al volver, la lista y el formulario
+   siguen ahí. "← Volver a la lista" también pregunta.
+7. "Guardar datos (N productos)" → "Se guardaron N productos" y aparecen en "Guardados".
+   "Quitar" en uno guardado → "¿Quitar este producto?" → "Sí, quitar".
+8. Modo avión **antes** de abrir la sección → aviso "No se cargaron las sugerencias…" y se puede
+   capturar igual a mano; "Guardar datos" sin red → error claro y la lista sigue ahí.
+9. Campo 2 no ve los datos de Campo 1. Admin: ve los guardados de cualquier visita y escribe solo
+   en las suyas.
+10. En Supabase → Table Editor → `capturas_manuales`: las filas nuevas tienen `cantidad` y `unidad`
+    vacías, `articulo_de_lista = true` solo en las elegidas de la lista sin editar, y
+    `promo_precio_pieza` cuando se anotó.
+
+**Decisiones tomadas por el agente (y por qué):**
+- **Columna nueva `promo_precio_pieza`** en lugar de `promo_precio_total` (ver BLOQUE 2).
+- **CHECK "cantidad y unidad juntas"** (no se pidió): con la presentación opcional, evita filas con
+  "600" sin unidad. Todas las filas de `010` lo cumplen.
+- **`piezas` también deja de ser obligatoria** ("etc." de la petición), con su default 1.
+- **Tope de 7 enteros en los precios** (hasta 9,999,999.99): así la promoción nunca puede chocar
+  con el límite de la base y **nunca** bloquea agregar.
+- **Al pegar**, el último separador es el decimal ("$1,234.50" → 1234.50); al escribir, cuenta el
+  primero (un punto de más se ignora).
+- **`articulos_captura()` sin `service_role`** ("ejecutable ÚNICAMENTE por authenticated"); el
+  proceso de la Etapa 2 no la necesita. Sin revisar `auth.uid()` dentro: el permiso ya la limita y
+  así la comprobación (SQL Editor) puede contar sus elementos.
+- **Corregir un producto lo sube al formulario** (sale de la lista mientras se corrige; "Cancelar
+  corrección" lo regresa igual). "Quitar" de la lista sin confirmación, con "Deshacer".
+- **"Guardar datos" guarda solo la lista**; si el formulario tiene algo sin agregar, se queda ahí y
+  el mensaje lo dice.
+- **El formulario se ve ANTES de los guardados** (lo primero en la tienda es capturar).
+- **Borradores `v1` no se borran** del celular: solo se ignoran (lo pedido).
+
+**Riesgos y límites conocidos:**
+- La lista de artículos pesa ~100–150 KB (más de 3,000 descripciones) y se pide una vez al abrir
+  la sección. Con mala señal puede tardar; mientras tanto se escribe a mano.
+- Si la red se corta **después** de que Supabase guardó pero antes de recibir la respuesta, la
+  lista se conserva y al reintentar se duplicarían filas (igual que en `010`). Se ven en
+  "Guardados" al recargar y se pueden quitar.
+- Si alguien sigue usando la app **vieja** después de que se guarden filas nuevas, sus tarjetas
+  de esas filas muestran un contenido vacío/raro (no se rompe). Se resuelve con el push (paso 5).
+- **No probado en el navegador ni contra Supabase real** (no se debía consultar Supabase). Probado
+  en local con PGlite (Postgres en WASM, el mismo arnés de `008b`/`010` reutilizado del
+  scratchpad, **no es Supabase**): `001`→`009` reales; sin `010`, `011` se detiene con su freno;
+  `010` → `010b` 46/46 → `011` dos veces seguidas (13/13 `ok`) → prueba `011` **44/44** → `010b`
+  otra vez 46/46; pruebas `008` (55/55) y `009` (12/12) siguen pasando. `npm run lint` ✅,
+  `npm run build` ✅, `npm run test:capturas` 17/17 ✅, `test:errores` 10/10 ✅, `test:etapa2`
+  14/14 ✅.
+
+**Commit:** ver `git log` — `Captura rápida de productos (011): 4 campos, sugerencias de artículo y docs`

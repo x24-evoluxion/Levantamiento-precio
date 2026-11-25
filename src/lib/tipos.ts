@@ -1,13 +1,14 @@
 // Tipos de TypeScript de las tablas de Supabase (escritos a mano).
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
 // (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql,
-// 007_descartar_fotos.sql, 008_autenticacion.sql, 010_capturas_manuales.sql).
+// 007_descartar_fotos.sql, 008_autenticacion.sql, 010_capturas_manuales.sql,
+// 011_captura_rapida.sql).
 // Si cambias una tabla, cambia también este archivo.
 //
 // Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
 // están aquí: la app no puede verlas. Sus tipos viven en src/lib/etapa2/tipos.ts.
-// capturas_manuales (010) SÍ está: es la captura manual que escribe la persona en la
-// pantalla de la visita (src/lib/capturas.ts).
+// capturas_manuales (010, simplificada en 011) SÍ está: es la captura rápida que escribe
+// la persona en la pantalla de la visita (src/lib/capturas.ts).
 //
 // Desde 008 se entra con correo y contraseña: la app usa el rol "authenticated".
 //   Row    → cómo llega una fila al LEERLA
@@ -135,15 +136,24 @@ export type Database = {
           /** Quién la escribió (lo pone el servidor). null = cuenta borrada. */
           usuario_id: string | null;
           articulo: string;
-          /** Contenido de UNA pieza, como dice la etiqueta. */
-          cantidad: number;
-          unidad: "g" | "kg" | "ml" | "l" | "pza";
-          piezas: number;
-          /** Calculadas por la base (mismas reglas que lecturas_precio). */
-          unidad_base: "g" | "ml" | "pza";
-          contenido_base: number;
-          /** Precio regular del paquete completo, con impuestos. */
+          /** 011: true solo si el artículo es EXACTAMENTE una sugerencia elegida de la lista. */
+          articulo_de_lista: boolean;
+          /**
+           * Presentación (formulario de 010). Desde 011 es opcional: las filas de la
+           * captura rápida la tienen vacía (cantidad y unidad null, piezas 1).
+           * Contenido de UNA pieza, como dice la etiqueta.
+           */
+          cantidad: number | null;
+          unidad: "g" | "kg" | "ml" | "l" | "pza" | null;
+          piezas: number | null;
+          /** Calculadas por la base (mismas reglas que lecturas_precio). null sin presentación. */
+          unidad_base: "g" | "ml" | "pza" | null;
+          contenido_base: number | null;
+          /** Precio regular con impuestos (en filas de 010, del paquete completo). */
           precio_regular: number;
+          /** 011: precio de promoción POR PIEZA (opcional). "2 x $42" → 21. */
+          promo_precio_pieza: number | null;
+          /** Formulario de 010 (la captura rápida no los llena). */
           marca: string | null;
           marca_de_lista: boolean;
           area: string | null;
@@ -153,29 +163,36 @@ export type Database = {
           promo_precio_total: number | null;
           promo_paga_piezas: number | null;
           promo_condicion: "ninguna" | "tarjeta" | "app" | "otro";
+          /** Hasta 500 letras (011). */
           observaciones: string | null;
           created_at: string;
           /** Hora (del servidor) en que su autor la quitó. null = vigente. */
           descartada_at: string | null;
         };
-        /** Sin id, usuario_id, created_at, descartada_at ni las calculadas (no hay permiso). */
+        /**
+         * Lo que manda la captura rápida (011). Sin id, usuario_id, created_at,
+         * descartada_at ni las calculadas (no hay permiso). Las columnas del formulario
+         * de 010 se pueden mandar, pero la app ya no lo hace.
+         */
         Insert: {
           visita_id: string;
           articulo: string;
-          cantidad: number;
-          unidad: "g" | "kg" | "ml" | "l" | "pza";
-          piezas: number;
+          articulo_de_lista: boolean;
           precio_regular: number;
-          marca: string | null;
-          marca_de_lista: boolean;
-          area: string | null;
-          area_de_lista: boolean;
-          promo_tipo: "ninguna" | "precio_rebajado" | "n_por_precio" | "nxm" | "otro";
-          promo_piezas: number | null;
-          promo_precio_total: number | null;
-          promo_paga_piezas: number | null;
-          promo_condicion: "ninguna" | "tarjeta" | "app" | "otro";
+          promo_precio_pieza: number | null;
           observaciones: string | null;
+          cantidad?: number | null;
+          unidad?: "g" | "kg" | "ml" | "l" | "pza" | null;
+          piezas?: number | null;
+          marca?: string | null;
+          marca_de_lista?: boolean;
+          area?: string | null;
+          area_de_lista?: boolean;
+          promo_tipo?: "ninguna" | "precio_rebajado" | "n_por_precio" | "nxm" | "otro";
+          promo_piezas?: number | null;
+          promo_precio_total?: number | null;
+          promo_paga_piezas?: number | null;
+          promo_condicion?: "ninguna" | "tarjeta" | "app" | "otro";
         };
         /** Solo quitar una fila propia. El servidor pone su hora. */
         Update: {
@@ -209,13 +226,20 @@ export type Database = {
         Returns: { usuario_id: string; correo: string }[];
       };
       /**
-       * 010: nombres para las sugerencias de la captura manual. Solo (tipo, valor):
+       * 010: nombres para las sugerencias del formulario anterior. Solo (tipo, valor):
        * áreas del catálogo (sin claves, precios ni descripciones) y marcas ya capturadas.
+       * Desde 011 la app ya no la usa (se queda en la base para la versión publicada).
        */
       sugerencias_captura: {
         Args: Record<PropertyKey, never>;
         Returns: { tipo: "area" | "marca"; valor: string }[];
       };
+      /**
+       * 011: descripciones de los artículos propios activos (sin servicios), distintas y
+       * ordenadas, en UN solo valor (un arreglo): así la API no lo corta en 1,000 filas.
+       * Solo la descripción: nunca claves, precios ni ventas.
+       */
+      articulos_captura: { Args: Record<PropertyKey, never>; Returns: string[] };
     };
     Enums: SinCambios;
     CompositeTypes: SinCambios;

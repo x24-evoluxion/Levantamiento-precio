@@ -1,23 +1,30 @@
 "use client";
 
-// Sección OPCIONAL "Datos del levantamiento (manual)" de una visita
-// (supabase/010_capturas_manuales.sql). La persona escribe una fila por producto.
-// Sirven después para comparar contra lo que lean los agentes; en esta fase NINGÚN
-// agente las lee.
+// Sección OPCIONAL "Datos del levantamiento (manual)" de una visita: CAPTURA RÁPIDA
+// (supabase/010_capturas_manuales.sql + 011_captura_rapida.sql). La persona recorre la
+// tienda y anota un producto en segundos. Sirven después para comparar contra lo que lean
+// los agentes y como muestra verificada; NINGÚN agente las lee al leer fotos.
 //
-// - Empieza cerrada (salvo que haya un borrador). Al abrirla se cargan UNA vez las
-//   listas de sugerencias (áreas del catálogo y marcas ya capturadas, solo nombres)
-//   y las filas ya guardadas de esta visita. Las sugerencias se filtran aquí, en el
-//   celular.
-// - Filas nuevas: tarjetas con "+ Agregar producto", "Duplicar fila" y "Quitar".
-//   "Guardar datos" manda TODAS en UNA sola operación: o se guardan todas o ninguna.
-// - Borrador: lo escrito se guarda en el celular (localStorage) por persona y por
-//   visita, para no perderlo si se va la señal. Al salir con filas sin guardar, se
-//   avisa (pestaña: beforeunload; enlace "Volver a la lista": EnlaceVolver.tsx).
-// - Filas guardadas: solo lectura. Su autor las puede "Quitar" (descarte, no se
-//   borra). Corregir = quitar y volver a escribir.
-// - Quién escribe: solo en visitas PROPIAS (la base lo exige). El admin ve las filas
-//   de cualquier visita, pero escribe solo en las suyas.
+// - Formulario de SOLO 4 campos: Artículo (con sugerencias del catálogo propio, nunca
+//   obliga a elegir), Precio regular, Precio de promoción individual (opcional) y
+//   Observaciones (opcional). Solo artículo y precio regular son obligatorios.
+// - Enter avanza al siguiente campo; en el último, agrega el producto. Al elegir una
+//   sugerencia, el foco pasa a Precio regular. "Agregar" está desactivado mientras falte
+//   algo y dice qué falta ("Falta: precio regular").
+// - Al agregar, el producto pasa a una lista compacta de una línea y el formulario se
+//   limpia con el foco otra vez en Artículo. Tocar un producto de la lista lo sube al
+//   formulario para corregirlo; "Quitar" lo saca (con "Deshacer").
+// - "Guardar datos" manda TODA la lista en UNA sola operación: o se guardan todos o
+//   ninguno.
+// - Sugerencias: al abrir la sección se pide UNA vez la lista de artículos (solo
+//   descripciones, función articulos_captura) y se guarda en memoria. Se filtra aquí, en
+//   el celular. Si no carga (sin señal), se captura igual con texto libre.
+// - Borrador: el formulario a medias y la lista sin guardar se guardan en el celular
+//   (localStorage) por persona y por visita. Al salir con algo sin guardar, se avisa
+//   (pestaña: beforeunload; enlace "Volver a la lista": EnlaceVolver.tsx).
+// - Filas guardadas: solo lectura. Su autor las puede "Quitar" (descarte, no se borra).
+// - Quién escribe: solo en visitas PROPIAS (la base lo exige). El admin ve las filas de
+//   cualquier visita, pero escribe solo en las suyas.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -25,47 +32,47 @@ import { useSesion } from "@/lib/sesion";
 import { formatearFecha } from "@/lib/fechas";
 import type { CapturaManual as FilaGuardada } from "@/lib/tipos";
 import {
-  CONDICIONES,
   MAX_ARTICULO,
-  MAX_MARCA_AREA,
   MAX_OBSERVACIONES,
-  NOMBRE_CONDICION,
-  NOMBRE_PROMO,
-  NOMBRE_UNIDAD,
-  ORDEN_CAMPOS,
-  PROMO_TIPOS,
-  UNIDADES,
-  avisosFila,
-  duplicarFila,
-  filaParaGuardar,
-  filaTieneDatos,
-  filaVacia,
+  avisosProducto,
+  faltantes,
   formatearPesos,
   guardarBorrador,
   leerBorrador,
+  leerPrecio,
+  limpiarPrecio,
+  limpiarPrecioPegado,
   marcarPendientes,
+  productoParaGuardar,
+  productoTieneDatos,
+  productoVacio,
   textoContenido,
+  textoFalta,
   textoPromocion,
-  validarFila,
-  type CampoFila,
-  type FilaBorrador,
+  type ProductoBorrador,
 } from "@/lib/capturas";
 import { clasificarFalla, fallaConCodigo, mensajeDeFalla, type Falla } from "@/lib/errores";
 import CampoSugerencias from "@/components/CampoSugerencias";
 import TituloError, { IconoAlerta } from "@/components/TituloError";
 import BotonEntrarOtraVez from "@/components/BotonEntrarOtraVez";
 
-// Letra de 18 px en todos los campos (más de 16 px: iOS no hace zoom) y al menos
-// 48 px de alto (área táctil de más de 44 px).
+// Letra de 18 px en todos los campos (más de 16 px: iOS no hace zoom) y al menos 48 px
+// de alto (área táctil de más de 44 px). El texto de ejemplo ("Opcional") va en gris
+// legible: #5c5c5c sobre blanco da 6.6:1 (más de 4.5:1).
 const CLASE_CAMPO =
-  "w-full min-h-12 rounded-xl border-2 border-borde bg-fondo px-3 py-2 text-lg text-texto outline-offset-2 focus-visible:outline-3 focus-visible:outline-marca";
+  "w-full min-h-12 rounded-xl border-2 border-borde bg-fondo px-3 py-2 text-lg text-texto outline-offset-2 focus-visible:outline-3 focus-visible:outline-marca placeholder:text-texto-desactivado";
 
-type Listas = { areas: string[]; marcas: string[] };
+type Campo = "articulo" | "precio_regular" | "promo_precio_pieza" | "observaciones";
+const SIGUIENTE: Record<Exclude<Campo, "observaciones">, Campo> = {
+  articulo: "precio_regular",
+  precio_regular: "promo_precio_pieza",
+  promo_precio_pieza: "observaciones",
+};
 
-type EstadoListas =
+type EstadoArticulos =
   | { tipo: "cargando" }
-  | { tipo: "ok"; listas: Listas }
-  // Sin sugerencias se puede capturar igual: solo se avisa.
+  | { tipo: "ok"; lista: string[] }
+  // Sin sugerencias se captura igual (texto libre): solo se avisa.
   | { tipo: "error" };
 
 type EstadoGuardadas =
@@ -78,21 +85,46 @@ type Mensaje =
   | { tipo: "aviso"; texto: string }
   | { tipo: "falla"; inicio: string; falla: Falla };
 
-const SIN_LISTAS: Listas = { areas: [], marcas: [] };
+/** Producto que se está corrigiendo: dónde estaba en la lista y cómo era. */
+type Correccion = { indice: number; original: ProductoBorrador };
+
+const SIN_ARTICULOS: string[] = [];
+
+function insertar<T>(lista: T[], indice: number, x: T): T[] {
+  const i = Math.max(0, Math.min(indice, lista.length));
+  return [...lista.slice(0, i), x, ...lista.slice(i)];
+}
+
+function mismoProducto(a: ProductoBorrador, b: ProductoBorrador): boolean {
+  return (
+    a.articulo === b.articulo &&
+    a.precio_regular === b.precio_regular &&
+    a.promo_precio_pieza === b.promo_precio_pieza &&
+    a.observaciones === b.observaciones
+  );
+}
+
+/** Enter sin estar escribiendo con un teclado de composición (japonés, etc.). */
+function esEnter(e: React.KeyboardEvent) {
+  return e.key === "Enter" && !e.nativeEvent.isComposing;
+}
 
 export default function CapturaManual({ visitaId, esMia }: { visitaId: string; esMia: boolean }) {
   const { usuario } = useSesion();
 
   // Borrador de esta persona en esta visita (si lo hay, la sección empieza abierta).
-  const [inicio] = useState(() => (esMia ? leerBorrador(usuario.id, visitaId) : []));
-  const [abierta, setAbierta] = useState(inicio.length > 0);
-  const [filas, setFilas] = useState<FilaBorrador[]>(inicio);
-  /** Se muestran los errores después del primer intento de guardar. */
-  const [mostrarErrores, setMostrarErrores] = useState(false);
+  const [inicio] = useState(() => (esMia ? leerBorrador(usuario.id, visitaId) : null));
+  const [abierta, setAbierta] = useState(inicio !== null);
+  const [form, setForm] = useState<ProductoBorrador>(() => inicio?.formulario ?? productoVacio());
+  const [pendientes, setPendientes] = useState<ProductoBorrador[]>(() => inicio?.pendientes ?? []);
+  const [correccion, setCorreccion] = useState<Correccion | null>(null);
+  /** Último producto quitado de la lista (para "Deshacer"). */
+  const [quitado, setQuitado] = useState<Correccion | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<Mensaje | null>(null);
 
-  const [listas, setListas] = useState<EstadoListas>({ tipo: "cargando" });
+  const [articulos, setArticulos] = useState<EstadoArticulos>({ tipo: "cargando" });
+  const [intentoArticulos, setIntentoArticulos] = useState(0);
   const [guardadas, setGuardadas] = useState<EstadoGuardadas>({ tipo: "cargando" });
   const [intentoGuardadas, setIntentoGuardadas] = useState(0);
   /** Fila guardada con la pregunta "¿Quitar este producto?" abierta. */
@@ -100,50 +132,60 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
   const [quitando, setQuitando] = useState<ReadonlySet<string>>(() => new Set());
   const [anuncio, setAnuncio] = useState("");
 
-  /** Campos en pantalla, para llevar el foco al primer error o a una fila nueva. */
-  const campos = useRef(new Map<string, HTMLElement>());
-  /** Campo al que llevar el foco; "vez" cambia siempre, así se repite aunque sea el mismo. */
-  const [enfocar, setEnfocar] = useState<{ campo: string; vez: number } | null>(null);
-  const pedirFoco = (campo: string) => setEnfocar((antes) => ({ campo, vez: (antes?.vez ?? 0) + 1 }));
+  /** Campos del formulario, para mover el foco (Enter, elegir, agregar). */
+  const refArticulo = useRef<HTMLInputElement | null>(null);
+  const refPrecio = useRef<HTMLInputElement | null>(null);
+  const refPromo = useRef<HTMLInputElement | null>(null);
+  const refObservaciones = useRef<HTMLInputElement | null>(null);
+  // El foco se mueve EN el mismo toque o tecla (no después): así el celular mantiene el
+  // teclado abierto.
+  function enfocar(campo: Campo) {
+    const refs = {
+      articulo: refArticulo,
+      precio_regular: refPrecio,
+      promo_precio_pieza: refPromo,
+      observaciones: refObservaciones,
+    };
+    refs[campo].current?.focus();
+  }
 
   // Con cacheComponents, Next.js esconde (no desmonta) esta pantalla al ir a otra.
   // Si se fue con la pregunta "¿Quitar este producto?" abierta, al volver aparece
   // cerrada (doc de Next: preserving-ui-state.md).
   useLayoutEffect(() => () => setPorQuitar(null), []);
 
-  /** "nada" → "pidiendo" → "listo". Las sugerencias se piden una sola vez. */
-  const pedidoListas = useRef<"nada" | "pidiendo" | "listo">("nada");
+  /** "nada" → "pidiendo" → "listo". La lista de artículos se pide una sola vez. */
+  const pedidoArticulos = useRef<"nada" | "pidiendo" | "listo">("nada");
 
-  // Listas de sugerencias: se piden UNA vez, al abrir la sección.
+  // Lista de artículos para las sugerencias: UNA vez, al abrir la sección. Se guarda
+  // solo en memoria (no en el celular). Un solo valor: no la corta el límite de filas.
   useEffect(() => {
-    if (!abierta || pedidoListas.current !== "nada") return;
-    pedidoListas.current = "pidiendo";
+    if (!abierta || !esMia || pedidoArticulos.current !== "nada") return;
+    pedidoArticulos.current = "pidiendo";
     let cancelado = false;
     async function cargar() {
       try {
-        const { data, error } = await supabase.rpc("sugerencias_captura");
+        const { data, error } = await supabase.rpc("articulos_captura");
         if (cancelado) return;
-        pedidoListas.current = "listo";
-        if (error) {
-          setListas({ tipo: "error" });
+        pedidoArticulos.current = "listo";
+        if (error || !Array.isArray(data)) {
+          setArticulos({ tipo: "error" });
           return;
         }
-        const areas = data.filter((s) => s.tipo === "area").map((s) => s.valor);
-        const marcas = data.filter((s) => s.tipo === "marca").map((s) => s.valor);
-        setListas({ tipo: "ok", listas: { areas, marcas } });
+        setArticulos({ tipo: "ok", lista: data.filter((x): x is string => typeof x === "string") });
       } catch {
         if (cancelado) return;
-        pedidoListas.current = "listo";
-        setListas({ tipo: "error" });
+        pedidoArticulos.current = "listo";
+        setArticulos({ tipo: "error" });
       }
     }
     cargar();
     return () => {
       cancelado = true;
       // Si la pantalla se escondió ANTES de terminar, se vuelve a pedir al regresar.
-      if (pedidoListas.current === "pidiendo") pedidoListas.current = "nada";
+      if (pedidoArticulos.current === "pidiendo") pedidoArticulos.current = "nada";
     };
-  }, [abierta]);
+  }, [abierta, esMia, intentoArticulos]);
 
   // Filas ya guardadas de esta visita (vigentes).
   useEffect(() => {
@@ -166,13 +208,17 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
     };
   }, [abierta, visitaId, intentoGuardadas]);
 
-  // Borrador: cada cambio se guarda en el celular.
+  // Borrador: cada cambio se guarda en el celular. Un producto en corrección se guarda
+  // en su lugar de la lista (si se cierra la pestaña a la mitad, no se pierde).
   useEffect(() => {
-    if (esMia) guardarBorrador(usuario.id, visitaId, filas);
-  }, [esMia, usuario.id, visitaId, filas]);
+    if (!esMia) return;
+    const lista = correccion ? insertar(pendientes, correccion.indice, correccion.original) : pendientes;
+    const formulario = correccion && mismoProducto(form, correccion.original) ? productoVacio() : form;
+    guardarBorrador(usuario.id, visitaId, { formulario, pendientes: lista });
+  }, [esMia, usuario.id, visitaId, form, pendientes, correccion]);
 
-  // Aviso antes de salir con filas sin guardar.
-  const hayPendientes = filas.some(filaTieneDatos);
+  // Aviso antes de salir con productos sin guardar.
+  const hayPendientes = pendientes.length > 0 || correccion !== null || productoTieneDatos(form);
   useEffect(() => {
     marcarPendientes(visitaId, hayPendientes);
     if (!hayPendientes) return () => marcarPendientes(visitaId, false);
@@ -188,86 +234,120 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
     };
   }, [visitaId, hayPendientes]);
 
-  // Llevar el foco a un campo (primer error o fila nueva) después de dibujarlo.
-  useEffect(() => {
-    if (!enfocar) return;
-    const el = campos.current.get(enfocar.campo);
-    if (el) {
-      el.focus({ preventScroll: true });
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
-  }, [enfocar]);
-
-  function refCampo(clave: string, campo: CampoFila | "acciones") {
-    return (el: HTMLElement | null) => {
-      const k = `${clave}:${campo}`;
-      if (el) campos.current.set(k, el);
-      else campos.current.delete(k);
-    };
+  function cambiar(cambios: Partial<ProductoBorrador>) {
+    setForm((antes) => ({ ...antes, ...cambios }));
   }
 
-  function cambiar(clave: string, cambios: Partial<FilaBorrador>) {
-    setFilas((antes) => antes.map((f) => (f.clave === clave ? { ...f, ...cambios } : f)));
-  }
+  const falta = faltantes(form);
+  const avisos = avisosProducto(form);
 
   function agregar() {
-    const nueva = filaVacia();
-    setFilas((antes) => [...antes, nueva]);
-    setMensaje(null);
-    pedirFoco(`${nueva.clave}:articulo`);
-  }
-
-  function duplicar(fila: FilaBorrador) {
-    const copia = duplicarFila(fila);
-    setFilas((antes) => {
-      const i = antes.findIndex((f) => f.clave === fila.clave);
-      return [...antes.slice(0, i + 1), copia, ...antes.slice(i + 1)];
-    });
-    pedirFoco(`${copia.clave}:articulo`);
-    setAnuncio("Fila duplicada.");
-  }
-
-  function quitarFilaNueva(fila: FilaBorrador) {
-    if (filaTieneDatos(fila) && !window.confirm("¿Quitar este producto? Lo que escribiste en él se pierde.")) {
+    if (falta.length > 0) {
+      // Lleva el foco a lo que falta; nada más (no se borra lo escrito).
+      enfocar(falta[0] === "artículo" ? "articulo" : "precio_regular");
+      setAnuncio(textoFalta(falta) ?? "");
       return;
     }
-    setFilas((antes) => antes.filter((f) => f.clave !== fila.clave));
-    setAnuncio("Producto quitado de la lista.");
+    const producto: ProductoBorrador = {
+      ...form,
+      articulo: form.articulo.trim().slice(0, MAX_ARTICULO),
+      observaciones: form.observaciones.trim().slice(0, MAX_OBSERVACIONES),
+    };
+    setPendientes((antes) =>
+      correccion ? insertar(antes, correccion.indice, producto) : [...antes, producto],
+    );
+    const n = pendientes.length + 1;
+    setAnuncio(
+      `${correccion ? "Corregido" : "Agregado"}: ${producto.articulo}. ${n} ${n === 1 ? "producto" : "productos"} por guardar.`,
+    );
+    setCorreccion(null);
+    setQuitado(null);
+    setMensaje(null);
+    setForm(productoVacio());
+    enfocar("articulo");
+  }
+
+  function corregir(indice: number) {
+    if (guardando) return;
+    const cambiado = correccion ? !mismoProducto(form, correccion.original) : productoTieneDatos(form);
+    if (
+      cambiado &&
+      !window.confirm(
+        correccion
+          ? "La corrección que estabas haciendo se descarta (ese producto se queda como estaba). ¿Corregir este otro?"
+          : "Lo que escribiste en el formulario se pierde. ¿Corregir este producto?",
+      )
+    ) {
+      return;
+    }
+    // Si ya se corregía otro, vuelve a la lista como estaba.
+    let lista = pendientes;
+    let i = indice;
+    if (correccion) {
+      lista = insertar(lista, correccion.indice, correccion.original);
+      if (correccion.indice <= indice) i += 1;
+    }
+    const producto = lista[i];
+    if (!producto) return;
+    setPendientes(lista.filter((_, j) => j !== i));
+    setCorreccion({ indice: i, original: producto });
+    setForm(producto);
+    setQuitado(null);
+    setMensaje(null);
+    setAnuncio(`Corrigiendo: ${producto.articulo}.`);
+    enfocar("articulo");
+  }
+
+  function cancelarCorreccion() {
+    if (!correccion) {
+      setForm(productoVacio());
+      setAnuncio("Formulario limpio.");
+    } else {
+      setPendientes((antes) => insertar(antes, correccion.indice, correccion.original));
+      setCorreccion(null);
+      setForm(productoVacio());
+      setAnuncio("Corrección cancelada; el producto quedó como estaba.");
+    }
+    enfocar("articulo");
+  }
+
+  function quitarPendiente(indice: number) {
+    if (guardando) return;
+    const producto = pendientes[indice];
+    if (!producto) return;
+    setPendientes((antes) => antes.filter((_, j) => j !== indice));
+    if (correccion && correccion.indice > indice) {
+      setCorreccion({ ...correccion, indice: correccion.indice - 1 });
+    }
+    setQuitado({ indice, original: producto });
+    setAnuncio(`Quitado de la lista: ${producto.articulo}.`);
+  }
+
+  function deshacerQuitar() {
+    if (!quitado) return;
+    setPendientes((antes) => insertar(antes, quitado.indice, quitado.original));
+    if (correccion && correccion.indice >= quitado.indice) {
+      setCorreccion({ ...correccion, indice: correccion.indice + 1 });
+    }
+    setAnuncio(`De vuelta en la lista: ${quitado.original.articulo}.`);
+    setQuitado(null);
   }
 
   async function guardar() {
     if (guardando) return;
     setMensaje(null);
-    const aGuardar = filas.filter(filaTieneDatos);
+    const aGuardar = pendientes;
     if (aGuardar.length === 0) {
-      setMensaje({ tipo: "aviso", texto: "No hay productos escritos para guardar." });
-      return;
-    }
-
-    setMostrarErrores(true);
-    const conError = aGuardar
-      .map((f) => ({ fila: f, errores: validarFila(f) }))
-      .filter((x) => Object.keys(x.errores).length > 0);
-    if (conError.length > 0) {
-      const primera = conError[0];
-      const campo = ORDEN_CAMPOS.find((c) => primera.errores[c]) ?? "articulo";
-      setMensaje({
-        tipo: "aviso",
-        texto:
-          conError.length === 1
-            ? "Revisa los datos marcados en rojo (1 producto). No se guardó nada."
-            : `Revisa los datos marcados en rojo (${conError.length} productos). No se guardó nada.`,
-      });
-      pedirFoco(`${primera.fila.clave}:${campo}`);
+      setMensaje({ tipo: "aviso", texto: "No hay productos en la lista para guardar." });
       return;
     }
 
     setGuardando(true);
     try {
-      // UN solo insert con todas las filas: Postgres lo hace todo o nada.
+      // UN solo insert con todos los productos: Postgres lo hace todo o nada.
       const { data, error, status } = await supabase
         .from("capturas_manuales")
-        .insert(aGuardar.map((f) => filaParaGuardar(visitaId, f)))
+        .insert(aGuardar.map((p) => productoParaGuardar(visitaId, p)))
         .select();
       if (error) {
         setMensaje({ tipo: "falla", inicio: "No se guardaron los datos.", falla: clasificarFalla(error, status) });
@@ -276,22 +356,18 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
         setMensaje({ tipo: "falla", inicio: "No se guardaron los datos.", falla: fallaConCodigo("SIN-FILAS") });
         setIntentoGuardadas((n) => n + 1);
       } else {
-        setFilas([]);
-        setMostrarErrores(false);
+        const claves = new Set(aGuardar.map((p) => p.clave));
+        setPendientes((antes) => antes.filter((p) => !claves.has(p.clave)));
+        setQuitado(null);
         setGuardadas((antes) =>
           antes.tipo === "ok" ? { tipo: "ok", filas: [...antes.filas, ...data] } : { tipo: "ok", filas: data },
         );
         const n = data.length;
+        const restante =
+          correccion || productoTieneDatos(form) ? " El formulario todavía tiene datos sin agregar." : "";
         setMensaje({
           tipo: "exito",
-          texto: n === 1 ? "Se guardó 1 producto." : `Se guardaron ${n} productos.`,
-        });
-        // Las marcas nuevas también sirven de sugerencia desde ya.
-        setListas((antes) => {
-          if (antes.tipo !== "ok") return antes;
-          const marcas = new Set(antes.listas.marcas);
-          for (const f of data) if (f.marca) marcas.add(f.marca);
-          return { tipo: "ok", listas: { ...antes.listas, marcas: [...marcas] } };
+          texto: (n === 1 ? "Se guardó 1 producto." : `Se guardaron ${n} productos.`) + restante,
         });
       }
     } catch (e) {
@@ -337,8 +413,9 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
     }
   }
 
-  const sugerencias = listas.tipo === "ok" ? listas.listas : SIN_LISTAS;
+  const opciones = articulos.tipo === "ok" ? articulos.lista : SIN_ARTICULOS;
   const numGuardadas = guardadas.tipo === "ok" ? guardadas.filas.length : 0;
+  const textoFaltante = textoFalta(falta);
 
   return (
     <section className="flex flex-col gap-3" aria-labelledby="titulo-captura">
@@ -353,7 +430,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
           <span>
             Datos del levantamiento (manual)
             <span className="block text-base font-normal text-texto-suave">
-              Opcional. Una fila por producto.
+              Opcional. Artículo y precio, uno por uno.
               {hayPendientes && " Tienes datos sin guardar."}
             </span>
           </span>
@@ -366,91 +443,186 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
       <div id="contenido-captura" hidden={!abierta} className="flex flex-col gap-4">
         {abierta && (
           <>
-            {/* --- Filas ya guardadas (solo lectura) --- */}
-            {guardadas.tipo === "cargando" && <p className="caja-info">Cargando datos guardados…</p>}
-            {guardadas.tipo === "error" && (
-              <div className="caja-error">
-                <TituloError>No se pudieron cargar los datos guardados</TituloError>
-                <p className="mt-1 text-base break-words">{guardadas.detalle}</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGuardadas({ tipo: "cargando" });
-                    setIntentoGuardadas((n) => n + 1);
-                  }}
-                  className="boton-gris mt-3 w-full rounded-xl px-4 py-3 text-lg font-semibold"
-                >
-                  Reintentar
-                </button>
-              </div>
-            )}
-            {guardadas.tipo === "ok" && numGuardadas > 0 && (
-              <div className="flex flex-col gap-3">
-                <h3 className="text-xl font-semibold">Guardados ({numGuardadas})</h3>
-                <ul className="flex flex-col gap-3">
-                  {guardadas.filas.map((f) => (
-                    <TarjetaGuardada
-                      key={f.id}
-                      fila={f}
-                      puedeQuitar={f.usuario_id === usuario.id}
-                      preguntando={porQuitar === f.id}
-                      quitando={quitando.has(f.id)}
-                      alPreguntar={() => setPorQuitar(f.id)}
-                      alCancelar={() => setPorQuitar(null)}
-                      alQuitar={() => void quitarGuardada(f)}
-                    />
-                  ))}
-                </ul>
-                <p className="text-base text-texto-suave">
-                  Para corregir un producto guardado: quítalo y vuelve a escribirlo.
-                </p>
-              </div>
-            )}
-            {guardadas.tipo === "ok" && numGuardadas === 0 && !esMia && (
-              <p className="caja-info">Esta visita no tiene datos capturados a mano.</p>
-            )}
-
-            {/* --- Filas nuevas --- */}
             {esMia ? (
               <>
-                {listas.tipo === "error" && (
-                  <p className="caja-aviso">
-                    No se pudieron cargar las sugerencias de marca y área. Puedes escribirlas a mano.
-                  </p>
+                {articulos.tipo === "error" && (
+                  <div className="caja-aviso">
+                    <p className="flex items-start gap-2 font-semibold">
+                      <IconoAlerta className="mt-0.5" />
+                      <span>No se cargaron las sugerencias de artículos. Escribe el nombre a mano.</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        pedidoArticulos.current = "nada";
+                        setArticulos({ tipo: "cargando" });
+                        setIntentoArticulos((n) => n + 1);
+                      }}
+                      className="boton-gris mt-3 min-h-12 w-full rounded-xl px-4 py-2 text-lg font-semibold"
+                    >
+                      Volver a cargar sugerencias
+                    </button>
+                  </div>
                 )}
 
-                {filas.length > 0 && (
-                  <ol className="flex flex-col gap-4">
-                    {filas.map((fila, i) => (
-                      <TarjetaNueva
-                        key={fila.clave}
-                        numero={i + 1}
-                        fila={fila}
-                        errores={mostrarErrores && filaTieneDatos(fila) ? validarFila(fila) : {}}
-                        avisos={avisosFila(fila)}
-                        sugerencias={sugerencias}
-                        deshabilitada={guardando}
-                        refCampo={(campo) => refCampo(fila.clave, campo)}
-                        alCambiar={(cambios) => cambiar(fila.clave, cambios)}
-                        alDuplicar={() => duplicar(fila)}
-                        alQuitar={() => quitarFilaNueva(fila)}
-                      />
-                    ))}
-                  </ol>
-                )}
-
-                <button
-                  type="button"
-                  onClick={agregar}
-                  disabled={guardando}
-                  className="boton-contorno min-h-12 rounded-xl px-4 py-3 text-lg font-semibold"
+                {/* --- Formulario de 4 campos --- */}
+                <form
+                  noValidate
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    agregar();
+                  }}
+                  aria-labelledby="titulo-formulario-captura"
+                  className="flex flex-col gap-4 rounded-xl border-2 border-borde bg-tarjeta p-4"
                 >
-                  + Agregar producto
-                </button>
+                  <h3 id="titulo-formulario-captura" className="text-xl font-bold">
+                    {correccion ? "Corregir producto" : "Agregar producto"}
+                  </h3>
+
+                  <CampoSugerencias
+                    etiqueta="Artículo"
+                    valor={form.articulo}
+                    opciones={opciones}
+                    alEscribir={(v) => cambiar({ articulo: v, articulo_de_lista: false })}
+                    alElegir={(v) => {
+                      cambiar({ articulo: v, articulo_de_lista: true });
+                      enfocar("precio_regular");
+                    }}
+                    alEnter={() => enfocar(SIGUIENTE.articulo)}
+                    ayuda={
+                      articulos.tipo === "cargando"
+                        ? "Cargando sugerencias… ya puedes escribir."
+                        : "Escribe y elige de la lista, o déjalo como lo escribiste."
+                    }
+                    maxLength={MAX_ARTICULO}
+                    obligatorio
+                    campoRef={refArticulo}
+                    claseCampo={CLASE_CAMPO}
+                  />
+
+                  <CampoPrecio
+                    campo="precio_regular"
+                    etiqueta="Precio regular"
+                    valor={form.precio_regular}
+                    alCambiar={(v) => cambiar({ precio_regular: v })}
+                    aviso={avisos.precio_regular}
+                    obligatorio
+                    campoRef={refPrecio}
+                    alEnter={() => enfocar(SIGUIENTE.precio_regular)}
+                  />
+
+                  <CampoPrecio
+                    campo="promo_precio_pieza"
+                    etiqueta="Precio de promoción individual"
+                    nota="(opcional)"
+                    placeholder="Opcional"
+                    ayuda="Precio por pieza. Si es 2x$42, anota 21 y escribe 2x42 en observaciones."
+                    valor={form.promo_precio_pieza}
+                    alCambiar={(v) => cambiar({ promo_precio_pieza: v })}
+                    aviso={avisos.promo_precio_pieza}
+                    campoRef={refPromo}
+                    alEnter={() => enfocar(SIGUIENTE.promo_precio_pieza)}
+                  />
+
+                  <div className="flex flex-col gap-2">
+                    <label htmlFor="captura-observaciones" className="text-lg font-semibold">
+                      Observaciones
+                      <span className="ml-1 text-base font-normal text-texto-suave">(opcional)</span>
+                    </label>
+                    <input
+                      ref={refObservaciones}
+                      id="captura-observaciones"
+                      type="text"
+                      value={form.observaciones}
+                      onChange={(e) => cambiar({ observaciones: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (esEnter(e)) {
+                          e.preventDefault();
+                          agregar();
+                        }
+                      }}
+                      maxLength={MAX_OBSERVACIONES}
+                      placeholder="Opcional"
+                      autoComplete="off"
+                      enterKeyHint="done"
+                      className={CLASE_CAMPO}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="submit"
+                      disabled={falta.length > 0}
+                      aria-describedby={textoFaltante ? "captura-falta" : undefined}
+                      className="boton-primario min-h-14 rounded-2xl px-6 py-4 text-xl font-bold"
+                    >
+                      {correccion ? "Guardar corrección" : "Agregar"}
+                    </button>
+                    {textoFaltante && (
+                      <p id="captura-falta" className="text-center text-lg font-semibold text-texto">
+                        {textoFaltante}
+                      </p>
+                    )}
+                    {(correccion || productoTieneDatos(form)) && (
+                      <button
+                        type="button"
+                        onClick={cancelarCorreccion}
+                        className="boton-gris min-h-12 rounded-xl px-4 py-2 text-lg font-semibold"
+                      >
+                        {correccion ? "Cancelar corrección" : "Limpiar formulario"}
+                      </button>
+                    )}
+                  </div>
+                </form>
+
+                {/* --- Lista sin guardar (una línea por producto) --- */}
+                {pendientes.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xl font-semibold">Por guardar ({pendientes.length})</h3>
+                    <p className="text-base text-texto-suave">Toca un producto para corregirlo.</p>
+                    <ol className="flex flex-col gap-2">
+                      {pendientes.map((p, i) => (
+                        <FilaPendiente
+                          key={p.clave}
+                          producto={p}
+                          deshabilitada={guardando}
+                          alCorregir={() => corregir(i)}
+                          alQuitar={() => quitarPendiente(i)}
+                        />
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {quitado && (
+                  <div className="caja-info flex items-center justify-between gap-3">
+                    <span className="min-w-0 break-words">Quitado: {quitado.original.articulo}</span>
+                    <button
+                      type="button"
+                      onClick={deshacerQuitar}
+                      className="boton-gris min-h-12 shrink-0 rounded-xl px-4 py-2 text-lg font-semibold"
+                    >
+                      Deshacer
+                    </button>
+                  </div>
+                )}
+
+                {pendientes.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void guardar()}
+                    disabled={guardando}
+                    className="boton-primario min-h-12 rounded-2xl px-6 py-4 text-xl font-bold"
+                  >
+                    {guardando
+                      ? "Guardando…"
+                      : `Guardar datos (${pendientes.length} ${pendientes.length === 1 ? "producto" : "productos"})`}
+                  </button>
+                )}
 
                 {hayPendientes && (
                   <p className="text-base text-texto-suave">
-                    Lo que escribes se guarda en este celular como borrador hasta que toques
+                    Lo que escribes se queda en este celular como borrador hasta que toques
                     &quot;Guardar datos&quot;.
                   </p>
                 )}
@@ -476,7 +648,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                         : `${mensaje.inicio} ${mensajeDeFalla(mensaje.falla)}`}
                     </TituloError>
                     {mensaje.inicio.startsWith("No se guardaron") && (
-                      <p className="mt-1 text-base">Lo que escribiste sigue aquí; no se perdió.</p>
+                      <p className="mt-1 text-base">Tu lista sigue aquí; no se perdió.</p>
                     )}
                     {mensaje.falla.tipo === "sesion" && <BotonEntrarOtraVez />}
                   </>
@@ -491,15 +663,48 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
               </div>
             )}
 
-            {esMia && filas.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void guardar()}
-                disabled={guardando}
-                className="boton-primario min-h-12 rounded-2xl px-6 py-4 text-xl font-bold"
-              >
-                {guardando ? "Guardando…" : "Guardar datos"}
-              </button>
+            {/* --- Productos ya guardados (solo lectura) --- */}
+            {guardadas.tipo === "cargando" && <p className="caja-info">Cargando datos guardados…</p>}
+            {guardadas.tipo === "error" && (
+              <div className="caja-error">
+                <TituloError>No se pudieron cargar los datos guardados</TituloError>
+                <p className="mt-1 text-base break-words">{guardadas.detalle}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuardadas({ tipo: "cargando" });
+                    setIntentoGuardadas((n) => n + 1);
+                  }}
+                  className="boton-gris mt-3 w-full rounded-xl px-4 py-3 text-lg font-semibold"
+                >
+                  Reintentar
+                </button>
+              </div>
+            )}
+            {guardadas.tipo === "ok" && numGuardadas > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-xl font-semibold">Guardados ({numGuardadas})</h3>
+                <ul className="flex flex-col gap-2">
+                  {guardadas.filas.map((f) => (
+                    <FilaGuardadaVista
+                      key={f.id}
+                      fila={f}
+                      puedeQuitar={f.usuario_id === usuario.id}
+                      preguntando={porQuitar === f.id}
+                      quitando={quitando.has(f.id)}
+                      alPreguntar={() => setPorQuitar(f.id)}
+                      alCancelar={() => setPorQuitar(null)}
+                      alQuitar={() => void quitarGuardada(f)}
+                    />
+                  ))}
+                </ul>
+                <p className="text-base text-texto-suave">
+                  Para corregir un producto guardado: quítalo y vuelve a escribirlo.
+                </p>
+              </div>
+            )}
+            {guardadas.tipo === "ok" && numGuardadas === 0 && !esMia && (
+              <p className="caja-info">Esta visita no tiene datos capturados a mano.</p>
             )}
           </>
         )}
@@ -513,45 +718,90 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
 }
 
 // -----------------------------------------------------------------------------
-// Tarjeta de una fila NUEVA (editable).
+// Campo de precio: teclado numérico con punto decimal (inputMode="decimal", no
+// type="number"), acepta punto o coma, hasta 2 decimales, y descarta todo lo que no
+// sea número, también al pegar (src/lib/capturas.ts → limpiarPrecio).
 // -----------------------------------------------------------------------------
 
-function Campo({
+function CampoPrecio({
+  campo,
   etiqueta,
   nota,
-  error,
-  aviso,
+  placeholder,
   ayuda,
-  children,
-  idCampo,
+  valor,
+  alCambiar,
+  aviso,
+  obligatorio,
+  campoRef,
+  alEnter,
 }: {
+  campo: Campo;
   etiqueta: string;
   nota?: string;
-  error?: string;
-  aviso?: string;
+  placeholder?: string;
   ayuda?: string;
-  children: React.ReactNode;
-  idCampo: string;
+  valor: string;
+  alCambiar: (valor: string) => void;
+  aviso?: string;
+  obligatorio?: boolean;
+  campoRef: React.RefObject<HTMLInputElement | null>;
+  alEnter: () => void;
 }) {
+  const id = `captura-${campo}`;
+  const describe = [ayuda ? `${id}-ayuda` : "", aviso ? `${id}-aviso` : ""].filter(Boolean).join(" ");
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      <label htmlFor={idCampo} className="text-lg font-semibold">
+    <div className="flex flex-col gap-2">
+      <label htmlFor={id} className="text-lg font-semibold">
         {etiqueta}
         {nota && <span className="ml-1 text-base font-normal text-texto-suave">{nota}</span>}
       </label>
-      {children}
+      <div className="relative">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-lg text-texto-suave"
+        >
+          $
+        </span>
+        <input
+          ref={campoRef}
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="next"
+          value={valor}
+          placeholder={placeholder}
+          aria-required={obligatorio || undefined}
+          aria-describedby={describe || undefined}
+          onChange={(e) => alCambiar(limpiarPrecio(e.target.value))}
+          onPaste={(e) => {
+            // Lo pegado se limpia aparte: "$1,234.50" → "1234.50".
+            e.preventDefault();
+            const el = e.currentTarget;
+            const pegado = limpiarPrecioPegado(e.clipboardData.getData("text"));
+            const inicio = el.selectionStart ?? valor.length;
+            const fin = el.selectionEnd ?? valor.length;
+            alCambiar(limpiarPrecio(valor.slice(0, inicio) + pegado + valor.slice(fin)));
+          }}
+          onKeyDown={(e) => {
+            if (esEnter(e)) {
+              e.preventDefault();
+              alEnter();
+            }
+          }}
+          className={`${CLASE_CAMPO} pl-8`}
+        />
+      </div>
       {ayuda && (
-        <p id={`${idCampo}-ayuda`} className="text-base text-texto-suave">
+        <p id={`${id}-ayuda`} className="text-base text-texto-suave">
           {ayuda}
         </p>
       )}
-      {error && (
-        <p id={`${idCampo}-error`} className="text-base font-semibold text-error-texto">
-          {error}
-        </p>
-      )}
-      {!error && aviso && (
-        <p id={`${idCampo}-aviso`} className="text-base font-semibold text-aviso-texto">
+      {aviso && (
+        <p id={`${id}-aviso`} className="text-base font-semibold text-aviso-texto">
           ⚠️ {aviso}
         </p>
       )}
@@ -559,372 +809,63 @@ function Campo({
   );
 }
 
-/** Atributos comunes de accesibilidad de un campo (error, ayuda, aviso). */
-function describir(idCampo: string, error?: string, ayuda?: string, aviso?: string) {
-  const ids = [ayuda ? `${idCampo}-ayuda` : "", error ? `${idCampo}-error` : "", !error && aviso ? `${idCampo}-aviso` : ""]
-    .filter(Boolean)
-    .join(" ");
-  return {
-    "aria-invalid": error ? true : undefined,
-    "aria-describedby": ids || undefined,
-  } as const;
-}
+// -----------------------------------------------------------------------------
+// Un producto de la lista sin guardar: una línea (artículo · $ precio · promo).
+// -----------------------------------------------------------------------------
 
-function TarjetaNueva({
-  numero,
-  fila,
-  errores,
-  avisos,
-  sugerencias,
+function FilaPendiente({
+  producto,
   deshabilitada,
-  refCampo,
-  alCambiar,
-  alDuplicar,
+  alCorregir,
   alQuitar,
 }: {
-  numero: number;
-  fila: FilaBorrador;
-  errores: Partial<Record<CampoFila, string>>;
-  avisos: Partial<Record<CampoFila, string>>;
-  sugerencias: Listas;
+  producto: ProductoBorrador;
   deshabilitada: boolean;
-  refCampo: (campo: CampoFila | "acciones") => (el: HTMLElement | null) => void;
-  alCambiar: (cambios: Partial<FilaBorrador>) => void;
-  alDuplicar: () => void;
+  alCorregir: () => void;
   alQuitar: () => void;
 }) {
-  const id = (campo: string) => `captura-${fila.clave}-${campo}`;
-  const claseCon = (campo: CampoFila) => `${CLASE_CAMPO} ${errores[campo] ? "border-error-borde" : ""}`;
-
+  const regular = leerPrecio(producto.precio_regular);
+  const promo = leerPrecio(producto.promo_precio_pieza);
+  const precio = regular !== null ? formatearPesos(regular) : "";
+  const textoPromo = promo !== null ? `promo ${formatearPesos(promo)}` : "";
+  const resumen = [producto.articulo, precio, textoPromo].filter(Boolean).join(" · ");
   return (
-    <li className="rounded-xl border-2 border-borde bg-tarjeta p-4">
-      <fieldset disabled={deshabilitada} className="flex min-w-0 flex-col gap-4">
-        <legend className="mb-2 text-xl font-bold">Producto {numero}</legend>
-
-        <Campo etiqueta="Artículo" idCampo={id("articulo")} error={errores.articulo}>
-          <input
-            ref={refCampo("articulo")}
-            id={id("articulo")}
-            type="text"
-            value={fila.articulo}
-            onChange={(e) => alCambiar({ articulo: e.target.value })}
-            maxLength={MAX_ARTICULO}
-            autoComplete="off"
-            enterKeyHint="next"
-            className={claseCon("articulo")}
-            {...describir(id("articulo"), errores.articulo)}
-          />
-        </Campo>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Campo
-            etiqueta="Contenido"
-            idCampo={id("cantidad")}
-            error={errores.cantidad}
-            ayuda="De una pieza. Ej. 600"
-          >
-            <input
-              ref={refCampo("cantidad")}
-              id={id("cantidad")}
-              type="text"
-              inputMode="decimal"
-              value={fila.cantidad}
-              onChange={(e) => alCambiar({ cantidad: e.target.value })}
-              autoComplete="off"
-              enterKeyHint="next"
-              className={claseCon("cantidad")}
-              {...describir(id("cantidad"), errores.cantidad, "De una pieza. Ej. 600")}
-            />
-          </Campo>
-          <Campo etiqueta="Unidad" idCampo={id("unidad")} error={errores.unidad}>
-            <select
-              ref={refCampo("unidad")}
-              id={id("unidad")}
-              value={fila.unidad}
-              onChange={(e) => alCambiar({ unidad: e.target.value as FilaBorrador["unidad"] })}
-              className={claseCon("unidad")}
-              {...describir(id("unidad"), errores.unidad)}
-            >
-              <option value="">Elige…</option>
-              {UNIDADES.map((u) => (
-                <option key={u} value={u}>
-                  {NOMBRE_UNIDAD[u]}
-                </option>
-              ))}
-            </select>
-          </Campo>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Campo
-            etiqueta="Piezas"
-            idCampo={id("piezas")}
-            error={errores.piezas}
-            ayuda="1 si es suelto. 6 × 355 ml → 6"
-          >
-            <input
-              ref={refCampo("piezas")}
-              id={id("piezas")}
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              value={fila.piezas}
-              onChange={(e) => alCambiar({ piezas: e.target.value })}
-              autoComplete="off"
-              enterKeyHint="next"
-              className={claseCon("piezas")}
-              {...describir(id("piezas"), errores.piezas, "1 si es suelto. 6 × 355 ml → 6")}
-            />
-          </Campo>
-          <Campo
-            etiqueta="Precio regular"
-            idCampo={id("precio_regular")}
-            error={errores.precio_regular}
-            aviso={avisos.precio_regular}
-            ayuda="$ del paquete completo"
-          >
-            <input
-              ref={refCampo("precio_regular")}
-              id={id("precio_regular")}
-              type="text"
-              inputMode="decimal"
-              value={fila.precio_regular}
-              onChange={(e) => alCambiar({ precio_regular: e.target.value })}
-              autoComplete="off"
-              enterKeyHint="next"
-              className={claseCon("precio_regular")}
-              {...describir(id("precio_regular"), errores.precio_regular, "$ del paquete completo", avisos.precio_regular)}
-            />
-          </Campo>
-        </div>
-
-        <CampoSugerencias
-          etiqueta="Marca"
-          nota="(recomendado)"
-          valor={fila.marca}
-          opciones={sugerencias.marcas}
-          alEscribir={(v) => alCambiar({ marca: v, marca_de_lista: false })}
-          alElegir={(v) => alCambiar({ marca: v, marca_de_lista: true })}
-          error={errores.marca}
-          maxLength={MAX_MARCA_AREA}
-          refCampo={refCampo("marca")}
-          claseCampo={CLASE_CAMPO}
-        />
-
-        <CampoSugerencias
-          etiqueta="Área"
-          nota="(recomendado)"
-          valor={fila.area}
-          opciones={sugerencias.areas}
-          alEscribir={(v) => alCambiar({ area: v, area_de_lista: false })}
-          alElegir={(v) => alCambiar({ area: v, area_de_lista: true })}
-          error={errores.area}
-          ayuda="Escribe y elige de la lista, o déjalo como lo escribiste."
-          maxLength={MAX_MARCA_AREA}
-          refCampo={refCampo("area")}
-          claseCampo={CLASE_CAMPO}
-        />
-
-        {/* --- Promoción (opcional) --- */}
-        <label className="flex min-h-12 cursor-pointer items-center gap-3 text-lg font-semibold">
-          <input
-            type="checkbox"
-            checked={fila.tiene_promo}
-            onChange={(e) => alCambiar({ tiene_promo: e.target.checked })}
-            className="h-6 w-6 shrink-0 accent-marca"
-          />
-          Tiene promoción
-        </label>
-
-        {fila.tiene_promo && (
-          <div className="flex flex-col gap-4 rounded-xl border-2 border-dashed border-borde p-3">
-            <Campo etiqueta="Tipo de promoción" idCampo={id("promo_tipo")} error={errores.promo_tipo}>
-              <select
-                ref={refCampo("promo_tipo")}
-                id={id("promo_tipo")}
-                value={fila.promo_tipo}
-                onChange={(e) => alCambiar({ promo_tipo: e.target.value as FilaBorrador["promo_tipo"] })}
-                className={claseCon("promo_tipo")}
-                {...describir(id("promo_tipo"), errores.promo_tipo)}
-              >
-                <option value="">Elige…</option>
-                {PROMO_TIPOS.map((t) => (
-                  <option key={t} value={t}>
-                    {NOMBRE_PROMO[t]}
-                  </option>
-                ))}
-              </select>
-            </Campo>
-
-            {(fila.promo_tipo === "n_por_precio" || fila.promo_tipo === "nxm" || fila.promo_tipo === "otro") && (
-              <div className="grid grid-cols-2 gap-3">
-                <Campo
-                  etiqueta={fila.promo_tipo === "nxm" ? "Lleva" : "Piezas"}
-                  nota={fila.promo_tipo === "otro" ? "(opcional)" : undefined}
-                  idCampo={id("promo_piezas")}
-                  error={errores.promo_piezas}
-                >
-                  <input
-                    ref={refCampo("promo_piezas")}
-                    id={id("promo_piezas")}
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={fila.promo_piezas}
-                    onChange={(e) => alCambiar({ promo_piezas: e.target.value })}
-                    autoComplete="off"
-                    className={claseCon("promo_piezas")}
-                    {...describir(id("promo_piezas"), errores.promo_piezas)}
-                  />
-                </Campo>
-                {fila.promo_tipo === "nxm" ? (
-                  <Campo etiqueta="Paga" idCampo={id("promo_paga_piezas")} error={errores.promo_paga_piezas}>
-                    <input
-                      ref={refCampo("promo_paga_piezas")}
-                      id={id("promo_paga_piezas")}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={fila.promo_paga_piezas}
-                      onChange={(e) => alCambiar({ promo_paga_piezas: e.target.value })}
-                      autoComplete="off"
-                      className={claseCon("promo_paga_piezas")}
-                      {...describir(id("promo_paga_piezas"), errores.promo_paga_piezas)}
-                    />
-                  </Campo>
-                ) : (
-                  <CampoPrecioPromo
-                    fila={fila}
-                    errores={errores}
-                    avisos={avisos}
-                    id={id}
-                    refCampo={refCampo}
-                    alCambiar={alCambiar}
-                    claseCon={claseCon}
-                  />
-                )}
-              </div>
-            )}
-
-            {fila.promo_tipo === "precio_rebajado" && (
-              <CampoPrecioPromo
-                fila={fila}
-                errores={errores}
-                avisos={avisos}
-                id={id}
-                refCampo={refCampo}
-                alCambiar={alCambiar}
-                claseCon={claseCon}
-              />
-            )}
-
-            <Campo etiqueta="¿Para quién?" idCampo={id("promo_condicion")}>
-              <select
-                ref={refCampo("promo_condicion")}
-                id={id("promo_condicion")}
-                value={fila.promo_condicion}
-                onChange={(e) =>
-                  alCambiar({ promo_condicion: e.target.value as FilaBorrador["promo_condicion"] })
-                }
-                className={CLASE_CAMPO}
-              >
-                {CONDICIONES.map((c) => (
-                  <option key={c} value={c}>
-                    {NOMBRE_CONDICION[c]}
-                  </option>
-                ))}
-              </select>
-            </Campo>
-          </div>
+    <li className="flex items-stretch gap-2">
+      <button
+        type="button"
+        onClick={alCorregir}
+        disabled={deshabilitada}
+        aria-label={`Corregir: ${resumen}${producto.observaciones ? `. Observaciones: ${producto.observaciones}` : ""}`}
+        className="flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border-2 border-borde bg-fondo px-3 py-2 text-left text-lg active:bg-tarjeta-presionada disabled:text-texto-desactivado"
+      >
+        <span className="min-w-0 flex-1 truncate">{producto.articulo}</span>
+        <span className="shrink-0 font-semibold">{precio}</span>
+        {textoPromo && <span className="shrink-0 text-base text-texto-suave">· {textoPromo}</span>}
+        {producto.observaciones && (
+          <span aria-hidden className="shrink-0 text-base text-texto-suave">
+            ✎
+          </span>
         )}
-
-        <Campo
-          etiqueta="Observaciones"
-          nota="(opcional)"
-          idCampo={id("observaciones")}
-          error={errores.observaciones}
-        >
-          <input
-            ref={refCampo("observaciones")}
-            id={id("observaciones")}
-            type="text"
-            value={fila.observaciones}
-            onChange={(e) => alCambiar({ observaciones: e.target.value })}
-            maxLength={MAX_OBSERVACIONES}
-            autoComplete="off"
-            enterKeyHint="done"
-            className={claseCon("observaciones")}
-            {...describir(id("observaciones"), errores.observaciones)}
-          />
-        </Campo>
-
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={alDuplicar}
-            className="boton-gris min-h-12 rounded-xl px-3 py-3 text-lg font-semibold"
-          >
-            Duplicar fila
-          </button>
-          <button
-            type="button"
-            onClick={alQuitar}
-            className="boton-gris min-h-12 rounded-xl px-3 py-3 text-lg font-semibold"
-          >
-            Quitar
-          </button>
-        </div>
-      </fieldset>
+      </button>
+      <button
+        type="button"
+        onClick={alQuitar}
+        disabled={deshabilitada}
+        aria-label={`Quitar ${producto.articulo}`}
+        className="boton-gris min-h-12 shrink-0 rounded-xl px-3 py-2 text-lg font-semibold"
+      >
+        Quitar
+      </button>
     </li>
   );
 }
 
-function CampoPrecioPromo({
-  fila,
-  errores,
-  avisos,
-  id,
-  refCampo,
-  alCambiar,
-  claseCon,
-}: {
-  fila: FilaBorrador;
-  errores: Partial<Record<CampoFila, string>>;
-  avisos: Partial<Record<CampoFila, string>>;
-  id: (campo: string) => string;
-  refCampo: (campo: CampoFila | "acciones") => (el: HTMLElement | null) => void;
-  alCambiar: (cambios: Partial<FilaBorrador>) => void;
-  claseCon: (campo: CampoFila) => string;
-}) {
-  const etiqueta = fila.promo_tipo === "precio_rebajado" ? "Precio con promoción" : "Precio total";
-  return (
-    <Campo
-      etiqueta={etiqueta}
-      nota={fila.promo_tipo === "otro" ? "(opcional)" : undefined}
-      idCampo={id("promo_precio_total")}
-      error={errores.promo_precio_total}
-      aviso={avisos.promo_precio_total}
-    >
-      <input
-        ref={refCampo("promo_precio_total")}
-        id={id("promo_precio_total")}
-        type="text"
-        inputMode="decimal"
-        value={fila.promo_precio_total}
-        onChange={(e) => alCambiar({ promo_precio_total: e.target.value })}
-        autoComplete="off"
-        className={claseCon("promo_precio_total")}
-        {...describir(id("promo_precio_total"), errores.promo_precio_total, undefined, avisos.promo_precio_total)}
-      />
-    </Campo>
-  );
-}
-
 // -----------------------------------------------------------------------------
-// Tarjeta de una fila GUARDADA (solo lectura).
+// Un producto GUARDADO (solo lectura), compacto. Las filas del formulario anterior
+// (010) muestran también su contenido y su promoción.
 // -----------------------------------------------------------------------------
 
-function TarjetaGuardada({
+function FilaGuardadaVista({
   fila,
   puedeQuitar,
   preguntando,
@@ -942,34 +883,34 @@ function TarjetaGuardada({
   alQuitar: () => void;
 }) {
   const promo = textoPromocion(fila);
+  const contenido = textoContenido(fila.cantidad, fila.unidad, fila.piezas);
+  const detalles = [contenido, fila.marca && `Marca: ${fila.marca}`, fila.area && `Área: ${fila.area}`]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <li className="rounded-xl border-2 border-borde bg-fondo p-4">
-      <p className="text-lg font-bold break-words">{fila.articulo}</p>
-      <p className="text-lg">
-        {textoContenido(fila.cantidad, fila.unidad, fila.piezas)} ·{" "}
-        <span className="font-semibold">{formatearPesos(fila.precio_regular)}</span>
-      </p>
-      {(fila.marca || fila.area) && (
-        <p className="text-base text-texto-suave break-words">
-          {[fila.marca && `Marca: ${fila.marca}`, fila.area && `Área: ${fila.area}`].filter(Boolean).join(" · ")}
+    <li className="rounded-xl border-2 border-borde bg-fondo px-3 py-2">
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 text-lg break-words">
+          <span className="font-semibold">{fila.articulo}</span> · {formatearPesos(fila.precio_regular)}
+          {promo && <span className="text-texto-suave"> · {promo}</span>}
         </p>
-      )}
-      {promo && <p className="text-base font-semibold break-words">Promoción: {promo}</p>}
+        {puedeQuitar && !preguntando && (
+          <button
+            type="button"
+            onClick={alPreguntar}
+            disabled={quitando}
+            className="boton-gris min-h-12 shrink-0 rounded-xl px-3 py-2 text-lg font-semibold"
+          >
+            {quitando ? "Quitando…" : "Quitar"}
+          </button>
+        )}
+      </div>
+      {detalles && <p className="text-base text-texto-suave break-words">{detalles}</p>}
       {fila.observaciones && <p className="text-base break-words">“{fila.observaciones}”</p>}
       <p className="text-base text-texto-suave">Guardado {formatearFecha(fila.created_at)}</p>
 
-      {puedeQuitar && !preguntando && (
-        <button
-          type="button"
-          onClick={alPreguntar}
-          disabled={quitando}
-          className="boton-gris mt-3 min-h-12 w-full rounded-xl px-4 py-3 text-lg font-semibold"
-        >
-          {quitando ? "Quitando…" : "Quitar"}
-        </button>
-      )}
       {puedeQuitar && preguntando && (
-        <div role="group" aria-label="Confirmar quitar" className="mt-3 flex flex-col gap-2">
+        <div role="group" aria-label="Confirmar quitar" className="mt-2 flex flex-col gap-2">
           <p className="font-semibold">¿Quitar este producto? Ya no se mostrará.</p>
           <div className="grid grid-cols-2 gap-3">
             <button
