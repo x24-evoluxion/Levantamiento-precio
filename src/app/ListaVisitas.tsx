@@ -7,6 +7,8 @@
 // "fotos(count)" le pide a Supabase el número de fotos de cada visita en la misma consulta.
 // El filtro "fotos.descartada_at is null" hace que ese número NO cuente las fotos quitadas
 // (solo filtra las fotos que se cuentan; las visitas salen todas).
+// Visitas BORRADAS (012): al personal de campo la base no se las manda (ni cuentan).
+// El admin sí las recibe: salen marcadas "Borrada" (se restauran desde la visita).
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -28,6 +30,7 @@ type FilaVisita = {
   id: string;
   created_at: string;
   usuario_id: string | null;
+  descartada_at: string | null;
   competidores: { nombre: string } | null;
   fotos: { count: number }[];
 };
@@ -55,7 +58,7 @@ export default function ListaVisitas() {
     async function cargar() {
       const { data, error } = await supabase
         .from("visitas")
-        .select("id, created_at, usuario_id, competidores(nombre), fotos(count)")
+        .select("id, created_at, usuario_id, descartada_at, competidores(nombre), fotos(count)")
         .is("fotos.descartada_at", null)
         .order("created_at", { ascending: false });
       // Solo el admin pide los correos (a cualquier otra cuenta la base se los niega).
@@ -116,8 +119,15 @@ export default function ListaVisitas() {
         <li key={v.id}>
           <Link
             href={`/visitas/${v.id}`}
-            className="block rounded-xl border-2 border-borde bg-tarjeta p-4 text-texto active:bg-tarjeta-presionada"
+            className={`block rounded-xl border-2 p-4 text-texto active:bg-tarjeta-presionada ${
+              v.descartada_at ? "border-dashed border-aviso-borde bg-aviso-fondo" : "border-borde bg-tarjeta"
+            }`}
           >
+            {v.descartada_at && (
+              <p className="mb-1 text-base font-bold text-aviso-texto">
+                Borrada {formatearFecha(v.descartada_at)} · toca para restaurar
+              </p>
+            )}
             <p className="text-xl font-semibold">
               {v.competidores?.nombre ?? "Competidor desconocido"}
             </p>

@@ -52,6 +52,8 @@ export default function ConfirmarQuitar({ foto, alConfirmar, alCancelar, urls }:
           )}
           <p className="text-lg text-texto-suave">
             Ya no se verá en esta visita.
+            {foto.estado_proceso !== "pendiente" &&
+              " Ya se leyeron sus precios: al quitarla, dejan de contar en los análisis (se puede restaurar)."}
           </p>
           <div className="grid grid-cols-2 gap-3">
             <button

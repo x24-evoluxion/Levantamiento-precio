@@ -50,6 +50,17 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
 > la lista en una operación. Contenido, unidad, marca, área y tipo de promoción **ya no se
 > piden** (las columnas siguen, opcionales). Migración `supabase/011_captura_rapida.sql`
 > (aditiva). Detalle en 4.1, 4.3, 5 y en `docs/PROGRESO.md` ("Captura rápida de productos").
+>
+> **Cambio del 2026-11-25 (3) — Editar y borrar lo capturado** (`supabase/012_editar_borrar.sql`,
+> aditiva). **Borrar = descartar** (`descartada_at`): nunca se borra una fila y nadie tiene
+> `DELETE` desde la app. El **personal de campo** edita y borra **solo lo que creó**: sus
+> productos guardados (los 4 campos) y **su visita** (cambiar la tienda o borrarla), esta
+> última solo si **ningún agente leyó sus fotos**. Lo borrado ya no le aparece (ni las fotos
+> ni los productos de una visita borrada) y no lo puede restaurar. El **admin** edita, borra y
+> restaura **todo** (también fotos ya leídas) y ve lo borrado marcado "Borrado". La decisión
+> "el personal de campo no modifica visitas" queda **reemplazada solo para cambiar la tienda**
+> (y borrar = descartar); ubicación, fechas y dueño siguen sin poder cambiarse. Detalle en
+> 4.1, 4.3, 5 y en `docs/PROGRESO.md` ("Editar y borrar lo capturado").
 
 ### Fuera de alcance (no lo hagas)
 - ~~**Login de usuarios.** La app es abierta: cualquiera con el link puede usarla.~~
@@ -63,7 +74,10 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
   No se borra nada. Excepción del 2026-11-24, **solo el admin**: corregir la tienda de una visita
   y restaurar fotos quitadas, con funciones SQL — `supabase/008_autenticacion.sql`. Excepción del
   2026-11-25: cada persona puede **quitar** sus filas de captura manual — `capturas_manuales.descartada_at`,
-  `supabase/010_capturas_manuales.sql`. Tampoco se borran; corregir = quitar y volver a escribir.)*
+  `supabase/010_capturas_manuales.sql`. Tampoco se borran; corregir = quitar y volver a escribir.
+  **Ampliación del 2026-11-25 (`012`):** el personal de campo **edita** sus productos guardados y
+  **cambia la tienda** o **borra** (descarta) su visita si ningún agente leyó sus fotos; el admin
+  edita, borra y restaura todo. Borrar = descartar: sigue sin borrarse nada.)*
 
 ---
 
@@ -141,6 +155,7 @@ qué sirve y espera a que diga que sí.
 | `ubicacion_at` | `timestamptz` | Momento en que guardó la ubicación (reloj del celular) |
 | `created_at` | `timestamptz`, default `now()` | Momento en que se guardó la visita (reloj del servidor, es el dato confiable) |
 | `usuario_id` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | **2026-11-24 (`008`).** Quién creó la visita. La pone el servidor; la app no puede mandarla. Nula = visita de antes del login (solo la ve el admin) o cuenta borrada |
+| `descartada_at` | `timestamptz` | **2026-11-25 (`012`).** Hora (del servidor, *trigger*) en que se **borró** la visita. Nula = a la vista. Borrada → el personal de campo ya no la ve (ni sus fotos ni sus productos); solo el admin la restaura |
 
 **`fotos`**: una fila por cada foto subida.
 
@@ -187,7 +202,8 @@ para la versión anterior de la app.
 | `promo_condicion` | `text` no nulo, default `'ninguna'` | `ninguna`, `tarjeta`, `app`, `otro` |
 | `observaciones` | `text` | Hasta **500** letras (300 hasta `011`) |
 | `created_at` | `timestamptz`, default `now()` | |
-| `descartada_at` | `timestamptz` | Hora (del servidor, *trigger*) en que su autor la **quitó**. Nula = vigente |
+| `descartada_at` | `timestamptz` | Hora (del servidor, *trigger*) en que se **borró** (descartó). Nula = vigente. Su autor no la restaura; el admin sí |
+| `actualizado_at`, `actualizado_por` | `timestamptz`, `uuid` (FK → `auth.users.id`) | **`012`.** Cuándo y quién hizo la última edición, borrado o restauración. Las pone un *trigger* (`now()` y `auth.uid()`); la app **no tiene permiso** de mandarlas. Vacías = nunca se editó |
 
 Sin promoción (`ninguna`) → todas las columnas de promoción **de `010`** vacías y condición
 `ninguna`. `promo_precio_pieza` (`011`) es independiente: la captura rápida deja
@@ -241,11 +257,11 @@ función `es_admin()`, que lee el JWT.
 | Recurso | Personal de campo puede… | Admin además puede… | Nadie puede (desde la app) |
 |---|---|---|---|
 | `competidores` | leer los activos y los de sus visitas | (lo mismo) | crear, cambiar, borrar |
-| `visitas` | leer **las suyas**, crear (queda a su nombre solo) | leer **todas** (también las sin dueño); **corregir la tienda** con `admin_cambiar_competidor` | cambiar columnas directo, crear a nombre de otro, borrar |
-| `fotos` | leer y subir fotos de **sus** visitas; **quitar** (`descartada_at`) fotos `pendiente` de sus visitas | leer todas; quitar pendientes de cualquier visita; **restaurar** con `admin_restaurar_foto` | cambiar otra columna, restaurar sin la función, borrar |
+| `visitas` | leer **las suyas no borradas**, crear (queda a su nombre solo); **(`012`)** cambiar la tienda (a una activa) y **borrar** (descartar) **su** visita, solo si ningún agente leyó sus fotos | leer **todas** (también las borradas y las sin dueño); **(`012`)** cambiar la tienda, borrar y **restaurar** cualquiera | cambiar ubicación, fechas o dueño; crear a nombre de otro; restaurar (campo); `DELETE` |
+| `fotos` | leer y subir fotos de **sus** visitas no borradas; **quitar** (`descartada_at`) fotos `pendiente` de sus visitas | leer todas; **(`012`)** quitar **cualquier** foto (también leídas); **restaurar** con `admin_restaurar_foto` | cambiar otra columna, restaurar sin la función, `DELETE` |
 | Storage `fotos` | leer y subir en `visitas/<uuid de SU visita>/<uuid>.jpg` | leer todo; subir a cualquier visita | reemplazar, borrar |
 | Correos de las cuentas | — | verlos con `admin_correos_usuarios` (quién creó cada visita) | — |
-| `capturas_manuales` (`010`) | leer las de **sus** visitas; crear **solo en sus** visitas (queda a su nombre solo); **quitar** (`descartada_at`) **sus** filas | leer **todas**; crear solo en **sus** visitas; quitar solo **sus** filas | mandar `usuario_id`, cambiar otra columna, restaurar, borrar |
+| `capturas_manuales` (`010`, `012`) | leer las **no borradas** de **sus** visitas no borradas; crear **solo en sus** visitas (queda a su nombre solo); **(`012`)** **editar** (artículo, de_lista, precios, observaciones) y **borrar** (descartar) **sus** filas no borradas | leer **todas** (también borradas); crear solo en **sus** visitas; **(`012`)** editar, borrar y **restaurar** cualquiera | mandar o cambiar `usuario_id`, `visita_id`, `created_at`, `actualizado_*`; editar o restaurar una fila borrada (campo); `DELETE` |
 | `sugerencias_captura()` (`010`) | ejecutarla: devuelve solo `(tipo, valor)` con nombres de **áreas** del catálogo y **marcas** ya capturadas. **La app ya no la usa desde `011`** | (lo mismo) | ver claves, precios o descripciones del catálogo |
 | `articulos_captura()` (`011`) | ejecutarla: devuelve **un solo valor** (arreglo de texto) con las **descripciones** de los artículos propios activos, sin servicios, distintas y ordenadas | (lo mismo) | ver claves, precios o ventas; `anon` no la ejecuta |
 | Tablas, vistas y funciones de la Etapa 2 | nada | **nada** (también cerradas para el admin dentro de la app) | — |
@@ -284,10 +300,26 @@ otra tabla debe usar una función así, no una subconsulta.
 | `fotos` | leer, crear, **quitar** (solo poner `descartada_at` en fotos `pendiente` no quitadas; 2026-11-23, `007`) | cambiar cualquier otra columna, restaurar, borrar |
 | Storage `fotos` | leer, subir archivos nuevos | reemplazar, borrar |
 
-**Consecuencia de diseño (sigue igual):** como nadie puede **cambiar** una visita desde la
-app (salvo el admin, solo la tienda), la visita se guarda **de una sola vez** (competidor +
-ubicación + timestamps) cuando el usuario toca "Guardar visita". Antes de eso, todo vive en
-la pantalla.
+**Consecuencia de diseño (sigue igual, salvo la tienda):** la visita se guarda **de una sola
+vez** (competidor + ubicación + timestamps) cuando el usuario toca "Guardar visita". ~~Nadie
+puede cambiar una visita desde la app (salvo el admin, solo la tienda).~~ **Desde `012`** el
+dueño también puede **cambiar la tienda** (y borrar la visita) mientras ningún agente haya
+leído sus fotos; ubicación, fechas y dueño siguen sin poder cambiarse.
+
+**Editar y borrar (`012`).** Permisos **por columna** (las reglas RLS filtran filas, no
+columnas): `visitas` → solo `competidor_id` y `descartada_at`; `capturas_manuales` → solo
+`articulo`, `articulo_de_lista`, `precio_regular`, `promo_precio_pieza`, `observaciones` y
+`descartada_at`. Reglas de UPDATE: una del **dueño** (fila suya y no borrada; en visitas,
+además `privado.visita_sin_fotos_leidas`) y una del **admin** (cualquier fila, también para
+restaurar). Triggers: `descartada_at` siempre es la hora del servidor (y no se puede cambiar
+después); al borrar no se puede cambiar el contenido en la misma operación; la tienda nueva
+debe estar activa (`privado.competidor_activo`); en productos, `actualizado_at/_por`. Si una
+regla no deja, el update afecta **0 filas** y la app lo avisa. Las reglas de lectura esconden
+lo borrado al personal de campo con `descartada_at is null or descartada_at = now()`: la
+segunda parte deja ver la fila **solo dentro de la operación que la borra** (Postgres exige
+que la fila nueva de un `update … returning` pase la regla de lectura; `now()` es fijo en
+cada transacción). `privado.es_dueno_de_visita` ya no cuenta visitas borradas, así que sus
+fotos, archivos y productos también desaparecen para el dueño.
 
 ⚠️ **No vuelvas a ejecutar `008_autenticacion.sql` después de `008b`:** regresa las reglas
 viejas con el ciclo y guardar una visita vuelve a fallar. Si pasa, ejecuta `008b` otra vez.
@@ -324,6 +356,8 @@ supabase/
 ├── reversa_009.sql          ← SOLO emergencia: deshace 009 (no ejecutado)
 ├── 010_capturas_manuales.sql← captura manual: tabla, reglas, sugerencias (aditiva)
 ├── 011_captura_rapida.sql   ← captura rápida: 4 campos, presentación opcional, articulos_captura() (aditiva)
+├── 012_editar_borrar.sql    ← editar y borrar (descartar) visitas y productos; admin restaura (aditiva)
+├── 012b_etapa2_sin_visitas_borradas.sql ← Etapa 2 ignora visitas borradas (REVISAR antes de ejecutar)
 ├── pruebas/                 ← pruebas con datos inventados (terminan con rollback)
 └── seed_competidores.sql    ← SOLO la lista de competidores (el usuario la va a editar)
 ```
@@ -357,7 +391,7 @@ Lista **provisional** (el usuario la confirmará después):
 | *(todas)* | **Desde 2026-11-24:** sin sesión, cualquier ruta muestra **"Entrar"** (correo y contraseña; "¿No tienes cuenta? Pide tu acceso al responsable."). Con sesión, arriba se ve el correo y **"Cerrar sesión"** (`src/components/PuertaSesion.tsx`). |
 | `/` | Lista de visitas (la más reciente primero): competidor, fecha y hora, número de fotos. Botón grande **"Nueva visita"**. Campo: "Mis visitas". Admin: "Todas las visitas", con quién creó cada una. |
 | `/visitas/nueva` | Selector de competidor, botón **"Guardar mi ubicación"**, botón **"Guardar visita"**. Al guardar, lleva a la pantalla de la visita. |
-| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. Admin: "Creada por", **"Corregir tienda"** y la sección **"Fotos quitadas"** con "Restaurar". **Desde 2026-11-25:** debajo, la sección opcional **"Datos del levantamiento (manual)"** — **captura rápida** (`011`): formulario de 4 campos (Artículo con sugerencias, Precio regular, Precio de promoción individual *opcional*, Observaciones *opcional*); Enter avanza; **"Agregar"** (desactivado mientras falte algo, dice "Falta: …") pasa el producto a una lista compacta de una línea (tocar = corregir, "Quitar" con "Deshacer") y deja el foco en Artículo; **"Guardar datos"** guarda toda la lista en una sola operación; borrador en el celular; aviso al salir sin guardar; y las filas ya guardadas (solo lectura, con "Quitar"). Solo quien creó la visita escribe; el admin ve las de cualquiera. |
+| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. **Desde `012`:** **"Cambiar tienda"** y **"Borrar visita"** (con "¿Borrar esta visita?") para el dueño (si ningún agente leyó sus fotos; si ya, un mensaje claro) y el admin; visita borrada → solo el admin la ve, marcada "Borrada", con **"Restaurar visita"**. Admin: "Creada por", ✕ en **cualquier** foto y la sección **"Fotos quitadas"** con "Restaurar". **Desde 2026-11-25:** debajo, la sección opcional **"Datos del levantamiento (manual)"** — **captura rápida** (`011`): formulario de 4 campos (Artículo con sugerencias, Precio regular, Precio de promoción individual *opcional*, Observaciones *opcional*); Enter avanza; **"Agregar"** (desactivado mientras falte algo, dice "Falta: …") pasa el producto a una lista compacta de una línea (tocar = corregir, "Quitar" con "Deshacer") y deja el foco en Artículo; **"Guardar datos"** guarda toda la lista en una sola operación; borrador en el celular; aviso al salir sin guardar; y las filas ya guardadas con **"Editar"** (sube al mismo formulario y guarda un solo update) y **"Borrar"** (con "¿Borrar este producto?") para su autor y el admin; el admin ve también las borradas ("Borrado", con "Restaurar") y quién creó cada una. Solo quien creó la visita agrega productos; el admin ve las de cualquiera. |
 
 Guía de diseño:
 - Pensada para **celular primero**: botones grandes y fáciles de tocar con el pulgar,
@@ -525,3 +559,4 @@ que se sepa de dónde salió cada una.
 | **Login con correo y contraseña** (Supabase Auth, sin registro público). Rol admin en `app_metadata.rol = 'admin'` (nunca `user_metadata`). Personal de campo: solo sus visitas y fotos; crea visitas, sube fotos a las suyas y quita fotos pendientes de las suyas. Admin: ve todo; desde la app corrige la tienda, quita cualquier foto pendiente y restaura fotos quitadas; ve el **correo** de quien creó cada visita. Las visitas de antes quedan sin dueño (solo las ve el admin). Bucket **privado** con **URLs firmadas de 24 h** que se renuevan solas. Sesión solo en el navegador (supabase-js, sin librerías nuevas). Migraciones: `008` (aditiva), `008b` (corrige el ciclo de reglas con el esquema `privado`) y `009` (quita a `anon` y pone el bucket privado). Las tres ejecutadas y probadas el 2026-11-24. | Pedido del usuario (2026-11-24), **no viene de la grabación**. Reemplaza "sin login". Las preguntas (qué edita el admin en la app, cómo se muestra quién creó la visita y cuánto duran los links) las respondió el usuario ese día. | Fase "Autenticación y propiedad de visitas" (`PROGRESO.md`) |
 | **Captura manual de datos con sugerencias** (`capturas_manuales`, `010`). Sección opcional en la pantalla de la visita; una fila por producto con las mismas listas y normalización que `lecturas_precio`; sugerencias de **área** (nombres del catálogo, por una función SQL que no da claves ni precios) y **marca** (las ya capturadas), filtradas en el navegador (primero las que empiezan, luego las que contienen; sin mayúsculas ni acentos; nunca obliga a elegir). Guardar es todo o nada; borrador en `localStorage`; corregir = quitar y volver a escribir. Solo en visitas propias (el admin ve todas). Agregado por el agente: `promo_paga_piezas` para `nxm` (sin ella "3 x 2" no se puede guardar) y los límites de largo/decimales. | Pedido del usuario (2026-11-25), **no viene de la grabación**. | Fase "Captura manual de datos" (`PROGRESO.md`) |
 | **Captura rápida de productos** (`011`). Reemplaza el formulario de `010` por 4 campos: artículo (obligatorio; sugerencias con las **descripciones** de nuestros artículos activos, por la función `articulos_captura()` que devuelve un solo arreglo; filtro en el navegador por palabras en cualquier orden, mínimo 2 letras, máximo 6; nunca obliga a elegir; `articulo_de_lista`), precio regular (obligatorio), precio de promoción **por pieza** (opcional) y observaciones (opcional, hasta 500). Teclado numérico con punto (`inputMode="decimal"`), punto o coma, 2 decimales. Avisos sin bloquear (precio 0, promoción ≥ regular, más de $10,000). Lista compacta, corregir/quitar, guardar todo o nada. Columnas de presentación opcionales en la base (aditiva). Agregado por el agente: CHECK "cantidad y unidad juntas", tope de 7 enteros en los precios, "Deshacer" al quitar de la lista. | Pedido del usuario (2026-11-25), **no viene de la grabación**. | Fase "Captura rápida de productos" (`PROGRESO.md`) |
+| **Editar y borrar lo capturado** (`012`). Borrar = descartar (`descartada_at`), nunca `DELETE`. Campo: edita y borra solo lo suyo; cambia la tienda o borra su visita solo si ningún agente leyó sus fotos (`privado.visita_sin_fotos_leidas`); no restaura ni edita lo borrado; lo borrado no le aparece. Admin: edita, borra y restaura todo (también fotos leídas) y lo ve marcado "Borrado". Permisos por columna, reglas de UPDATE de dueño y admin, triggers (hora del servidor, tienda activa, `actualizado_at/_por`). Reemplaza "el personal de campo no modifica visitas" **solo para cambiar la tienda**. Agregado por el agente: la regla de lectura con `descartada_at = now()` (sin ella "Borrar" falla, comprobado), la revisión de tienda activa solo para el rol de la app (para corregir datos desde el panel) y `012b` aparte para la Etapa 2. | Pedido del usuario (2026-11-25), **no viene de la grabación**. | Fase "Editar y borrar lo capturado" (`PROGRESO.md`) |

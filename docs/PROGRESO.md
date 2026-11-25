@@ -23,7 +23,8 @@
 | — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 | — | Entrar con usuario (`<usuario>@x24.com.mx`) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 | — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 la prueba vieja dio `42P01`; correr la nueva `010b` (ver "Corrección de la prueba de 010"). La pantalla la reemplaza la captura rápida (`011`) |
-| — | Captura rápida de productos (`011`) — fuera del plan original | 🟡 falta: `010` (si aún no) → `010b` → `011` → prueba `011` → push → prueba en el celular (ver "Captura rápida de productos") |
+| — | Captura rápida de productos (`011`) — fuera del plan original | 🟡 falta ejecutar; el orden completo está en "Editar y borrar lo capturado" |
+| — | Editar y borrar lo capturado (`012`, `012b` por revisar) — fuera del plan original | 🟡 falta: `010` (si aún no) → `010b` → `011` → prueba `011` → `012` → prueba `012` → (`012b` si se aprueba) → push → prueba en el celular |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -86,9 +87,12 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
-- [ ] **(Captura manual / rápida, 2026-11-25) Pasos del usuario:** seguir el **orden de despliegue**
-      de "Captura rápida de productos": `010` (si aún no) → `010b` → `011` → prueba `011` → push →
-      Ready en Vercel → probar.
+- [ ] **(Captura manual / rápida / editar y borrar, 2026-11-25) Pasos del usuario:** seguir el
+      **orden de despliegue** de "Editar y borrar lo capturado" (incluye `010`, `011` y `012`).
+- [ ] **(Editar y borrar) Decidir si se ejecuta `012b`** (Etapa 2 ignora visitas borradas). No afecta
+      a la app; conviene antes de cualquier fase 🤖.
+- [ ] **(Editar y borrar, opcional) `admin_cambiar_competidor`** (008) ya no lo usa la app (el admin
+      cambia la tienda con un update directo, `012`). Se puede dejar o quitar en una migración futura.
 - [ ] **(Etapa 2, fases 🤖) Uso de `capturas_manuales`** para validación y evaluación: propuesta en
       PLAN_ETAPA2 9.5, **no decidida**. Regla ya fija: los agentes **no** ven estas filas al leer.
 
@@ -106,6 +110,14 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
   correo `<usuario>@x24.com.mx` (usuario de 3 a 30 caracteres: `a-z`, `0-9`, `.`, `_`, `-`, en
   minúsculas). En la app se entra solo con `<usuario>`. El dominio vive en
   `src/lib/usuarios.ts` (`DOMINIO_INTERNO`). Ver la sección "Entrar con usuario".
+- **Comprobaciones y pruebas viejas después de `012`:** salen `false` (es normal, `012` lo cambia a
+  propósito): en la comprobación de `008`, "authenticated: NO manda el dueño, solo cambia
+  descartada_at…"; en la de `010`, filas 4 y 6; en la de `011`, filas 7 y 8. La prueba **`010b`**
+  ya no arranca (su freno cuenta 3 reglas y ahora hay 4) y en la prueba **`011`** fallan los casos
+  22 y 43; en la prueba **`008`**, el caso 9 ("C1 NO modifica su visita"). **No correr `010b` ni la
+  prueba `011` después de `012`**; la prueba vigente es `pruebas/012_prueba_editar_borrar.sql`.
+- **Borrar = descartar (desde `012`):** visitas, fotos y productos nunca se borran desde la app; se
+  marcan con `descartada_at`. Para "recuperar" algo, el admin usa "Restaurar" en la app.
 - **Comprobaciones viejas después de `011`:** la comprobación final de `010` marca `false` en la
   fila "14. Funciones de public…", porque `011` abre a propósito `articulos_captura()` a
   `authenticated`. La fila 13 de la comprobación de `011` revisa que el resto siga cerrado.
@@ -2262,3 +2274,157 @@ la API de Anthropic. **Ningún agente consume estas filas** (sirven como muestra
   14/14 ✅.
 
 **Commit:** ver `git log` — `Captura rápida de productos (011): 4 campos, sugerencias de artículo y docs`
+
+---
+
+## Editar y borrar lo capturado (2026-11-25) — 🟡 falta ejecutar `012`, desplegar y probar
+
+Ampliación de la fase de captura, **fuera del plan original**, pedida por el usuario. La `011`
+**no se ha ejecutado** pero ya estaba probada: por pedido del usuario **no se editó**; todo va en
+una migración **nueva** `012` que se ejecuta **después**. **No** se ejecutó nada en Supabase,
+**no** se leyó `.env.local` ni `datos-privados/`, **no** se instaló nada, **no** se empezaron
+fases 🤖 ni se llamó a la API de Anthropic.
+
+**Reglas de negocio:** borrar = descartar (`descartada_at`), nunca `DELETE`. Campo: edita y borra
+solo lo que creó; no edita ni restaura lo borrado. Admin: edita, borra y restaura todo. Lo
+borrado no le aparece al personal de campo (ni fotos ni productos de una visita borrada). La
+decisión "el personal de campo no modifica visitas" queda **reemplazada solo para cambiar la
+tienda** (y borrar = descartar), y solo si ningún agente leyó sus fotos.
+
+**Qué se hizo:**
+- `supabase/012_editar_borrar.sql` (**aditiva**, repetible, una transacción, freno si falta
+  `010`/`011`/`008b`):
+  - BLOQUE 1: `visitas.descartada_at`; `capturas_manuales.actualizado_at` y `actualizado_por`.
+  - BLOQUE 2: `privado.es_dueno_de_visita` ya no cuenta visitas borradas (así sus fotos, archivos
+    y productos desaparecen para el dueño y no puede agregar nada); `competidor_en_visita_visible`
+    igual; **nueva** `privado.visita_sin_fotos_leidas(uuid)` (security definer, `search_path`
+    vacío; lee fotos sin RLS).
+  - BLOQUE 3: triggers. Productos (reemplaza el de `010`): `descartada_at` = hora del servidor y
+    no se puede cambiar después; al borrar no se cambia el contenido en la misma operación;
+    `actualizado_at/_por` = `now()`/`auth.uid()`. Visitas (nuevo): lo mismo para `descartada_at`;
+    al borrar no se cambia la tienda; si la **app** (rol `authenticated`) cambia la tienda, debe
+    estar activa (`privado.competidor_activo`).
+  - BLOQUE 4: permisos por columna. `visitas`: `update (competidor_id, descartada_at)`.
+    `capturas_manuales`: `update (articulo, articulo_de_lista, precio_regular,
+    promo_precio_pieza, observaciones, descartada_at)`. Sin `DELETE`; `anon` sin nada.
+  - BLOQUE 5: reglas. Lectura de visitas y productos: el personal de campo no ve lo borrado (ver
+    "Decisiones"). UPDATE del dueño (suya, no borrada; en visitas, sin fotos leídas) y del admin
+    (cualquiera, también restaurar) en visitas y productos; admin quita/restaura cualquier foto.
+    La regla "authenticated descarta sus capturas" de `010` se reemplaza por "authenticated edita
+    o borra sus capturas". Ninguna regla consulta otra tabla directo.
+  - BLOQUE 6: comprobación (solo lee): 13 filas `ok`.
+- `supabase/pruebas/012_prueba_editar_borrar.sql`: freno + **47 casos** con datos inventados,
+  roles simulados con JWT, termina con `rollback`. Cubre todo lo pedido (dueño edita lo suyo; otro
+  no edita ni borra lo ajeno → 0 filas; admin edita, borra y restaura; dueño no restaura ni edita
+  lo borrado; no se cambia `usuario_id`, `visita_id` ni `created_at`; no se falsea
+  `descartada_at` ni `actualizado_por`; visita con fotos leídas → 0 filas; tienda inactiva →
+  rechazada; sin `DELETE`; `anon` nada; sin "infinite recursion"), más: lo borrado desaparece en
+  la siguiente petición (lista, conteo, fotos y productos), no se escribe en una visita borrada,
+  el admin cambia la tienda con fotos leídas, quita y restaura fotos leídas.
+- `supabase/012b_etapa2_sin_visitas_borradas.sql` (**aparte, para revisar; no es obligatorio
+  para la app**): `lecturas_analisis` y `comparacion_precios` con **una línea nueva** cada una
+  (`and v.descartada_at is null`) y `guardar_lecturas` que rechaza fotos quitadas o de visitas
+  borradas. Se revisó todo lo que usa fotos en la Etapa 2 (lista en su encabezado). El proceso que
+  arma lotes aún no existe: la regla quedó en PLAN_ETAPA2 sección 7.
+- App (sin librerías nuevas):
+  - `src/app/visitas/[id]/AccionesVisita.tsx` (nuevo; reemplaza a `CorregirTienda.tsx`, borrado):
+    "Cambiar tienda" y "Borrar visita" (diálogo "¿Borrar esta visita?") para el dueño y el admin;
+    si hay fotos leídas, el dueño ve: "Esta visita ya no se puede cambiar ni borrar porque ya se
+    leyeron los precios de sus fotos…". Visita borrada (solo admin): "Borrada …" y "Restaurar
+    visita". Un update directo; 0 filas → se revisa por qué y se explica.
+  - `src/components/DialogoConfirmar.tsx` (nuevo): diálogo como el de las fotos (Cancelar / botón
+    rojo, 48 px).
+  - `CapturaManual.tsx`: productos guardados con **"Editar"** (sube al mismo formulario de 4
+    campos; "Guardar cambios" = un solo update; lo que había en el formulario se aparta y regresa
+    al terminar) y **"Borrar"** ("¿Borrar este producto?", Cancelar / Borrar). Admin: ve también
+    los borrados ("Borrado", tachado) con "Restaurar", y "👤 quién lo creó" (con
+    `admin_correos_usuarios`, que ya existía; no se abre `auth.users`). 0 filas → aviso y se
+    recarga la lista. En una visita borrada no se agregan productos.
+  - `FotosVisita.tsx` / `ConfirmarQuitar.tsx`: el admin quita **cualquier** foto (aviso extra si
+    ya se leyó); en una visita borrada no se ofrece subir fotos.
+  - `ListaVisitas.tsx`: el admin ve las visitas borradas marcadas "Borrada · toca para
+    restaurar". Al personal de campo la base no se las manda (ni cuentan).
+  - `DetalleVisita.tsx`: usa `AccionesVisita` y pasa "visita borrada" a fotos y captura.
+  - `src/lib/tipos.ts`: `visitas.descartada_at` y su `Update`; `capturas_manuales.actualizado_*`
+    y su `Update`; comentarios.
+  - Errores con el criterio actual (`src/lib/errores.ts`: red, sesión con botón, Supabase con
+    código) y el caso de 0 filas.
+- Docs: `PLAN.md` (1, fuera de alcance, 4.1, 4.3, 4.4, 5, 8), `PLAN_ETAPA2.md` (5.0, número libre
+  `013`, sección 7 lotes, 9.5), `RESUMEN_PROYECTO.md` y este archivo.
+
+**⚠️ ORDEN DE DESPLIEGUE (no cambiar). Migraciones → pruebas → push → Ready:**
+1. `010` (solo si aún no se ejecutó en ESTE proyecto) → 15 filas `ok`.
+2. Prueba `010b` → `0. RESUMEN` `ok` (46 casos). **Debe ir antes de `012`.**
+3. `011` → 13 filas `ok`.
+4. Prueba `011` → `0. RESUMEN` `ok` (44 casos). **Debe ir antes de `012`.**
+5. `012` (`supabase/012_editar_borrar.sql`) → 13 filas `ok`. La app publicada sigue funcionando.
+6. Prueba `012` (`supabase/pruebas/012_prueba_editar_borrar.sql`) → `0. RESUMEN` `ok` (47 casos).
+7. *(Opcional, después de revisarlo)* `012b` → 4 filas `ok`. No cambia nada de la app.
+8. **Push** de la app y esperar **Ready** en Vercel.
+9. Probar en el celular (abajo).
+
+**Qué pruebas viejas dejan de aplicar después de `012`** (comprobado en local):
+- **`010b`: no se debe correr después de `012`.** Su freno espera exactamente 3 reglas en
+  `capturas_manuales` (ahora hay 4) y se detiene diciendo, por error, que falta `010`. Además, sus
+  casos 14 ("C1 NO cambia el precio de su fila") y 18 ("El admin NO quita filas de C1") esperan lo
+  contrario de lo que ahora se permite (por eso fallarían aunque se saltara el freno).
+- **Prueba `011`: no se debe correr después de `012`.** Fallan el caso 22 ("C1 NO cambia
+  articulo_de_lista ni la promoción") —ahora sí puede— y el 43 ("Reglas RLS sin cambios (las 3 de
+  010)"). Los otros 42 siguen pasando.
+- **Prueba `008`:** falla solo el caso 9 ("C1 NO modifica su visita"): ahora sí puede cambiar la
+  tienda. Todos los demás pasan.
+- **Prueba `009`** (12/12) y **`006`** siguen pasando. (La prueba `007` ya fallaba desde `009`,
+  porque prueba a `anon`; `012` no cambia eso.)
+
+**Cómo probarlo (paso 9):**
+1. Campo 1, visita suya **sin** fotos leídas: "Cambiar tienda" → elegir otra → "Guardar" → cambia
+   el título. "Borrar visita" → "¿Borrar esta visita?" → "Cancelar" (no pasa nada) → otra vez →
+   "Borrar" → regresa a la lista y la visita ya no aparece.
+2. Producto guardado → "Editar" → se llena el formulario → cambiar el precio → "Guardar cambios" →
+   "Se guardaron los cambios" y la línea dice "editado …". "Borrar" → "¿Borrar este producto?" →
+   "Borrar" → desaparece.
+3. Admin: en la lista, la visita borrada sale "Borrada · toca para restaurar" → abrirla →
+   "Restaurar visita" → Campo 1 la vuelve a ver con sus fotos y productos. En los productos, el
+   borrado sale tachado con "Restaurar". Ve "👤" de quién creó cada producto.
+4. Admin: en una visita de Campo 1, "Editar" y "Borrar" un producto suyo; ✕ en una foto ya leída
+   → la quita (se restaura en "Fotos quitadas").
+5. Visita con una foto ya leída por un agente (solo se puede simular desde el panel cambiando
+   `estado_proceso`): Campo 1 ve el mensaje "ya no se puede cambiar ni borrar".
+6. Campo 2 no ve nada de Campo 1. Modo avión al guardar una edición → mensaje de red, el formulario
+   sigue lleno.
+
+**Decisiones tomadas por el agente (y por qué):**
+- **Regla de lectura con `descartada_at = now()`:** Postgres exige que la fila **nueva** de un
+  `update … returning` (lo que hace supabase-js con `.select()`) pase la regla de lectura. Si la
+  regla escondiera todo lo borrado, "Borrar" fallaría con *new row violates row-level security
+  policy* (**comprobado en local** quitando esa parte). Con `now()` (hora de inicio de cada
+  transacción, igual a la que pone el trigger) la fila solo se ve dentro de la operación que la
+  borra; en cualquier petición siguiente ya no.
+- **Tienda activa revisada en un trigger y solo para la app (rol `authenticated`):** así el admin
+  puede restaurar una visita aunque su tienda ya esté desactivada, y desde el SQL Editor o el
+  panel se pueden corregir datos a mano como antes (la prueba `008` lo hace).
+- **El admin cambia la tienda con un update directo** (misma regla para todos); la función
+  `admin_cambiar_competidor` se queda en la base (anotado en pendientes).
+- **"Fotos leídas" cuenta también las fotos quitadas** (si un agente ya leyó una foto y luego se
+  quitó, la visita ya entró a la Etapa 2).
+- **Borrar una visita no toca sus fotos ni productos:** solo se esconden; al restaurarla vuelven
+  todos. Reversible.
+- **Al editar un producto guardado, lo que había en el formulario se aparta** y regresa al
+  terminar (no se pierde una captura a medias). No se puede editar mientras se corrige un producto
+  de la lista.
+- **El dueño no edita productos de su visita si la visita está borrada** (no la ve).
+
+**Riesgos y límites conocidos:**
+- Carrera mínima: si un agente marca una foto `en_lote` en el mismo instante en que el dueño borra
+  la visita, podrían pasar las dos cosas. El proceso de lotes (aún no existe) debe filtrar visitas
+  borradas en su mismo `update` (PLAN_ETAPA2 sección 7) y `guardar_lecturas` las rechaza (`012b`).
+- La app publicada (sin `012` en la app) no muestra "Editar" ni marca lo borrado para el admin
+  hasta el push; nada se rompe.
+- **No probado en el navegador ni contra Supabase real.** Probado en local con PGlite (Postgres en
+  WASM, **no es Supabase**): sin `011`, `012` se detiene con su freno; `012` dos veces seguidas
+  (13/13 `ok`); prueba `012` **47/47**; `012b` dos veces (4/4) y comprobación de comportamiento
+  (lecturas de una visita borrada desaparecen; `guardar_lecturas` rechaza); pruebas viejas como se
+  describe arriba. `npm run lint` ✅, `npm run build` ✅, `test:capturas` 17/17, `test:errores`
+  10/10, `test:etapa2` 14/14.
+
+**Commit:** ver `git log` — `Editar y borrar lo capturado (012): descartar, restaurar, app y docs`

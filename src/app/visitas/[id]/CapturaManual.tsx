@@ -22,9 +22,15 @@
 // - Borrador: el formulario a medias y la lista sin guardar se guardan en el celular
 //   (localStorage) por persona y por visita. Al salir con algo sin guardar, se avisa
 //   (pestaña: beforeunload; enlace "Volver a la lista": EnlaceVolver.tsx).
-// - Filas guardadas: solo lectura. Su autor las puede "Quitar" (descarte, no se borra).
-// - Quién escribe: solo en visitas PROPIAS (la base lo exige). El admin ve las filas de
-//   cualquier visita, pero escribe solo en las suyas.
+// - Productos guardados (012): su autor los puede "Editar" (sube al MISMO formulario de
+//   4 campos y guarda con UN solo update) y "Borrar" (con "¿Borrar este producto?").
+//   BORRAR = descartar (descartada_at): no se borra nada; al personal de campo ya no se
+//   le muestra. El admin ve también los borrados (marcados "Borrado"), con quién creó
+//   cada uno, y puede editar, borrar y restaurar cualquiera.
+// - Si la base no deja (el producto ya está borrado o no es tuyo), el update afecta 0
+//   filas: se avisa y se vuelve a cargar la lista.
+// - Quién escribe productos nuevos: solo en visitas PROPIAS no borradas (la base lo
+//   exige). El admin crea solo en las suyas.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -52,7 +58,9 @@ import {
   type ProductoBorrador,
 } from "@/lib/capturas";
 import { clasificarFalla, fallaConCodigo, mensajeDeFalla, type Falla } from "@/lib/errores";
+import { leerCorreos, textoCreador, type Correos } from "@/lib/correos";
 import CampoSugerencias from "@/components/CampoSugerencias";
+import DialogoConfirmar from "@/components/DialogoConfirmar";
 import TituloError, { IconoAlerta } from "@/components/TituloError";
 import BotonEntrarOtraVez from "@/components/BotonEntrarOtraVez";
 
@@ -109,8 +117,19 @@ function esEnter(e: React.KeyboardEvent) {
   return e.key === "Enter" && !e.nativeEvent.isComposing;
 }
 
-export default function CapturaManual({ visitaId, esMia }: { visitaId: string; esMia: boolean }) {
+export default function CapturaManual({
+  visitaId,
+  esMia,
+  visitaBorrada,
+}: {
+  visitaId: string;
+  esMia: boolean;
+  visitaBorrada: boolean;
+}) {
   const { usuario } = useSesion();
+  const esAdmin = usuario.esAdmin;
+  /** Puede agregar productos nuevos: visita propia y no borrada. */
+  const puedeAgregar = esMia && !visitaBorrada;
 
   // Borrador de esta persona en esta visita (si lo hay, la sección empieza abierta).
   const [inicio] = useState(() => (esMia ? leerBorrador(usuario.id, visitaId) : null));
@@ -127,9 +146,17 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
   const [intentoArticulos, setIntentoArticulos] = useState(0);
   const [guardadas, setGuardadas] = useState<EstadoGuardadas>({ tipo: "cargando" });
   const [intentoGuardadas, setIntentoGuardadas] = useState(0);
-  /** Fila guardada con la pregunta "¿Quitar este producto?" abierta. */
-  const [porQuitar, setPorQuitar] = useState<string | null>(null);
-  const [quitando, setQuitando] = useState<ReadonlySet<string>>(() => new Set());
+  /** Producto guardado con la pregunta "¿Borrar este producto?" abierta. */
+  const [porBorrar, setPorBorrar] = useState<FilaGuardada | null>(null);
+  /** Productos guardados que se están borrando o restaurando (botones desactivados). */
+  const [ocupadas, setOcupadas] = useState<ReadonlySet<string>>(() => new Set());
+  /** Producto guardado que se está editando en el formulario (012). */
+  const [editando, setEditando] = useState<FilaGuardada | null>(null);
+  /** Lo que había en el formulario antes de "Editar" (se regresa al terminar). */
+  const [formAntes, setFormAntes] = useState<ProductoBorrador | null>(null);
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  /** Solo admin: usuario de quien creó cada producto. */
+  const [correos, setCorreos] = useState<Correos>(null);
   const [anuncio, setAnuncio] = useState("");
 
   /** Campos del formulario, para mover el foco (Enter, elegir, agregar). */
@@ -150,9 +177,9 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
   }
 
   // Con cacheComponents, Next.js esconde (no desmonta) esta pantalla al ir a otra.
-  // Si se fue con la pregunta "¿Quitar este producto?" abierta, al volver aparece
+  // Si se fue con la pregunta "¿Borrar este producto?" abierta, al volver aparece
   // cerrada (doc de Next: preserving-ui-state.md).
-  useLayoutEffect(() => () => setPorQuitar(null), []);
+  useLayoutEffect(() => () => setPorBorrar(null), []);
 
   /** "nada" → "pidiendo" → "listo". La lista de artículos se pide una sola vez. */
   const pedidoArticulos = useRef<"nada" | "pidiendo" | "listo">("nada");
@@ -160,7 +187,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
   // Lista de artículos para las sugerencias: UNA vez, al abrir la sección. Se guarda
   // solo en memoria (no en el celular). Un solo valor: no la corta el límite de filas.
   useEffect(() => {
-    if (!abierta || !esMia || pedidoArticulos.current !== "nada") return;
+    if (!abierta || !(esMia || esAdmin) || pedidoArticulos.current !== "nada") return;
     pedidoArticulos.current = "pidiendo";
     let cancelado = false;
     async function cargar() {
@@ -185,19 +212,17 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
       // Si la pantalla se escondió ANTES de terminar, se vuelve a pedir al regresar.
       if (pedidoArticulos.current === "pidiendo") pedidoArticulos.current = "nada";
     };
-  }, [abierta, esMia, intentoArticulos]);
+  }, [abierta, esMia, esAdmin, intentoArticulos]);
 
-  // Filas ya guardadas de esta visita (vigentes).
+  // Filas ya guardadas de esta visita. El personal de campo, solo las vigentes (la base
+  // tampoco le manda las borradas); el admin, también las borradas.
   useEffect(() => {
     if (!abierta) return;
     let cancelado = false;
     async function cargar() {
-      const { data, error } = await supabase
-        .from("capturas_manuales")
-        .select("*")
-        .eq("visita_id", visitaId)
-        .is("descartada_at", null)
-        .order("created_at", { ascending: true });
+      let consulta = supabase.from("capturas_manuales").select("*").eq("visita_id", visitaId);
+      if (!esAdmin) consulta = consulta.is("descartada_at", null);
+      const { data, error } = await consulta.order("created_at", { ascending: true });
       if (cancelado) return;
       if (error) setGuardadas({ tipo: "error", detalle: error.message || "Error desconocido" });
       else setGuardadas({ tipo: "ok", filas: data });
@@ -206,19 +231,38 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
     return () => {
       cancelado = true;
     };
-  }, [abierta, visitaId, intentoGuardadas]);
+  }, [abierta, visitaId, intentoGuardadas, esAdmin]);
+
+  // Solo admin: correos de las cuentas (para "Creado por"). Si falla, texto genérico.
+  useEffect(() => {
+    if (!abierta || !esAdmin) return;
+    let cancelado = false;
+    leerCorreos().then((c) => {
+      if (!cancelado) setCorreos(c);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [abierta, esAdmin]);
 
   // Borrador: cada cambio se guarda en el celular. Un producto en corrección se guarda
   // en su lugar de la lista (si se cierra la pestaña a la mitad, no se pierde).
+  // Mientras se edita un producto GUARDADO, el borrador conserva lo que había antes en
+  // el formulario (la edición no se guarda como borrador).
   useEffect(() => {
     if (!esMia) return;
     const lista = correccion ? insertar(pendientes, correccion.indice, correccion.original) : pendientes;
-    const formulario = correccion && mismoProducto(form, correccion.original) ? productoVacio() : form;
+    const base = editando ? (formAntes ?? productoVacio()) : form;
+    const formulario = correccion && mismoProducto(base, correccion.original) ? productoVacio() : base;
     guardarBorrador(usuario.id, visitaId, { formulario, pendientes: lista });
-  }, [esMia, usuario.id, visitaId, form, pendientes, correccion]);
+  }, [esMia, usuario.id, visitaId, form, pendientes, correccion, editando, formAntes]);
 
-  // Aviso antes de salir con productos sin guardar.
-  const hayPendientes = pendientes.length > 0 || correccion !== null || productoTieneDatos(form);
+  // Aviso antes de salir con productos sin guardar (o una edición a medias).
+  const hayPendientes =
+    pendientes.length > 0 ||
+    correccion !== null ||
+    editando !== null ||
+    productoTieneDatos(editando ? (formAntes ?? productoVacio()) : form);
   useEffect(() => {
     marcarPendientes(visitaId, hayPendientes);
     if (!hayPendientes) return () => marcarPendientes(visitaId, false);
@@ -246,6 +290,10 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
       // Lleva el foco a lo que falta; nada más (no se borra lo escrito).
       enfocar(falta[0] === "artículo" ? "articulo" : "precio_regular");
       setAnuncio(textoFalta(falta) ?? "");
+      return;
+    }
+    if (editando) {
+      void guardarEdicion(editando);
       return;
     }
     const producto: ProductoBorrador = {
@@ -377,44 +425,162 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
     }
   }
 
-  async function quitarGuardada(fila: FilaGuardada) {
-    setPorQuitar(null);
-    if (quitando.has(fila.id)) return;
+  /** Marca una fila guardada como ocupada (o libre) mientras se borra o restaura. */
+  function ocupar(id: string, si: boolean) {
+    setOcupadas((antes) => {
+      const despues = new Set(antes);
+      if (si) despues.add(id);
+      else despues.delete(id);
+      return despues;
+    });
+  }
+
+  function reemplazarGuardada(fila: FilaGuardada) {
+    setGuardadas((antes) =>
+      antes.tipo === "ok" ? { tipo: "ok", filas: antes.filas.map((f) => (f.id === fila.id ? fila : f)) } : antes,
+    );
+  }
+
+  /** "Editar": sube el producto guardado al formulario (lo que había ahí se aparta). */
+  function empezarEdicion(fila: FilaGuardada) {
+    if (correccion) {
+      setMensaje({ tipo: "aviso", texto: "Primero termina o cancela la corrección del formulario." });
+      return;
+    }
+    if (!editando) setFormAntes(form);
+    setEditando(fila);
+    setForm({
+      ...productoVacio(),
+      articulo: fila.articulo,
+      articulo_de_lista: fila.articulo_de_lista,
+      precio_regular: String(fila.precio_regular),
+      promo_precio_pieza: fila.promo_precio_pieza != null ? String(fila.promo_precio_pieza) : "",
+      observaciones: fila.observaciones ?? "",
+    });
+    setMensaje(null);
+    setAnuncio(`Editando: ${fila.articulo}.`);
+    enfocar("articulo");
+  }
+
+  /** Termina la edición y regresa lo que había en el formulario. */
+  function terminarEdicion() {
+    setEditando(null);
+    setForm(formAntes ?? productoVacio());
+    setFormAntes(null);
+  }
+
+  /** "Guardar cambios": UN solo update de los 5 campos editables. */
+  async function guardarEdicion(fila: FilaGuardada) {
+    if (guardandoEdicion) return;
+    setGuardandoEdicion(true);
+    setMensaje(null);
+    const v = productoParaGuardar(visitaId, form);
+    try {
+      const { data, error, status } = await supabase
+        .from("capturas_manuales")
+        .update({
+          articulo: v.articulo,
+          articulo_de_lista: v.articulo_de_lista,
+          precio_regular: v.precio_regular,
+          promo_precio_pieza: v.promo_precio_pieza,
+          observaciones: v.observaciones,
+        })
+        .eq("id", fila.id)
+        .select();
+      if (error) {
+        setMensaje({ tipo: "falla", inicio: "No se guardaron los cambios.", falla: clasificarFalla(error, status) });
+      } else if (data.length === 0) {
+        // La base no dejó: ya estaba borrado, o ya no es tuyo. Se recarga la lista.
+        setMensaje({
+          tipo: "aviso",
+          texto: "Este producto ya no se puede editar (quizá ya lo borraron). Se volvió a cargar la lista.",
+        });
+        terminarEdicion();
+        setIntentoGuardadas((n) => n + 1);
+      } else {
+        reemplazarGuardada(data[0]);
+        terminarEdicion();
+        setMensaje({ tipo: "exito", texto: "Se guardaron los cambios." });
+        enfocar("articulo");
+      }
+    } catch (e) {
+      setMensaje({ tipo: "falla", inicio: "No se guardaron los cambios.", falla: clasificarFalla(e) });
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  }
+
+  /** "Borrar" (después de confirmar): descarta, no borra. */
+  async function borrarGuardada(fila: FilaGuardada) {
+    setPorBorrar(null);
+    if (ocupadas.has(fila.id)) return;
     setMensaje(null);
     setAnuncio("");
-    setQuitando((antes) => new Set(antes).add(fila.id));
+    ocupar(fila.id, true);
     try {
       const { data, error, status } = await supabase
         .from("capturas_manuales")
         .update({ descartada_at: new Date().toISOString() })
         .eq("id", fila.id)
-        .select("id");
+        .select();
       if (error) {
-        setMensaje({ tipo: "falla", inicio: "No se pudo quitar el producto.", falla: clasificarFalla(error, status) });
+        setMensaje({ tipo: "falla", inicio: "No se borró el producto.", falla: clasificarFalla(error, status) });
       } else if (data.length === 0) {
-        // Supabase respondió bien pero no cambió nada (ya estaba quitada, o la regla
-        // no deja porque no es tuya).
-        setMensaje({ tipo: "falla", inicio: "No se pudo quitar el producto.", falla: fallaConCodigo("SIN-CAMBIO") });
+        // Respondió bien pero no cambió nada (ya estaba borrado, o no es tuyo).
+        setMensaje({
+          tipo: "aviso",
+          texto: "Este producto ya no se puede borrar (quizá ya lo borraron). Se volvió a cargar la lista.",
+        });
         setIntentoGuardadas((n) => n + 1);
       } else {
-        setGuardadas((antes) =>
-          antes.tipo === "ok" ? { tipo: "ok", filas: antes.filas.filter((f) => f.id !== fila.id) } : antes,
-        );
-        setAnuncio("Producto quitado.");
+        if (editando?.id === fila.id) terminarEdicion();
+        // El admin lo sigue viendo (marcado "Borrado"); el personal de campo, ya no.
+        if (esAdmin) reemplazarGuardada(data[0]);
+        else {
+          setGuardadas((antes) =>
+            antes.tipo === "ok" ? { tipo: "ok", filas: antes.filas.filter((f) => f.id !== fila.id) } : antes,
+          );
+        }
+        setAnuncio("Producto borrado.");
       }
     } catch (e) {
-      setMensaje({ tipo: "falla", inicio: "No se pudo quitar el producto.", falla: clasificarFalla(e) });
+      setMensaje({ tipo: "falla", inicio: "No se borró el producto.", falla: clasificarFalla(e) });
     } finally {
-      setQuitando((antes) => {
-        const despues = new Set(antes);
-        despues.delete(fila.id);
-        return despues;
-      });
+      ocupar(fila.id, false);
+    }
+  }
+
+  /** Solo admin: "Restaurar" un producto borrado. */
+  async function restaurarGuardada(fila: FilaGuardada) {
+    if (ocupadas.has(fila.id)) return;
+    setMensaje(null);
+    setAnuncio("");
+    ocupar(fila.id, true);
+    try {
+      const { data, error, status } = await supabase
+        .from("capturas_manuales")
+        .update({ descartada_at: null })
+        .eq("id", fila.id)
+        .select();
+      if (error) {
+        setMensaje({ tipo: "falla", inicio: "No se restauró el producto.", falla: clasificarFalla(error, status) });
+      } else if (data.length === 0) {
+        setMensaje({ tipo: "falla", inicio: "No se restauró el producto.", falla: fallaConCodigo("SIN-CAMBIO") });
+        setIntentoGuardadas((n) => n + 1);
+      } else {
+        reemplazarGuardada(data[0]);
+        setAnuncio("Producto restaurado.");
+      }
+    } catch (e) {
+      setMensaje({ tipo: "falla", inicio: "No se restauró el producto.", falla: clasificarFalla(e) });
+    } finally {
+      ocupar(fila.id, false);
     }
   }
 
   const opciones = articulos.tipo === "ok" ? articulos.lista : SIN_ARTICULOS;
   const numGuardadas = guardadas.tipo === "ok" ? guardadas.filas.length : 0;
+  const numVigentes = guardadas.tipo === "ok" ? guardadas.filas.filter((f) => !f.descartada_at).length : 0;
   const textoFaltante = textoFalta(falta);
 
   return (
@@ -443,7 +609,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
       <div id="contenido-captura" hidden={!abierta} className="flex flex-col gap-4">
         {abierta && (
           <>
-            {esMia ? (
+            {puedeAgregar || editando ? (
               <>
                 {articulos.tipo === "error" && (
                   <div className="caja-aviso">
@@ -473,10 +639,12 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                     agregar();
                   }}
                   aria-labelledby="titulo-formulario-captura"
-                  className="flex flex-col gap-4 rounded-xl border-2 border-borde bg-tarjeta p-4"
+                  className={`flex flex-col gap-4 rounded-xl border-2 bg-tarjeta p-4 ${
+                    editando ? "border-marca" : "border-borde"
+                  }`}
                 >
                   <h3 id="titulo-formulario-captura" className="text-xl font-bold">
-                    {correccion ? "Corregir producto" : "Agregar producto"}
+                    {editando ? "Editar producto guardado" : correccion ? "Corregir producto" : "Agregar producto"}
                   </h3>
 
                   <CampoSugerencias
@@ -552,31 +720,51 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                   <div className="flex flex-col gap-2">
                     <button
                       type="submit"
-                      disabled={falta.length > 0}
+                      disabled={falta.length > 0 || guardandoEdicion}
                       aria-describedby={textoFaltante ? "captura-falta" : undefined}
                       className="boton-primario min-h-14 rounded-2xl px-6 py-4 text-xl font-bold"
                     >
-                      {correccion ? "Guardar corrección" : "Agregar"}
+                      {editando
+                        ? guardandoEdicion
+                          ? "Guardando…"
+                          : "Guardar cambios"
+                        : correccion
+                          ? "Guardar corrección"
+                          : "Agregar"}
                     </button>
                     {textoFaltante && (
                       <p id="captura-falta" className="text-center text-lg font-semibold text-texto">
                         {textoFaltante}
                       </p>
                     )}
-                    {(correccion || productoTieneDatos(form)) && (
+                    {editando ? (
                       <button
                         type="button"
-                        onClick={cancelarCorreccion}
+                        onClick={() => {
+                          terminarEdicion();
+                          setAnuncio("Edición cancelada; el producto quedó como estaba.");
+                        }}
+                        disabled={guardandoEdicion}
                         className="boton-gris min-h-12 rounded-xl px-4 py-2 text-lg font-semibold"
                       >
-                        {correccion ? "Cancelar corrección" : "Limpiar formulario"}
+                        Cancelar edición
                       </button>
+                    ) : (
+                      (correccion || productoTieneDatos(form)) && (
+                        <button
+                          type="button"
+                          onClick={cancelarCorreccion}
+                          className="boton-gris min-h-12 rounded-xl px-4 py-2 text-lg font-semibold"
+                        >
+                          {correccion ? "Cancelar corrección" : "Limpiar formulario"}
+                        </button>
+                      )
                     )}
                   </div>
                 </form>
 
                 {/* --- Lista sin guardar (una línea por producto) --- */}
-                {pendientes.length > 0 && (
+                {puedeAgregar && pendientes.length > 0 && (
                   <div className="flex flex-col gap-2">
                     <h3 className="text-xl font-semibold">Por guardar ({pendientes.length})</h3>
                     <p className="text-base text-texto-suave">Toca un producto para corregirlo.</p>
@@ -585,7 +773,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                         <FilaPendiente
                           key={p.clave}
                           producto={p}
-                          deshabilitada={guardando}
+                          deshabilitada={guardando || editando !== null}
                           alCorregir={() => corregir(i)}
                           alQuitar={() => quitarPendiente(i)}
                         />
@@ -594,7 +782,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                   </div>
                 )}
 
-                {quitado && (
+                {puedeAgregar && quitado && (
                   <div className="caja-info flex items-center justify-between gap-3">
                     <span className="min-w-0 break-words">Quitado: {quitado.original.articulo}</span>
                     <button
@@ -607,11 +795,11 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                   </div>
                 )}
 
-                {pendientes.length > 0 && (
+                {puedeAgregar && pendientes.length > 0 && (
                   <button
                     type="button"
                     onClick={() => void guardar()}
-                    disabled={guardando}
+                    disabled={guardando || editando !== null}
                     className="boton-primario min-h-12 rounded-2xl px-6 py-4 text-xl font-bold"
                   >
                     {guardando
@@ -620,7 +808,7 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
                   </button>
                 )}
 
-                {hayPendientes && (
+                {puedeAgregar && hayPendientes && (
                   <p className="text-base text-texto-suave">
                     Lo que escribes se queda en este celular como borrador hasta que toques
                     &quot;Guardar datos&quot;.
@@ -629,7 +817,9 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
               </>
             ) : (
               <p className="text-base text-texto-suave">
-                Solo quien creó la visita puede escribir datos en ella.
+                {visitaBorrada
+                  ? "Esta visita está borrada: no se pueden agregar productos."
+                  : "Solo quien creó la visita puede agregar productos en ella."}
               </p>
             )}
 
@@ -683,24 +873,33 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
             )}
             {guardadas.tipo === "ok" && numGuardadas > 0 && (
               <div className="flex flex-col gap-2">
-                <h3 className="text-xl font-semibold">Guardados ({numGuardadas})</h3>
+                <h3 className="text-xl font-semibold">
+                  Guardados ({numVigentes})
+                  {numGuardadas > numVigentes && (
+                    <span className="ml-1 text-base font-normal text-texto-suave">
+                      · {numGuardadas - numVigentes} {numGuardadas - numVigentes === 1 ? "borrado" : "borrados"}
+                    </span>
+                  )}
+                </h3>
                 <ul className="flex flex-col gap-2">
-                  {guardadas.filas.map((f) => (
-                    <FilaGuardadaVista
-                      key={f.id}
-                      fila={f}
-                      puedeQuitar={f.usuario_id === usuario.id}
-                      preguntando={porQuitar === f.id}
-                      quitando={quitando.has(f.id)}
-                      alPreguntar={() => setPorQuitar(f.id)}
-                      alCancelar={() => setPorQuitar(null)}
-                      alQuitar={() => void quitarGuardada(f)}
-                    />
-                  ))}
+                  {guardadas.filas.map((f) => {
+                    const borrada = f.descartada_at !== null;
+                    return (
+                      <FilaGuardadaVista
+                        key={f.id}
+                        fila={f}
+                        puedeEditar={!borrada && (esAdmin || (f.usuario_id === usuario.id && !visitaBorrada))}
+                        puedeRestaurar={borrada && esAdmin}
+                        creador={esAdmin ? textoCreador(f.usuario_id, correos, usuario) : null}
+                        editandoEsta={editando?.id === f.id}
+                        ocupada={ocupadas.has(f.id) || guardandoEdicion}
+                        alEditar={() => empezarEdicion(f)}
+                        alBorrar={() => setPorBorrar(f)}
+                        alRestaurar={() => void restaurarGuardada(f)}
+                      />
+                    );
+                  })}
                 </ul>
-                <p className="text-base text-texto-suave">
-                  Para corregir un producto guardado: quítalo y vuelve a escribirlo.
-                </p>
               </div>
             )}
             {guardadas.tipo === "ok" && numGuardadas === 0 && !esMia && (
@@ -709,6 +908,28 @@ export default function CapturaManual({ visitaId, esMia }: { visitaId: string; e
           </>
         )}
       </div>
+
+      <DialogoConfirmar
+        abierto={porBorrar !== null}
+        titulo="¿Borrar este producto?"
+        texto={
+          porBorrar && (
+            <>
+              <p className="font-semibold text-texto break-words">
+                {porBorrar.articulo} · {formatearPesos(porBorrar.precio_regular)}
+              </p>
+              <p className="mt-1">
+                {esAdmin
+                  ? "Dejará de verse para el personal de campo. Lo puedes restaurar después."
+                  : "Ya no se mostrará. Solo el administrador lo puede recuperar."}
+              </p>
+            </>
+          )
+        }
+        textoConfirmar="Borrar"
+        alConfirmar={() => porBorrar && void borrarGuardada(porBorrar)}
+        alCancelar={() => setPorBorrar(null)}
+      />
 
       <p role="status" aria-live="polite" className="sr-only">
         {anuncio}
@@ -861,74 +1082,99 @@ function FilaPendiente({
 }
 
 // -----------------------------------------------------------------------------
-// Un producto GUARDADO (solo lectura), compacto. Las filas del formulario anterior
-// (010) muestran también su contenido y su promoción.
+// Un producto GUARDADO, compacto: "Editar" y "Borrar" (su autor o el admin) o, si
+// está borrado (solo lo ve el admin), "Borrado" y "Restaurar". Las filas del
+// formulario anterior (010) muestran también su contenido y su promoción.
 // -----------------------------------------------------------------------------
 
 function FilaGuardadaVista({
   fila,
-  puedeQuitar,
-  preguntando,
-  quitando,
-  alPreguntar,
-  alCancelar,
-  alQuitar,
+  puedeEditar,
+  puedeRestaurar,
+  creador,
+  editandoEsta,
+  ocupada,
+  alEditar,
+  alBorrar,
+  alRestaurar,
 }: {
   fila: FilaGuardada;
-  puedeQuitar: boolean;
-  preguntando: boolean;
-  quitando: boolean;
-  alPreguntar: () => void;
-  alCancelar: () => void;
-  alQuitar: () => void;
+  puedeEditar: boolean;
+  puedeRestaurar: boolean;
+  /** Solo admin: quién lo creó. */
+  creador: string | null;
+  editandoEsta: boolean;
+  ocupada: boolean;
+  alEditar: () => void;
+  alBorrar: () => void;
+  alRestaurar: () => void;
 }) {
+  const borrada = fila.descartada_at !== null;
   const promo = textoPromocion(fila);
   const contenido = textoContenido(fila.cantidad, fila.unidad, fila.piezas);
   const detalles = [contenido, fila.marca && `Marca: ${fila.marca}`, fila.area && `Área: ${fila.area}`]
     .filter(Boolean)
     .join(" · ");
   return (
-    <li className="rounded-xl border-2 border-borde bg-fondo px-3 py-2">
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 text-lg break-words">
-          <span className="font-semibold">{fila.articulo}</span> · {formatearPesos(fila.precio_regular)}
-          {promo && <span className="text-texto-suave"> · {promo}</span>}
+    <li
+      className={`rounded-xl border-2 px-3 py-2 ${
+        borrada
+          ? "border-dashed border-aviso-borde bg-aviso-fondo"
+          : editandoEsta
+            ? "border-marca bg-fondo"
+            : "border-borde bg-fondo"
+      }`}
+    >
+      {borrada && (
+        <p className="text-base font-bold text-aviso-texto">
+          Borrado {fila.descartada_at && formatearFecha(fila.descartada_at)}
         </p>
-        {puedeQuitar && !preguntando && (
-          <button
-            type="button"
-            onClick={alPreguntar}
-            disabled={quitando}
-            className="boton-gris min-h-12 shrink-0 rounded-xl px-3 py-2 text-lg font-semibold"
-          >
-            {quitando ? "Quitando…" : "Quitar"}
-          </button>
-        )}
-      </div>
+      )}
+      <p className={`text-lg break-words ${borrada ? "line-through decoration-2" : ""}`}>
+        <span className="font-semibold">{fila.articulo}</span> · {formatearPesos(fila.precio_regular)}
+        {promo && <span className="text-texto-suave"> · {promo}</span>}
+      </p>
       {detalles && <p className="text-base text-texto-suave break-words">{detalles}</p>}
       {fila.observaciones && <p className="text-base break-words">“{fila.observaciones}”</p>}
-      <p className="text-base text-texto-suave">Guardado {formatearFecha(fila.created_at)}</p>
+      <p className="text-base text-texto-suave">
+        Guardado {formatearFecha(fila.created_at)}
+        {fila.actualizado_at && ` · editado ${formatearFecha(fila.actualizado_at)}`}
+      </p>
+      {creador && <p className="text-base text-texto-suave break-words">👤 {creador}</p>}
+      {editandoEsta && <p className="text-base font-semibold">Editando arriba…</p>}
 
-      {puedeQuitar && preguntando && (
-        <div role="group" aria-label="Confirmar quitar" className="mt-2 flex flex-col gap-2">
-          <p className="font-semibold">¿Quitar este producto? Ya no se mostrará.</p>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={alCancelar}
-              className="boton-gris min-h-12 rounded-xl px-3 py-3 text-lg font-semibold"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={alQuitar}
-              className="boton-primario min-h-12 rounded-xl px-3 py-3 text-lg font-semibold"
-            >
-              Sí, quitar
-            </button>
-          </div>
+      {puedeEditar && !editandoEsta && (
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={alEditar}
+            disabled={ocupada}
+            aria-label={`Editar ${fila.articulo}`}
+            className="boton-contorno min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
+          >
+            Editar
+          </button>
+          <button
+            type="button"
+            onClick={alBorrar}
+            disabled={ocupada}
+            aria-label={`Borrar ${fila.articulo}`}
+            className="boton-gris min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
+          >
+            {ocupada ? "…" : "Borrar"}
+          </button>
         </div>
+      )}
+      {puedeRestaurar && (
+        <button
+          type="button"
+          onClick={alRestaurar}
+          disabled={ocupada}
+          aria-label={`Restaurar ${fila.articulo}`}
+          className="boton-gris mt-2 min-h-12 w-full rounded-xl px-3 py-2 text-lg font-semibold"
+        >
+          {ocupada ? "Restaurando…" : "Restaurar"}
+        </button>
       )}
     </li>
   );

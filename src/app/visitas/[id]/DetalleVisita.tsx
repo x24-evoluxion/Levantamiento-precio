@@ -3,7 +3,10 @@
 // Datos de una visita, la zona para subir fotos y la galería de fotos.
 // La base de datos solo deja ver visitas propias (el admin, todas): si alguien abre
 // el link de una visita de otra persona, la consulta no regresa nada y se muestra
-// "no existe". El admin ve además quién la creó y puede corregir la tienda.
+// "no existe". El admin ve además quién la creó.
+// Arriba van "Cambiar tienda" y "Borrar visita" (AccionesVisita, 012): el dueño, si
+// ningún agente leyó sus fotos; el admin, siempre. Una visita borrada solo la ve el
+// admin, marcada "Borrada" y con "Restaurar visita".
 // Debajo de las fotos va la sección opcional de captura manual (CapturaManual).
 
 import { useEffect, useState } from "react";
@@ -14,7 +17,7 @@ import { leerCorreos, textoCreador, type Correos } from "@/lib/correos";
 import type { Visita } from "@/lib/tipos";
 import { enlaceMapa, formatearPrecision } from "@/lib/ubicacion";
 import FotosVisita from "./FotosVisita";
-import CorregirTienda from "./CorregirTienda";
+import AccionesVisita from "./AccionesVisita";
 import CapturaManual from "./CapturaManual";
 import TituloError from "@/components/TituloError";
 
@@ -105,15 +108,16 @@ export default function DetalleVisita({ id }: { id: string }) {
     <section className="flex flex-col gap-4">
       <h1 className="text-3xl font-bold">{v.competidores?.nombre ?? "Competidor desconocido"}</h1>
 
-      {esAdmin && (
-        <CorregirTienda
-          // key: al cambiar la tienda, el formulario empieza de nuevo con la actual.
-          key={v.competidor_id}
-          visitaId={v.id}
-          competidorActualId={v.competidor_id}
-          alGuardar={() => setIntento((n) => n + 1)}
-        />
-      )}
+      <AccionesVisita
+        // key: al cambiar la tienda o borrar/restaurar, empieza de nuevo con lo actual.
+        key={`${v.competidor_id}-${v.descartada_at ?? ""}`}
+        visitaId={v.id}
+        competidorActualId={v.competidor_id}
+        descartadaAt={v.descartada_at}
+        esMia={v.usuario_id === usuario.id}
+        esAdmin={esAdmin}
+        alCambiar={() => setIntento((n) => n + 1)}
+      />
 
       <dl className="flex flex-col gap-3 rounded-xl border-2 border-borde bg-tarjeta p-4 text-texto">
         {esAdmin && (
@@ -155,11 +159,15 @@ export default function DetalleVisita({ id }: { id: string }) {
         </div>
       </dl>
 
-      <FotosVisita visitaId={v.id} />
+      <FotosVisita visitaId={v.id} visitaBorrada={v.descartada_at !== null} />
 
-      {/* Opcional: datos del levantamiento escritos a mano (010). Solo quien creó la
-          visita escribe; el admin ve los de cualquier visita. */}
-      <CapturaManual visitaId={v.id} esMia={v.usuario_id === usuario.id} />
+      {/* Opcional: datos del levantamiento escritos a mano (010–012). Solo quien creó la
+          visita escribe; el admin ve los de cualquier visita y los edita o borra. */}
+      <CapturaManual
+        visitaId={v.id}
+        esMia={v.usuario_id === usuario.id}
+        visitaBorrada={v.descartada_at !== null}
+      />
     </section>
   );
 }

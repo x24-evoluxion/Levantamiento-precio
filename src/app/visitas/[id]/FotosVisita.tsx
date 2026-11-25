@@ -19,10 +19,11 @@
 //      Si falló, o ya no se podía (por ejemplo, justo la mandaron a leer
 //      precios) → la foto sigue a la vista y se explica por qué.
 //
-// QUIÉN PUEDE QUÉ (lo decide la base de datos, 008): el personal de campo quita
-// fotos pendientes de SUS visitas; el admin, de cualquier visita. Solo el admin ve
-// las fotos quitadas (sección "Fotos quitadas") y las puede RESTAURAR, con la
-// función admin_restaurar_foto.
+// QUIÉN PUEDE QUÉ (lo decide la base de datos, 008 y 012): el personal de campo quita
+// fotos pendientes de SUS visitas; el admin, CUALQUIER foto (también las ya leídas,
+// 012). Solo el admin ve las fotos quitadas (sección "Fotos quitadas") y las puede
+// RESTAURAR, con la función admin_restaurar_foto. En una visita borrada (solo la ve el
+// admin) no se ofrece subir fotos.
 //
 // Los links de las fotos son URLs firmadas (src/lib/urlsFirmadas.ts): se piden aquí
 // una sola vez para todas las fotos y se pasan a la galería y a las ventanas.
@@ -133,7 +134,7 @@ async function guardarRestauracion(foto: Foto): Promise<Aviso | null> {
   }
 }
 
-export default function FotosVisita({ visitaId }: { visitaId: string }) {
+export default function FotosVisita({ visitaId, visitaBorrada }: { visitaId: string; visitaBorrada: boolean }) {
   const { usuario } = useSesion();
   const esAdmin = usuario.esAdmin;
   const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
@@ -212,7 +213,8 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
   );
 
   function alTocarQuitar(foto: Foto) {
-    if (foto.estado_proceso !== "pendiente") {
+    // El admin puede quitar cualquier foto (012); el personal de campo, solo pendientes.
+    if (foto.estado_proceso !== "pendiente" && !esAdmin) {
       setAviso({ tipo: "aviso", texto: textoNoSePuedeQuitar(foto.estado_proceso) });
       return;
     }
@@ -267,7 +269,11 @@ export default function FotosVisita({ visitaId }: { visitaId: string }) {
     <section className="flex flex-col gap-3">
       <h2 className="text-2xl font-bold">Fotos</h2>
 
-      <SubirFotos visitaId={visitaId} alSubir={alSubir} />
+      {visitaBorrada ? (
+        <p className="caja-info">Esta visita está borrada: restáurala para subir más fotos.</p>
+      ) : (
+        <SubirFotos visitaId={visitaId} alSubir={alSubir} />
+      )}
 
       {estado.tipo === "cargando" && (
         <p className="caja-info">Cargando fotos…</p>

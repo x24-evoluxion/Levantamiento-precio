@@ -2,7 +2,7 @@
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
 // (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql,
 // 007_descartar_fotos.sql, 008_autenticacion.sql, 010_capturas_manuales.sql,
-// 011_captura_rapida.sql).
+// 011_captura_rapida.sql, 012_editar_borrar.sql).
 // Si cambias una tabla, cambia también este archivo.
 //
 // Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
@@ -14,10 +14,11 @@
 //   Row    → cómo llega una fila al LEERLA
 //   Insert → qué se manda al CREAR una fila (solo las columnas que la app puede llenar).
 //            El dueño (visitas.usuario_id, fotos.subida_por) NO está: lo pone el servidor.
-//   Update → qué puede CAMBIAR la app. Vacío a propósito, salvo en fotos: solo
-//            descartada_at (quitar una foto pendiente de una visita propia; el admin, de
-//            cualquiera). Nadie la puede restaurar así: el admin usa admin_restaurar_foto.
-//            En capturas_manuales también solo descartada_at, y solo en filas propias.
+//   Update → qué puede CAMBIAR la app (permisos por columna; BORRAR = poner descartada_at,
+//            nunca DELETE). fotos: solo descartada_at (campo: pendientes de sus visitas; admin:
+//            cualquiera, 012). visitas (012): tienda y descartada_at. capturas_manuales (012):
+//            los 4 campos del formulario, articulo_de_lista y descartada_at. Restaurar (null)
+//            solo lo deja la base al admin.
 //   Functions → funciones de la base que la app puede llamar con supabase.rpc(). Las
 //            admin_* revisan en la base que quien llama sea admin (si no, error 42501).
 //
@@ -58,6 +59,11 @@ export type Database = {
           created_at: string;
           /** 008: quién creó la visita. null = visita de antes del login (o cuenta borrada). */
           usuario_id: string | null;
+          /**
+           * 012: hora (del servidor) en que se BORRÓ (descartó). null = a la vista.
+           * El personal de campo nunca recibe visitas borradas (la base las esconde).
+           */
+          descartada_at: string | null;
         };
         Insert: {
           competidor_id: number;
@@ -66,7 +72,15 @@ export type Database = {
           precision_metros?: number | null;
           ubicacion_at?: string | null;
         };
-        Update: SinCambios;
+        /**
+         * 012: cambiar la tienda o borrar (descartada_at). El dueño, solo en SU visita no
+         * borrada y sin fotos leídas; el admin, en cualquiera, y restaura (null). La tienda
+         * nueva debe estar activa. Nunca usuario_id, ubicación ni created_at.
+         */
+        Update: {
+          competidor_id?: number;
+          descartada_at?: string | null;
+        };
         Relationships: [
           {
             foreignKeyName: "visitas_competidor_id_fkey";
@@ -113,8 +127,9 @@ export type Database = {
           capturada_origen?: OrigenCaptura;
         };
         /**
-         * Lo único que "anon" puede cambiar (007): quitar una foto 'pendiente' que no
-         * esté quitada. El valor que se manda no importa: el servidor pone su hora.
+         * Lo único que la app puede cambiar: descartada_at. Campo: quitar fotos 'pendiente'
+         * de sus visitas (008). Admin (012): quitar cualquier foto; restaurar con
+         * admin_restaurar_foto. La hora la pone el servidor.
          */
         Update: {
           descartada_at: string;
@@ -166,8 +181,11 @@ export type Database = {
           /** Hasta 500 letras (011). */
           observaciones: string | null;
           created_at: string;
-          /** Hora (del servidor) en que su autor la quitó. null = vigente. */
+          /** Hora (del servidor) en que se borró. null = vigente. Solo el admin ve las borradas. */
           descartada_at: string | null;
+          /** 012: última edición, borrado o restauración (los pone un trigger). */
+          actualizado_at: string | null;
+          actualizado_por: string | null;
         };
         /**
          * Lo que manda la captura rápida (011). Sin id, usuario_id, created_at,
@@ -194,9 +212,18 @@ export type Database = {
           promo_paga_piezas?: number | null;
           promo_condicion?: "ninguna" | "tarjeta" | "app" | "otro";
         };
-        /** Solo quitar una fila propia. El servidor pone su hora. */
+        /**
+         * 012: editar o borrar (descartada_at). El dueño, solo sus filas no borradas; el
+         * admin, cualquiera, y restaura (null). El servidor pone la hora del borrado y
+         * actualizado_at / actualizado_por. Nunca usuario_id, visita_id ni created_at.
+         */
         Update: {
-          descartada_at: string;
+          articulo?: string;
+          articulo_de_lista?: boolean;
+          precio_regular?: number;
+          promo_precio_pieza?: number | null;
+          observaciones?: string | null;
+          descartada_at?: string | null;
         };
         Relationships: [
           {

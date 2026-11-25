@@ -319,10 +319,13 @@ propias en `src/lib/etapa2/validar.ts`.
 | ~~`supabase/pruebas/010_prueba_capturas_manuales.sql`~~ | Fuera del plan (2026-11-25) | ~~45 casos~~. Reemplazada por `010b` (ocultaba la causa de un error; ver PROGRESO "Corrección de la prueba de 010") |
 | `supabase/pruebas/010b_prueba_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Freno si falta `010` + 46 casos con datos inventados; termina con `rollback`. Describe el formulario **anterior**: se corre **antes** de `011` |
 | `supabase/011_captura_rapida.sql` | Fuera del plan (2026-11-25) | Captura rápida (aditiva): presentación opcional en `capturas_manuales`, columnas `articulo_de_lista` y `promo_precio_pieza`, CHECK de largo/precios, y función `articulos_captura()` (solo **descripciones** de artículos propios activos, en **un** arreglo; ejecutable solo por `authenticated`). `authenticated` sigue **sin acceso** a `catalogo_propio` y a toda la Etapa 2. Ver 9.5 |
-| `supabase/pruebas/011_prueba_captura_rapida.sql` | Fuera del plan (2026-11-25) | Freno si falta `011` + 44 casos con datos inventados (1,200 artículos de prueba); solo muestra conteos; termina con `rollback` |
+| `supabase/pruebas/011_prueba_captura_rapida.sql` | Fuera del plan (2026-11-25) | Freno si falta `011` + 44 casos con datos inventados (1,200 artículos de prueba); solo muestra conteos; termina con `rollback`. Se corre **antes** de `012` |
+| `supabase/012_editar_borrar.sql` | Fuera del plan (2026-11-25) | Editar y borrar lo capturado (aditiva): `visitas.descartada_at`, `capturas_manuales.actualizado_at/_por`, permisos por columna, reglas de UPDATE (dueño y admin), triggers (hora del servidor; tienda activa) y `privado.visita_sin_fotos_leidas`. **No abre** nada de la Etapa 2 |
+| `supabase/pruebas/012_prueba_editar_borrar.sql` | Fuera del plan (2026-11-25) | Freno si falta `012` + 47 casos con datos inventados; termina con `rollback` |
+| `supabase/012b_etapa2_sin_visitas_borradas.sql` | Fuera del plan (2026-11-25) | **Para revisar antes de ejecutar.** `lecturas_analisis` y `comparacion_precios` ignoran visitas borradas (una línea cada una) y `guardar_lecturas` rechaza fotos quitadas o de visitas borradas. Va después de `012` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
-equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ ~~`011_...`~~ el siguiente número libre: `012_...`; `010` y `011` ya son la captura manual).
+equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ ~~`011_...`~~ ~~`012_...`~~ el siguiente número libre: `013_...`; `010`, `011` y `012`/`012b` ya son la captura manual y editar/borrar).
 
 Todos se ejecutan **a mano** en el SQL Editor, se pueden ejecutar varias veces, y el agente
 **avisa y explica cada bloque antes** de que el usuario los ejecute.
@@ -996,8 +999,12 @@ A cambio cuesta **50 % menos**. Por eso son dos comandos separados.
 
 ### Paso 1 — `npm run lote:crear` ("entregar")
 1. Busca fotos `pendiente`, o `error` con `intentos < 3`. **Nunca** `procesada` ni
-   `en_lote`, y **nunca descartadas** (`descartada_at is null`, 2026-11-23). Máximo `N` por
-   lote (ej. 200, configurable).
+   `en_lote`, **nunca descartadas** (`descartada_at is null`, 2026-11-23) y **nunca de
+   visitas borradas** (`visitas.descartada_at is null`, 2026-11-25, `012`): se une con
+   `visitas` dentro del mismo `update`. Máximo `N` por lote (ej. 200, configurable).
+   El proceso corre con la secret key (sin RLS), así que este filtro **lo pone el script**:
+   la base no lo hace sola. Al guardar, `guardar_lecturas` también rechaza esas fotos
+   (`012b`).
    **Regla anti-carrera (2026-11-23):** las fotos se toman y se marcan `en_lote` en **un solo
    `update`** (`update fotos set estado_proceso = 'en_lote' … where estado_proceso in (…) and
    descartada_at is null … returning id`). Así, o la persona la quita antes (y no entra al
@@ -1139,13 +1146,19 @@ fases 🤖 (la decide el usuario):
   siempre con aprobación humana.
 - **Validación continua (opcional):** una vista solo para `service_role` que marque lecturas
   que no coinciden con una captura manual de la misma visita, para revisarlas primero.
+- **Borrar = descartar (`012`):** ni las visitas, ni las fotos, ni los productos se borran;
+  se marcan con `descartada_at`. **Ningún agente de lectura toma fotos quitadas ni de visitas
+  borradas** (ver sección 7 y `012b`).
 - **Reglas que deben respetarse:**
   1. 🚫 **Los agentes NO deben ver estas filas al leer fotos** (ni en las instrucciones, ni
      como ejemplos, ni como "pista" del precio o del artículo). Sirven como **muestra
      verificada**: si las vieran, la evaluación ya no mediría nada. El proceso de lectura no
      consulta `capturas_manuales`. La captura es **opcional**: una visita sin filas manuales
      se procesa igual.
-  2. Solo se usan filas **vigentes** (`descartada_at` nulo).
+  2. Solo se usan filas **vigentes** (`descartada_at` nulo) **de visitas no borradas**
+     (`visitas.descartada_at` nulo, `012`). Desde `012` las filas se pueden **editar**:
+     `actualizado_at`/`actualizado_por` dicen cuándo y quién; la evaluación usa el valor
+     vigente.
   3. La lectura de esta tabla la hace el script local con la secret key (como el resto de la
      Etapa 2); la app no cambia.
   4. Las filas manuales no se copian a `lecturas_precio` (son otra fuente; `valores_agente`
