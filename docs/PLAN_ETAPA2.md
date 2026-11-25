@@ -315,9 +315,11 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/008_autenticacion.sql` | Fuera del plan (2026-11-24) | Login: `visitas.usuario_id`, `fotos.subida_por`, `es_admin()`, reglas de `authenticated` y funciones del admin. **No toca la Etapa 2** (sigue cerrada para `anon` y `authenticated`, también para el admin) |
 | `supabase/009_cerrar_anon.sql` | Fuera del plan (2026-11-24) | Quita todo a `anon` y pone el bucket en privado. Se ejecuta **después** de probar la app nueva |
 | `supabase/pruebas/008_prueba_autenticacion.sql`, `009_prueba_sin_anon.sql` | Fuera del plan (2026-11-24) | Pruebas con usuarios y datos inventados; terminan con `rollback` |
+| `supabase/010_capturas_manuales.sql` | Fuera del plan (2026-11-25) | Captura manual: tabla `capturas_manuales` (abierta a `authenticated` con reglas, **no** es de la Etapa 2), función `sugerencias_captura()` (solo nombres de área y marca) y dos envoltorios en `privado`. **No abre** ninguna tabla de la Etapa 2. Ver 9.5 |
+| `supabase/pruebas/010_prueba_capturas_manuales.sql` | Fuera del plan (2026-11-25) | 45 casos con datos inventados; termina con `rollback` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
-equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ el siguiente número libre: `010_...`).
+equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ el siguiente número libre: `011_...`; `010` ya es la captura manual).
 
 Todos se ejecutan **a mano** en el SQL Editor, se pueden ejecutar varias veces, y el agente
 **avisa y explica cada bloque antes** de que el usuario los ejecute.
@@ -921,6 +923,8 @@ reemplazan. Todas cerradas a `anon` (5.0).
 - **La foto** por su URL pública de Supabase (el bucket ya es público para lectura). Si en
   la evaluación la URL diera problemas, se manda en base64.
 - **`output_config.format`** con el esquema JSON (6.2). Sin herramientas, sin conversación.
+- 🚫 **Nunca** se manda nada de `capturas_manuales` (ni en las instrucciones ni como ejemplo):
+  son la respuesta "correcta" escrita a mano y sirven para **medir** al agente (9.5).
 - Las instrucciones se marcan para *prompt caching*.
 
 ### 6.2 Forma del JSON
@@ -1108,6 +1112,31 @@ usuario elige.** Resultado en `docs/evaluacion/RESULTADOS.md`.
 - **Cómo se decide:** en E2-9 se mide cuántos errores con `alta` atraparía. **Si la
   confianza ya está bien calibrada, no se activa.** Si no, se activa (todas las fotos o
   solo las de artículos clave). Queda como interruptor en el código (`SEGUNDA_LECTURA`).
+
+### 9.5 Propuesta futura: captura manual para validación y evaluación *(2026-11-25, no implementada)*
+
+Desde `010`, la app permite escribir a mano, por visita, una fila por producto
+(`capturas_manuales`, PLAN.md 4.1). **En esta fase ningún agente las usa.** Propuesta para
+cuando lleguen las fases 🤖 (la decide el usuario):
+
+- **Muestra verificada (9.1):** las visitas con captura manual completa pueden ser la muestra
+  de evaluación, en lugar de (o además de) `esperado.csv`. Una persona revisa que la captura
+  cubra **todos** los productos de las fotos de esa visita antes de usarla.
+- **Comparación:** se empareja cada lectura con la captura de la **misma visita** por
+  artículo/marca normalizados (`normalizar_texto`) + `unidad_base` + `contenido_base`
+  (mismas funciones que `lecturas_precio`), y se compara precio al centavo y promoción.
+  Las métricas son las de 9.3.
+- **Validación continua (opcional):** una vista solo para `service_role` que marque lecturas
+  que no coinciden con una captura manual de la misma visita, para revisarlas primero.
+- **Reglas que deben respetarse:**
+  1. 🚫 **Los agentes NO deben ver estas filas al leer** (ni en las instrucciones, ni como
+     ejemplos, ni como "pista" del precio). Si las vieran, la evaluación ya no mediría nada.
+     El proceso de lectura no consulta `capturas_manuales`.
+  2. Solo se usan filas **vigentes** (`descartada_at` nulo).
+  3. La lectura de esta tabla la hace el script local con la secret key (como el resto de la
+     Etapa 2); la app no cambia.
+  4. Las filas manuales no se copian a `lecturas_precio` (son otra fuente; `valores_agente`
+     solo guarda lo que dijo el agente).
 
 ---
 

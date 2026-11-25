@@ -22,6 +22,7 @@
 | — | Autenticación y propiedad de visitas — fuera del plan original (reemplaza "sin login") | ✅ (cerrada el 2026-11-24: `008`, `008b` y `009` ejecutadas, pruebas ok; ver su sección) |
 | — | Mensajes de error claros (red / sesión / Supabase) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
 | — | Entrar con usuario (`<usuario>@x24.com.mx`) — fuera del plan original | 🟡 falta prueba del usuario y despliegue |
+| — | Captura manual de datos con sugerencias (`010`) — fuera del plan original | 🟡 falta que el usuario ejecute `010` y su prueba, push y prueba con dos cuentas de campo y el admin |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -84,6 +85,10 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
       (no hecha). Esos archivos **solo se borran con la API de Storage, nunca con SQL**.
 - [ ] **(Etapa 2) Levantamiento de octubre de la consultora.** Aún no hay datos. Si llega,
       se agrega a la evaluación (E2-9) como muestra adicional.
+- [ ] **(Captura manual, 2026-11-25) Pasos del usuario:** ejecutar `010` y su prueba, push y
+      probar (ver "Captura manual de datos", ORDEN DE DESPLIEGUE).
+- [ ] **(Etapa 2, fases 🤖) Uso de `capturas_manuales`** para validación y evaluación: propuesta en
+      PLAN_ETAPA2 9.5, **no decidida**. Regla ya fija: los agentes **no** ven estas filas al leer.
 
 ### Avisos permanentes (no son pendientes)
 
@@ -99,6 +104,11 @@ Leyenda: ⬜ pendiente · 🟡 en curso / incompleta · ✅ terminada
   correo `<usuario>@x24.com.mx` (usuario de 3 a 30 caracteres: `a-z`, `0-9`, `.`, `_`, `-`, en
   minúsculas). En la app se entra solo con `<usuario>`. El dominio vive en
   `src/lib/usuarios.ts` (`DOMINIO_INTERNO`). Ver la sección "Entrar con usuario".
+- **Comprobaciones viejas después de `010`:** al volver a correr la comprobación final de `009`,
+  salen `false` "Etapa 2: ninguna tabla o vista abierta…" y "Etapa 2: ninguna función abierta…";
+  en la de `008b`, "Las 5 funciones…" y "Las reglas usan las funciones…". Es **normal**: `010`
+  abre a propósito `capturas_manuales`, `sugerencias_captura()` y dos funciones de `privado`. La
+  comprobación final de `010` (filas 13 y 14) revisa que el resto de la Etapa 2 siga cerrado.
 - ⚠️ **No borrar cuentas que ya tienen visitas.** `visitas.usuario_id` y `fotos.subida_por` usan
   `on delete set null`: al borrar la cuenta, sus visitas quedan **sin dueño** (solo las ve el
   admin y ya no se sabe quién las hizo). Para quitarle el acceso a alguien, bloquear la cuenta en
@@ -1868,3 +1878,136 @@ de app: **no** se tocaron tablas, reglas ni migraciones, **no** se ejecutó nada
 eso cierre sus sesiones), para el caso de alguien que deja de trabajar.
 
 **Commit:** ver `git log` — `Entrar con usuario: <usuario>@x24.com.mx, gestor de contraseñas y último usuario`
+
+---
+
+## Captura manual de datos con sugerencias (2026-11-25) — 🟡 falta ejecutar `010`, desplegar y probar
+
+Fase nueva, **fuera del plan original**, pedida por el usuario. **No** se ejecutó nada en
+Supabase, **no** se leyó `.env.local`, **no** se usa la secret key en la app, **no** se instaló
+ninguna librería, **no** se empezaron fases 🤖 ni se llamó a la API de Anthropic. **Ningún agente
+consume estas filas.**
+
+**Qué se hizo:**
+- `supabase/010_capturas_manuales.sql` (**aditiva**, repetible, en una transacción, con freno si
+  faltan `004`, `005`, `008` u `008b`):
+  - BLOQUE 1: `privado.normalizar_unidad_base` y `privado.normalizar_contenido_base`, envoltorios
+    `security definer` de las funciones de `004`. Hacen falta porque Postgres pide permiso de
+    ejecutar la función de una columna generada a **quien inserta** (comprobado en local: sin el
+    envoltorio, `authenticated` recibe "permission denied for function").
+  - BLOQUE 2: tabla `capturas_manuales` (PLAN 4.1) con 17 CHECK: listas de unidad, tipo y
+    condición de promoción; `cantidad > 0` con hasta 3 decimales; `precio_regular ≥ 0` con hasta
+    2 decimales (más decimales se **rechazan**, no se redondean); piezas 1–1000; textos no vacíos y
+    con largo máximo; reglas de promoción por tipo; sin promoción → sin datos de promoción.
+  - BLOQUE 3: *trigger* que pone la hora del servidor en `descartada_at` (como fotos en `007`).
+  - BLOQUE 4: se quita todo a `anon`/`authenticated` y se da: `select`; `insert` solo de las
+    columnas de la app (sin `id`, `usuario_id`, `created_at`, `descartada_at` ni generadas);
+    `update (descartada_at)`. Sin `delete`.
+  - BLOQUE 5: 3 reglas para `authenticated`: leer con `privado.puede_usar_visita` (mías; admin
+    todas); crear con `usuario_id = auth.uid()` y `privado.es_dueno_de_visita` (solo en mis
+    visitas, también el admin); quitar solo mis filas vigentes, sin restaurar. **Ninguna
+    subconsulta** a otras tablas.
+  - BLOQUE 6: `public.sugerencias_captura()` → `table (tipo text, valor text)`, `security
+    definer`, `search_path = ''`, ejecutable solo por `authenticated` (y `service_role`). Áreas:
+    nombres distintos de `catalogo_propio.area`. Marcas: las de `capturas_manuales` vigentes.
+    Junta las que solo cambian en mayúsculas/acentos (deja la forma más usada). Sin sesión no
+    devuelve nada.
+  - BLOQUE 7: comprobación (solo lee): 15 filas `ok`.
+- `supabase/pruebas/010_prueba_capturas_manuales.sql`: 45 casos con usuarios y datos inventados
+  (`@ejemplo.invalid`), flujo real de la app (insert de varias filas `… returning`, select,
+  quitar `… returning id`, `select * from sugerencias_captura()`), termina con `rollback`. Cubre:
+  C1 crea y ve solo en sus visitas; C2 no ve ni crea en las ajenas; nadie crea en visitas sin
+  dueño; el admin ve todas pero crea solo en las suyas; no se puede mandar `usuario_id` ni
+  `descartada_at`; no se cambia precio, visita ni autor; no se borra; quitar solo lo propio, con
+  hora del servidor y sin restaurar; 12 CHECK con valores inválidos; promociones válidas;
+  "Guardar" todo o nada; `anon` no lee, no crea ni ejecuta la función; la función devuelve solo
+  `tipo`/`valor`, el área sí y la clave/descripción no; marcas sin duplicar; nadie lee
+  `catalogo_propio`; ningún "infinite recursion".
+- App (sin librerías nuevas):
+  - `src/lib/capturas.ts` (nuevo): listas de valores, lectura de números con coma o punto,
+    validación en español, avisos (precio 0; precio rebajado no menor que el regular), conversión
+    a la fila de Supabase, filtro de sugerencias, borrador en `localStorage` y aviso al salir.
+  - `src/lib/capturas.test.ts` (nuevo, `npm run test:capturas`): 12 pruebas.
+  - `src/components/CampoSugerencias.tsx` (nuevo): combobox accesible (ARIA 1.2: `combobox`,
+    `listbox`, `aria-activedescendant`, flechas/Enter/Escape, aviso de cuántas sugerencias). Hasta
+    5: primero las que empiezan y luego las que contienen, sin mayúsculas ni acentos ("BE" →
+    "BEBIDAS"). Tocar una llena el campo; escribir respeta exactamente lo escrito. Letra de 18 px,
+    opciones de 48 px y, si la lista no cabe sobre el teclado, el campo sube (`visualViewport`).
+  - `src/app/visitas/[id]/CapturaManual.tsx` (nuevo): sección opcional (cerrada salvo que haya
+    borrador). Al abrirla carga una vez las sugerencias y las filas guardadas. Tarjetas con
+    "+ Agregar producto", "Duplicar fila", "Quitar"; "Tiene promoción" muestra sus campos; teclado
+    numérico (`inputMode`); "Guardar datos" = **un** insert con todas las filas (todo o nada);
+    errores con `src/lib/errores.ts` (red / sesión con botón / Supabase con código; `SIN-FILAS` si
+    Supabase respondió sin las filas, `SIN-CAMBIO` si quitar no cambió nada). Filas guardadas en
+    solo lectura con "Quitar" (pregunta "¿Quitar este producto?") solo para su autor.
+  - `src/app/visitas/[id]/EnlaceVolver.tsx` (nuevo): "← Volver a la lista" pregunta si hay
+    productos sin guardar. Al cerrar o recargar la pestaña avisa el navegador (`beforeunload`).
+  - `src/app/visitas/[id]/DetalleVisita.tsx` y `page.tsx`: la sección va debajo de las fotos.
+  - `src/lib/tipos.ts`: tabla `capturas_manuales` y función `sugerencias_captura`.
+  - `package.json`: script `test:capturas`.
+  - `noindex` y tema: sin cambios (mismos colores de `globals.css`).
+- Docs: `PLAN.md` (1, fuera de alcance, 4.1, 4.3, 4.4, 5 y 8), `PLAN_ETAPA2.md` (5.0, 6.1 y 9.5:
+  propuesta de uso para validación y evaluación; los agentes no deben ver estas filas),
+  `RESUMEN_PROYECTO.md`.
+
+**⚠️ ORDEN DE DESPLIEGUE (no cambiar):**
+1. **Yo (usuario) ejecuto la migración (aditiva):** SQL Editor → `supabase/010_capturas_manuales.sql`
+   → las 15 filas con `ok = true`. Luego `supabase/pruebas/010_prueba_capturas_manuales.sql` →
+   fila `0. RESUMEN` con `ok = true` (45 casos). La app publicada sigue igual (no usa nada nuevo).
+2. **Push** de la app y esperar **Ready** en Vercel (Deployments).
+3. **Pruebo con dos cuentas de campo y con el admin** (ver "Cómo probarlo").
+
+**Cómo probarlo (paso 3):**
+1. Campo 1: abrir una visita suya → "Datos del levantamiento (manual)" → se abre la sección.
+   "+ Agregar producto" → escribir "Refresco", contenido `600`, unidad ml, precio `18,50`.
+   En **Área** escribir `be` → aparecen sugerencias (si el catálogo tiene un área con "BE");
+   tocar una → se llena. Escribir otra cosa que no esté → se queda tal cual.
+2. Agregar otro producto con precio `0` → aviso amarillo, pero deja guardar. "Duplicar fila" →
+   aparece una copia debajo. Dejar el artículo vacío en una → "Guardar datos" → no guarda nada y
+   lleva el foco al campo en rojo. Llenarlo → "Guardar datos" → "Se guardaron N productos".
+3. Antes de guardar, recargar la página → el navegador avisa; al volver, lo escrito sigue ahí
+   (borrador). Con productos sin guardar, tocar "← Volver a la lista" → pregunta.
+4. "Quitar" en una fila guardada → "¿Quitar este producto?" → "Sí, quitar" → desaparece.
+5. En el celular: los campos no hacen zoom al tocarlos (iPhone) y la lista de sugerencias no
+   queda tapada por el teclado. Teclado numérico en contenido, piezas y precios.
+6. Campo 2: abrir el link de la visita de Campo 1 → "no existe o no es tuya". En una visita
+   suya, no ve los datos de Campo 1. Al escribir una marca que guardó Campo 1, sí aparece como
+   sugerencia (las marcas son compartidas, solo el nombre).
+7. Admin: abrir la visita de Campo 1 → ve los productos guardados (sin "Quitar") y "Solo quien
+   creó la visita puede escribir datos en ella". En una visita del admin sí puede escribir.
+8. Modo avión → "Guardar datos" → "No hay conexión…" y lo escrito sigue ahí.
+
+**Decisiones tomadas por el agente (y por qué):**
+- **El admin escribe solo en sus visitas** y quita solo sus filas: la petición decía "cada persona
+  crea solo en SUS visitas; el admin ve todas" y "descartar solo sus propias filas".
+- **`promo_paga_piezas`** (no estaba en la lista de campos): sin ella "lleva 3 paga 2" no se puede
+  guardar. Es la misma columna de `lecturas_precio`, así se compara igual.
+- **Reglas de promoción en la base:** `precio_rebajado` → `promo_piezas = 1` y precio obligatorio;
+  `n_por_precio` → al menos 2 piezas y precio total; `nxm` → lleva ≥ 2, paga < lleva, sin precio
+  total; `otro` → todo opcional. Igual que las fórmulas de `lecturas_precio` (PLAN_ETAPA2 5.5).
+- **Decimales:** columnas `numeric` con CHECK de `scale()` en lugar de `numeric(10,2)`, porque
+  `numeric(10,2)` **redondea** en silencio y el usuario pidió que la base rechace valores
+  inválidos. El rango es el mismo.
+- **Marcas compartidas:** las sugerencias de marca salen de las capturas de **todas** las personas
+  (solo el nombre; sin quién, dónde ni precio), para que la lista sea útil desde el principio.
+- **`de_lista`:** `true` solo si se **tocó** una sugerencia; si después se edita el texto, vuelve a
+  `false`. Si lo escrito solo difiere en mayúsculas/acentos de una opción (por ejemplo "lacteos"),
+  se sugiere la forma de la lista, pero no se cambia sola.
+- **Filas vacías** (recién agregadas, sin nada escrito) no se guardan ni cuentan para el aviso.
+- **Sección cerrada por defecto** ("opcional"): se abre sola si hay borrador.
+
+**Riesgos y límites conocidos:**
+- Si la red se corta **después** de que Supabase guardó pero antes de recibir la respuesta, la app
+  muestra el error de red y conserva el borrador: al reintentar se duplicarían las filas. Se ven
+  en "Guardados" (al recargar) y se pueden quitar. No se resolvió con ids del cliente porque la
+  app no tiene permiso de mandar `id`.
+- Las sugerencias se cargan una vez al abrir la sección: una marca que otra persona guarde
+  después aparece hasta volver a abrir la pantalla.
+- **No probado en el navegador ni contra Supabase real** (para no consultar Supabase antes de
+  `010`). Probado en local con PGlite (Postgres en WASM en el scratchpad, **no es Supabase**,
+  mismo arnés que `008b`): `001`→`009` reales, `010` dos veces seguidas → 15/15 `ok`; prueba `010`
+  → 45/45; las pruebas `008` (55/55) y `009` (12/12) siguen pasando. `npm run lint` ✅,
+  `npm run build` ✅, `npm run test:capturas` 12/12 ✅, `test:errores` 10/10 ✅, `test:etapa2`
+  14/14 ✅.
+
+**Commit:** ver `git log` — `Captura manual de datos con sugerencias (010): tabla, reglas, app y docs`

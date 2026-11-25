@@ -2,7 +2,7 @@
 
 > Documento de traspaso para el equipo. Explica la idea general, cómo funciona la app, cómo está organizada la base de datos, qué se decidió, qué está pendiente y cómo modificar la app.
 >
-> Última actualización: 2026-11-24.
+> Última actualización: 2026-11-25.
 > **Fuente de verdad del avance:** `docs/PROGRESO.md`. Si algo de este documento contradice a `PROGRESO.md`, manda `PROGRESO.md`.
 >
 > Este documento no contiene datos reales, claves ni el link de la app. El link se pide al responsable del proyecto.
@@ -30,6 +30,7 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 | Quitar fotos de una visita (descarte reversible, migración 007) | Terminado, ejecutado y probado en el celular (2026-11-23) |
 | Login y dueño de cada visita (migraciones 008, 008b y 009) | **Terminado (2026-11-24).** Migraciones ejecutadas y probadas: login obligatorio, `anon` sin acceso y bucket privado |
 | Entrar con **usuario** (`<usuario>@x24.com.mx`), solo cambio de app | Hecho (2026-11-24); falta probar en el celular y publicar |
+| Captura manual de datos con sugerencias (migración 010) | Hecho (2026-11-25); falta ejecutar `010` y su prueba, publicar y probar con dos cuentas de campo y el admin |
 | Etapa 2, agentes: lectura de fotos con la API de Claude | **No iniciada.** Las fases de agentes solo empiezan cuando se piden |
 | Cambios pedidos en revisión (sección 8.3) | Por decidir o por implementar |
 
@@ -47,14 +48,15 @@ Meta de largo plazo: un sistema de inteligencia de precios que responda "en qué
 6. En la pantalla de la visita sube fotos desde su galería. Antes de subir, la app convierte formatos como HEIC (iPhone) a JPEG, reduce el tamaño y lee la hora real de captura del archivo (si la trae).
 7. Si una foto falla, las demás siguen subiendo y se muestra un mensaje en español.
 8. Cada foto tiene una **✕ arriba a la derecha**. Al tocarla aparece "¿Quitar esta foto?" con **Cancelar** y **Quitar**. Al confirmar, la foto se *descarta* (se oculta, no se borra el archivo). Solo se pueden quitar fotos que aún no leyó un agente.
-9. **Volver a la lista** muestra **sus** visitas, la más reciente primero. Se puede entrar a cualquiera de ellas y agregar más fotos.
+9. **(Opcional, desde 2026-11-25)** Debajo de las fotos, la sección **"Datos del levantamiento (manual)"**: escribe una tarjeta por producto (artículo, contenido y unidad, piezas, precio regular, marca, área, promoción y observaciones). Marca y área sugieren valores al escribir (hasta 5; tocar uno lo llena, pero se puede dejar lo escrito). **Guardar datos** guarda todas las tarjetas juntas (todas o ninguna). Lo escrito se guarda como borrador en el celular hasta guardarlo, y la app avisa si sale sin guardar. Para corregir un producto guardado se quita y se vuelve a escribir. Estos datos todavía no los usa ningún agente.
+10. **Volver a la lista** muestra **sus** visitas, la más reciente primero. Se puede entrar a cualquiera de ellas y agregar más fotos.
 
 **Login (desde 2026-11-24; reemplaza la decisión "sin login"):** sin sesión la app no muestra nada; cada persona entra con su **usuario** (o su correo) y contraseña. Las cuentas las crea el responsable en el panel de Supabase (no hay registro público). Hay dos roles:
 
 | Rol | Qué ve | Qué puede hacer desde la app |
 |---|---|---|
-| **Campo** (cualquier cuenta sin rol admin) | "Mis visitas": **solo sus** visitas y sus fotos | Crear visitas (quedan a su nombre), subir fotos a sus visitas y quitar fotos pendientes de sus visitas |
-| **Admin** (`app_metadata.rol = 'admin'`) | "Todas las visitas", incluidas las de antes del login (sin dueño), con el **usuario** (o el correo) de quien creó cada una, y la sección "Fotos quitadas" | Lo mismo que campo en cualquier visita, más **corregir la tienda** de una visita y **restaurar** fotos quitadas |
+| **Campo** (cualquier cuenta sin rol admin) | "Mis visitas": **solo sus** visitas y sus fotos | Crear visitas (quedan a su nombre), subir fotos a sus visitas y quitar fotos pendientes de sus visitas. Escribir y quitar datos manuales en sus visitas |
+| **Admin** (`app_metadata.rol = 'admin'`) | "Todas las visitas", incluidas las de antes del login (sin dueño), con el **usuario** (o el correo) de quien creó cada una, la sección "Fotos quitadas" y los datos manuales de cualquier visita | Lo mismo que campo en cualquier visita, más **corregir la tienda** de una visita y **restaurar** fotos quitadas. Los datos manuales los escribe solo en **sus** visitas |
 
 Las fotos se muestran con **URLs firmadas** (links temporales de 24 h) porque el bucket es privado.
 
@@ -90,12 +92,13 @@ Reglas de la lectura con IA:
 
 ## 5. Base de datos
 
-Son diez tablas más vistas y funciones. GitHub dibuja el diagrama automáticamente. En VS Code hace falta una extensión de Mermaid para la vista previa.
+Son once tablas más vistas y funciones. GitHub dibuja el diagrama automáticamente. En VS Code hace falta una extensión de Mermaid para la vista previa.
 
 ```mermaid
 erDiagram
   competidores ||--o{ visitas : "tienda"
   visitas ||--o{ fotos : "fotos"
+  visitas ||--o{ capturas_manuales : "datos a mano"
   lotes_proceso |o--o{ fotos : "lote"
   fotos ||--o{ lecturas_precio : "productos leidos"
   lotes_proceso |o--o{ lecturas_precio : "lote"
@@ -123,6 +126,14 @@ erDiagram
     uuid subida_por
     text ruta
     text estado_proceso
+    timestamptz descartada_at
+  }
+  capturas_manuales {
+    uuid id PK
+    uuid visita_id FK
+    uuid usuario_id
+    text articulo
+    numeric precio_regular
     timestamptz descartada_at
   }
   lotes_proceso {
@@ -174,6 +185,8 @@ Cómo leer el diagrama: una flecha significa "esta tabla guarda el número de la
 | `visitas` | Una ida a una tienda: tienda, ubicación, precisión, fechas y `usuario_id` (quién la creó; nulo en las de antes del login) |
 | `fotos` | Una fila por foto: su `ruta` en Storage, hora de captura, estado de procesamiento, calidad, `descartada_at` (si se quitó) y `subida_por` (quién la subió) |
 
+| `capturas_manuales` | (2026-11-25, `010`) Datos del levantamiento escritos **a mano** en la pantalla de una visita: una fila por producto con artículo, cantidad, unidad, piezas, precio regular, marca, área, promoción, observaciones, `usuario_id` (quién la escribió) y `descartada_at` (si se quitó). Mismas listas y normalización que `lecturas_precio`, para comparar con los agentes más adelante. **Ningún agente la lee** |
+
 `usuario_id` y `subida_por` apuntan a las cuentas de Supabase Auth (`auth.users`). Los pone el servidor; la app no puede mandarlos.
 
 **Lectura de agentes (etapa 2)**
@@ -213,6 +226,8 @@ Una **vista** es una consulta guardada: no almacena datos propios, los junta de 
 | `es_admin()` | Función | ¿Quien consulta es admin? Lee `app_metadata.rol` del JWT (008) |
 | `admin_cambiar_competidor`, `admin_restaurar_foto`, `admin_correos_usuarios` | Funciones | Lo que el admin hace desde la app (corregir tienda, restaurar foto, ver correos). Cada una revisa `es_admin()` primero (008) |
 | `privado.es_dueno_de_visita`, `privado.puede_usar_visita`, `privado.competidor_activo`, `privado.competidor_en_visita_visible`, `privado.visita_de_ruta` | Funciones auxiliares (esquema `privado`, 008b) | Las usan las reglas RLS para preguntar "¿esta visita es mía o soy admin?", "¿la tienda está activa?" o "¿de qué visita es este archivo?" sin leer otra tabla con RLS. Ver sección 6 |
+| `sugerencias_captura()` | Función (010) | Listas para las sugerencias de la captura manual. Devuelve **solo** `(tipo, valor)`: nombres de **área** del catálogo y **marcas** ya capturadas. Nunca claves, precios ni descripciones |
+| `privado.normalizar_unidad_base`, `privado.normalizar_contenido_base` | Funciones auxiliares (010) | Envoltorios de las funciones de normalización de la etapa 2, para que `capturas_manuales` calcule `unidad_base` y `contenido_base` igual que `lecturas_precio` sin abrir esas funciones a la app |
 
 Las columnas de precio por pieza, `unidad_base` y `contenido_base` las calcula la base de datos, no los agentes.
 
@@ -255,6 +270,12 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - Ve **todas** las visitas y fotos, incluidas las de antes del login (sin dueño), y el usuario (o correo) de quien creó cada una.
 - Quita fotos pendientes de cualquier visita. Corrige la tienda y restaura fotos **solo con funciones** que revisan `es_admin()`; no tiene permiso general para modificar.
 
+**Captura manual (010)**
+- Cada persona ve, escribe y quita datos manuales **solo en sus visitas** (quitar: solo sus propias filas, sin restaurar, sin borrar ni cambiar otras columnas). El admin ve los de todas, pero escribe solo en las suyas.
+- `usuario_id` lo pone el servidor; la app no tiene permiso de mandarlo. Todas las reglas de valores (unidades, decimales, promociones) están **en la base** (CHECK), no solo en la app.
+- La app **no** tiene acceso a `catalogo_propio` ni a ninguna tabla de la etapa 2: los nombres de área los entrega `sugerencias_captura()`, que no devuelve claves ni precios. Las marcas sugeridas son compartidas entre personas (solo el nombre).
+- Después de `010`, las comprobaciones finales viejas de `008b` y `009` marcan `false` en las filas que cuentan funciones o tablas abiertas. Es normal (ver `PROGRESO.md`, "Avisos permanentes").
+
 **Sin sesión (`anon`)**
 - **Nada** (desde 009, ejecutada el 2026-11-24). No lee, no crea, no ve fotos. Los links públicos viejos de fotos ya no abren.
 
@@ -268,7 +289,7 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - El esquema `privado` no lo publica la API de Supabase: la app no puede llamar esas funciones. Solo `authenticated` las puede ejecutar (desde las reglas); `anon` no.
 
 **Tablas, vistas y funciones de la etapa 2**
-- Tienen RLS (seguridad por fila) activado y **sin permisos** para `anon` ni `authenticated`, **también para el admin** dentro de la app.
+- Tienen RLS (seguridad por fila) activado y **sin permisos** para `anon` ni `authenticated`, **también para el admin** dentro de la app. (`capturas_manuales` no es de la etapa 2: es parte de la app.)
 - Solo las usa un script local con la llave secreta.
 
 **Llaves**
@@ -320,6 +341,9 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 | Importar el catálogo con un script local, todo o nada | Seguridad y consistencia | Sin ruta pública que dispare la importación |
 | Índice con signo positivo = nosotros más caros | Compatibilidad con el análisis previo | La columna se llama `indice_vs_competencia_pct` |
 | Las fases de agentes solo empiezan cuando se piden | Generan costos | Cada fase la autoriza una persona |
+| Captura manual en la app (`capturas_manuales`, 010), opcional y por visita (2026-11-25) | Tener datos verificados para comparar contra los agentes | Los agentes **no** la leen; corregir = quitar y volver a escribir; guardar es todo o nada |
+| Sugerencias de área por una función que solo da nombres | La app no debe tener acceso al catálogo ni a la etapa 2 | Nunca se exponen claves, precios ni descripciones |
+| Decimales de más se **rechazan** en la base (no se redondean) | Que un dato mal escrito no se guarde cambiado | La app avisa antes con un mensaje en español |
 
 ### Valores vigentes de las fotos (pueden cambiar, ver 8.3)
 
@@ -345,7 +369,8 @@ Hay duplicación entre `lecturas_precio` y `articulos_competencia` (artículo, m
 - [ ] (Opcional) Registrar quién y cuándo corrigió la tienda de una visita (hoy no queda rastro).
 - [ ] Verificar que la columna `competidor_elegido_at` de `visitas` ya fue eliminada (su migración tiene un freno de seguridad).
 - [ ] Cuenta de la API de Claude con **límite de gasto mensual** (antes de la primera fase de agentes).
-- [ ] Muestra verificada: 20 a 30 fotos reales con su precio escrito a mano, para evaluar a los agentes.
+- [ ] Muestra verificada: 20 a 30 fotos reales con su precio escrito a mano, para evaluar a los agentes. **Propuesta (2026-11-25):** usar la captura manual de la app (`capturas_manuales`); ver `PLAN_ETAPA2.md` 9.5. Regla: los agentes **no** ven esas filas al leer.
+- [ ] Captura manual: ejecutar `010` y su prueba, publicar y probar con dos cuentas de campo y el admin (orden en `PROGRESO.md`).
 - [ ] Verificar el nivel de resolución de imagen de Sonnet 5.5 y Haiku 5.5.
 - [ ] Una vez que existan datos reales, borrar visitas y fotos de prueba desde Supabase (primero `fotos`, luego `visitas`; en Storage, borrar con la API o la interfaz).
 
@@ -419,9 +444,9 @@ Levantamiento-precio/
 │   └── RESUMEN_PROYECTO.md   # Este documento
 ├── src/
 │   ├── app/                  # Pantallas (Next.js App Router)
-│   │   └── visitas/[id]/     # Pantalla de una visita: galería de fotos, quitar foto, confirmación
-│   ├── components/           # PuertaSesion (pide entrar), PantallaEntrar, mensajes de error
-│   └── lib/                  # Cliente de Supabase, sesión, URLs firmadas, tipos, lectura de EXIF, tipos de la etapa 2
+│   │   └── visitas/[id]/     # Pantalla de una visita: galería de fotos, quitar foto, captura manual
+│   ├── components/           # PuertaSesion (pide entrar), PantallaEntrar, mensajes de error, campo con sugerencias
+│   └── lib/                  # Cliente de Supabase, sesión, URLs firmadas, tipos, lectura de EXIF, captura manual, tipos de la etapa 2
 ├── supabase/                 # Migraciones SQL numeradas (se ejecutan a mano)
 │   └── pruebas/              # Pruebas con datos inventados (terminan con rollback)
 ├── scripts/                  # Scripts locales (importación del catálogo); no son parte de la app publicada

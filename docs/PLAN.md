@@ -32,6 +32,14 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
 > "cualquiera" de las suyas). Un **admin** ve todas. Detalle en la sección 4.3 y en
 > `docs/PROGRESO.md` ("Autenticación y propiedad de visitas"). **Fase cerrada el 2026-11-24:**
 > `008`, `008b` y `009` ejecutadas y probadas; sin sesión ya no se ve nada.
+>
+> **Cambio del 2026-11-25 — Captura manual de datos con sugerencias** (fase fuera del plan
+> original). En el paso 6, debajo de las fotos, hay una sección **opcional** "Datos del
+> levantamiento (manual)": la persona escribe una fila por producto (artículo, contenido,
+> precio, marca, área, promoción). Marca y área tienen **sugerencias** al escribir. Se guarda
+> en la tabla `capturas_manuales` (`supabase/010_capturas_manuales.sql`). Sirve después para
+> comparar contra los agentes y como muestra verificada; **ningún agente la lee** en esta
+> fase. Detalle en 4.1, 4.3 y en `docs/PROGRESO.md` ("Captura manual de datos").
 
 ### Fuera de alcance (no lo hagas)
 - ~~**Login de usuarios.** La app es abierta: cualquiera con el link puede usarla.~~
@@ -43,7 +51,9 @@ Cada paso guarda **fecha y hora** de forma automática (timestamps).
 - Editar o borrar visitas o fotos desde la app. *(Excepción del 2026-11-23: se pueden **quitar**
   fotos pendientes, como descarte reversible — `fotos.descartada_at`, `supabase/007_descartar_fotos.sql`.
   No se borra nada. Excepción del 2026-11-24, **solo el admin**: corregir la tienda de una visita
-  y restaurar fotos quitadas, con funciones SQL — `supabase/008_autenticacion.sql`.)*
+  y restaurar fotos quitadas, con funciones SQL — `supabase/008_autenticacion.sql`. Excepción del
+  2026-11-25: cada persona puede **quitar** sus filas de captura manual — `capturas_manuales.descartada_at`,
+  `supabase/010_capturas_manuales.sql`. Tampoco se borran; corregir = quitar y volver a escribir.)*
 
 ---
 
@@ -137,6 +147,35 @@ qué sirve y espera a que diga que sí.
 | `descartada_at` | `timestamptz` | **2026-11-23 (`007`).** Hora (reloj del servidor, la pone un *trigger*) en que alguien **quitó** la foto desde la app. Nula = a la vista. Descarte reversible: no se borra la fila ni el archivo |
 | `subida_por` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | **2026-11-24 (`008`).** Quién subió la foto. La pone el servidor; la app no puede mandarla |
 
+**`capturas_manuales`** (2026-11-25, `010`): datos del levantamiento escritos a mano en la
+pantalla de una visita. Una fila por producto. Mismas listas de valores y la misma
+normalización de unidad y contenido que `lecturas_precio` (PLAN_ETAPA2 5.1 y 5.5), para poder
+comparar. Todas las reglas (CHECK) están **en la base**, no solo en la app.
+
+| Columna | Tipo | Notas |
+|---|---|---|
+| `id` | `uuid`, PK, default `gen_random_uuid()` | |
+| `visita_id` | `uuid`, FK → `visitas.id`, no nulo, `on delete cascade` | |
+| `usuario_id` | `uuid`, FK → `auth.users.id`, `on delete set null`, default `auth.uid()` | Quién la escribió. La pone el servidor; la app **no tiene permiso** de mandarla |
+| `articulo` | `text` no nulo | No vacío, hasta 200 letras |
+| `cantidad` | `numeric` no nulo | Contenido de **una** pieza; > 0, hasta 3 decimales (más decimales: se **rechaza**, no se redondea) |
+| `unidad` | `text` no nulo | `g`, `kg`, `ml`, `l`, `pza` |
+| `piezas` | `int` no nulo, default 1 | 1 a 1000 ("6 × 355 ml" → 6) |
+| `unidad_base`, `contenido_base` | generadas | Con las funciones de `004` (vía envoltorios en `privado`, ver 4.3) |
+| `precio_regular` | `numeric` no nulo | ≥ 0, hasta 2 decimales. Total de la presentación completa (paquete → precio del paquete). La app avisa si es 0, pero no lo impide |
+| `marca`, `area` | `text` | Recomendados. Nulos o no vacíos, hasta 100 letras |
+| `marca_de_lista`, `area_de_lista` | `boolean` no nulo, default `false` | `true` si el valor se eligió de una sugerencia |
+| `promo_tipo` | `text` no nulo, default `'ninguna'` | `ninguna`, `precio_rebajado`, `n_por_precio`, `nxm`, `otro` |
+| `promo_piezas` | `int` | `precio_rebajado` → 1; `n_por_precio` y `nxm` → ≥ 2; `otro` → opcional |
+| `promo_precio_total` | `numeric` | Hasta 2 decimales. Obligatorio en `precio_rebajado` y `n_por_precio`; vacío en `nxm` |
+| `promo_paga_piezas` | `int` | **Solo `nxm`** ("lleva 3 paga 2" → 2; menor que `promo_piezas`). Misma columna que `lecturas_precio` |
+| `promo_condicion` | `text` no nulo, default `'ninguna'` | `ninguna`, `tarjeta`, `app`, `otro` |
+| `observaciones` | `text` | Hasta 300 letras |
+| `created_at` | `timestamptz`, default `now()` | |
+| `descartada_at` | `timestamptz` | Hora (del servidor, *trigger*) en que su autor la **quitó**. Nula = vigente |
+
+Sin promoción (`ninguna`) → todas las columnas de promoción vacías y condición `ninguna`.
+
 > Para la Etapa 2 (más adelante) se agregará una tabla de precios con referencias a
 > `visitas` y `fotos`. **No la crees ahora.**
 >
@@ -189,6 +228,8 @@ función `es_admin()`, que lee el JWT.
 | `fotos` | leer y subir fotos de **sus** visitas; **quitar** (`descartada_at`) fotos `pendiente` de sus visitas | leer todas; quitar pendientes de cualquier visita; **restaurar** con `admin_restaurar_foto` | cambiar otra columna, restaurar sin la función, borrar |
 | Storage `fotos` | leer y subir en `visitas/<uuid de SU visita>/<uuid>.jpg` | leer todo; subir a cualquier visita | reemplazar, borrar |
 | Correos de las cuentas | — | verlos con `admin_correos_usuarios` (quién creó cada visita) | — |
+| `capturas_manuales` (`010`) | leer las de **sus** visitas; crear **solo en sus** visitas (queda a su nombre solo); **quitar** (`descartada_at`) **sus** filas | leer **todas**; crear solo en **sus** visitas; quitar solo **sus** filas | mandar `usuario_id`, cambiar otra columna, restaurar, borrar |
+| `sugerencias_captura()` (`010`) | ejecutarla: devuelve solo `(tipo, valor)` con nombres de **áreas** del catálogo y **marcas** ya capturadas | (lo mismo) | ver claves, precios o descripciones del catálogo |
 | Tablas, vistas y funciones de la Etapa 2 | nada | **nada** (también cerradas para el admin dentro de la app) | — |
 | `anon` (sin sesión) | **nada** (desde `009`, ejecutada el 2026-11-24) | | |
 
@@ -209,6 +250,7 @@ puede llamar; solo `authenticated` las ejecuta desde las reglas, `anon` no):
 | `privado.competidor_activo(bigint)` | ¿La tienda está activa? |
 | `privado.competidor_en_visita_visible(bigint)` | ¿La tienda aparece en alguna visita que quien consulta puede ver? |
 | `privado.visita_de_ruta(text)` | El uuid de la visita en una ruta `visitas/<uuid>/…` (no lee tablas) |
+| `privado.normalizar_unidad_base(text)`, `privado.normalizar_contenido_base(numeric, text, int)` | **(`010`)** Envoltorios de las funciones de `004` para las columnas generadas de `capturas_manuales`. Postgres pide permiso de ejecutar la función de una columna generada a **quien inserta**, y las de `004` están cerradas (Etapa 2). Son cálculos puros; no leen tablas |
 
 Las cuatro primeras son `security definer` con `search_path` vacío: leen la tabla sin
 aplicar sus reglas (por eso no hay ciclo), solo responden sí/no sobre quien consulta (su id y
@@ -236,6 +278,14 @@ viejas con el ciclo y guardar una visita vuelve a fallar. Si pasa, ejecuta `008b
 permisos y reglas de `anon` (abrirían la base sin sesión). Si hiciera falta algo de ellos, va
 en un archivo nuevo.
 
+**Captura manual (`010`).** Sus reglas usan `privado.puede_usar_visita` (leer) y
+`privado.es_dueno_de_visita` (crear); quitar compara `usuario_id` con el JWT (no lee otras
+tablas). `sugerencias_captura()` es `security definer` con `search_path` vacío: lee
+`catalogo_propio` como su dueño y devuelve **solo nombres**; `authenticated` sigue **sin
+acceso** a `catalogo_propio` y a toda la Etapa 2. Después de `010`, las comprobaciones finales
+viejas de `008b` y `009` marcan `false` en las filas que cuentan funciones o tablas abiertas:
+es normal (ver el encabezado de `010`).
+
 Para deshacer `009` en una emergencia existe `supabase/reversa_009.sql` (devuelve `anon` y
 el bucket público). **No está ejecutado**; para volver a cerrar se ejecuta `009` otra vez.
 
@@ -250,6 +300,7 @@ supabase/
 ├── 008b_romper_ciclo_rls.sql← esquema privado y funciones auxiliares (no volver a ejecutar 008 después)
 ├── 009_cerrar_anon.sql      ← quita todo a anon y pone el bucket privado
 ├── reversa_009.sql          ← SOLO emergencia: deshace 009 (no ejecutado)
+├── 010_capturas_manuales.sql← captura manual: tabla, reglas, sugerencias (aditiva)
 ├── pruebas/                 ← pruebas con datos inventados (terminan con rollback)
 └── seed_competidores.sql    ← SOLO la lista de competidores (el usuario la va a editar)
 ```
@@ -283,7 +334,7 @@ Lista **provisional** (el usuario la confirmará después):
 | *(todas)* | **Desde 2026-11-24:** sin sesión, cualquier ruta muestra **"Entrar"** (correo y contraseña; "¿No tienes cuenta? Pide tu acceso al responsable."). Con sesión, arriba se ve el correo y **"Cerrar sesión"** (`src/components/PuertaSesion.tsx`). |
 | `/` | Lista de visitas (la más reciente primero): competidor, fecha y hora, número de fotos. Botón grande **"Nueva visita"**. Campo: "Mis visitas". Admin: "Todas las visitas", con quién creó cada una. |
 | `/visitas/nueva` | Selector de competidor, botón **"Guardar mi ubicación"**, botón **"Guardar visita"**. Al guardar, lleva a la pantalla de la visita. |
-| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. Admin: "Creada por", **"Corregir tienda"** y la sección **"Fotos quitadas"** con "Restaurar". |
+| `/visitas/[id]` | Datos de la visita, **zona para subir fotos** y galería con las fotos ya subidas. Admin: "Creada por", **"Corregir tienda"** y la sección **"Fotos quitadas"** con "Restaurar". **Desde 2026-11-25:** debajo, la sección opcional **"Datos del levantamiento (manual)"**: tarjetas por producto con "+ Agregar producto", "Duplicar fila", "Quitar" y **"Guardar datos"** (todas en una sola operación), borrador en el celular, aviso al salir sin guardar, y las filas ya guardadas (solo lectura, con "Quitar"). Solo quien creó la visita escribe; el admin ve las de cualquiera. |
 
 Guía de diseño:
 - Pensada para **celular primero**: botones grandes y fáciles de tocar con el pulgar,
@@ -449,3 +500,4 @@ que se sepa de dónde salió cada una.
 | Las fotos HEIC/HEIF de iPhone se convierten a JPEG en el navegador antes de subirlas. Primero se intenta con lo que trae el navegador (canvas) y solo si no basta se propone una librería, con permiso del usuario. Si una foto no se puede convertir, se avisa y se suben las demás. | Decisión nuestra (2026-11-18), **no viene de la grabación**. Motivo: el bucket solo acepta JPEG, PNG y WebP, y parte del equipo usa iPhone. | Fase 5 |
 | La app **no debe aparecer en buscadores** (noindex), porque es de uso interno. Se hace con `robots: { index: false, follow: false }` en `src/app/layout.tsx` y el encabezado `X-Robots-Tag: noindex, nofollow` en todas las respuestas (`next.config.ts`). **No** se usa `Disallow` en `robots.txt`, porque eso impide que el buscador vea el aviso. Las fotos viven en Supabase Storage (otro dominio) y no reciben este encabezado; sus links solo aparecen dentro de la app. | Pedido del usuario (2026-11-18), **no viene de la grabación**. | Fase 7 |
 | **Login con correo y contraseña** (Supabase Auth, sin registro público). Rol admin en `app_metadata.rol = 'admin'` (nunca `user_metadata`). Personal de campo: solo sus visitas y fotos; crea visitas, sube fotos a las suyas y quita fotos pendientes de las suyas. Admin: ve todo; desde la app corrige la tienda, quita cualquier foto pendiente y restaura fotos quitadas; ve el **correo** de quien creó cada visita. Las visitas de antes quedan sin dueño (solo las ve el admin). Bucket **privado** con **URLs firmadas de 24 h** que se renuevan solas. Sesión solo en el navegador (supabase-js, sin librerías nuevas). Migraciones: `008` (aditiva), `008b` (corrige el ciclo de reglas con el esquema `privado`) y `009` (quita a `anon` y pone el bucket privado). Las tres ejecutadas y probadas el 2026-11-24. | Pedido del usuario (2026-11-24), **no viene de la grabación**. Reemplaza "sin login". Las preguntas (qué edita el admin en la app, cómo se muestra quién creó la visita y cuánto duran los links) las respondió el usuario ese día. | Fase "Autenticación y propiedad de visitas" (`PROGRESO.md`) |
+| **Captura manual de datos con sugerencias** (`capturas_manuales`, `010`). Sección opcional en la pantalla de la visita; una fila por producto con las mismas listas y normalización que `lecturas_precio`; sugerencias de **área** (nombres del catálogo, por una función SQL que no da claves ni precios) y **marca** (las ya capturadas), filtradas en el navegador (primero las que empiezan, luego las que contienen; sin mayúsculas ni acentos; nunca obliga a elegir). Guardar es todo o nada; borrador en `localStorage`; corregir = quitar y volver a escribir. Solo en visitas propias (el admin ve todas). Agregado por el agente: `promo_paga_piezas` para `nxm` (sin ella "3 x 2" no se puede guardar) y los límites de largo/decimales. | Pedido del usuario (2026-11-25), **no viene de la grabación**. | Fase "Captura manual de datos" (`PROGRESO.md`) |

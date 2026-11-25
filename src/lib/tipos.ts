@@ -1,11 +1,13 @@
 // Tipos de TypeScript de las tablas de Supabase (escritos a mano).
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
 // (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql,
-// 007_descartar_fotos.sql, 008_autenticacion.sql).
+// 007_descartar_fotos.sql, 008_autenticacion.sql, 010_capturas_manuales.sql).
 // Si cambias una tabla, cambia también este archivo.
 //
 // Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
 // están aquí: la app no puede verlas. Sus tipos viven en src/lib/etapa2/tipos.ts.
+// capturas_manuales (010) SÍ está: es la captura manual que escribe la persona en la
+// pantalla de la visita (src/lib/capturas.ts).
 //
 // Desde 008 se entra con correo y contraseña: la app usa el rol "authenticated".
 //   Row    → cómo llega una fila al LEERLA
@@ -14,6 +16,7 @@
 //   Update → qué puede CAMBIAR la app. Vacío a propósito, salvo en fotos: solo
 //            descartada_at (quitar una foto pendiente de una visita propia; el admin, de
 //            cualquiera). Nadie la puede restaurar así: el admin usa admin_restaurar_foto.
+//            En capturas_manuales también solo descartada_at, y solo en filas propias.
 //   Functions → funciones de la base que la app puede llamar con supabase.rpc(). Las
 //            admin_* revisan en la base que quien llama sea admin (si no, error 42501).
 //
@@ -125,6 +128,69 @@ export type Database = {
           },
         ];
       };
+      capturas_manuales: {
+        Row: {
+          id: string;
+          visita_id: string;
+          /** Quién la escribió (lo pone el servidor). null = cuenta borrada. */
+          usuario_id: string | null;
+          articulo: string;
+          /** Contenido de UNA pieza, como dice la etiqueta. */
+          cantidad: number;
+          unidad: "g" | "kg" | "ml" | "l" | "pza";
+          piezas: number;
+          /** Calculadas por la base (mismas reglas que lecturas_precio). */
+          unidad_base: "g" | "ml" | "pza";
+          contenido_base: number;
+          /** Precio regular del paquete completo, con impuestos. */
+          precio_regular: number;
+          marca: string | null;
+          marca_de_lista: boolean;
+          area: string | null;
+          area_de_lista: boolean;
+          promo_tipo: "ninguna" | "precio_rebajado" | "n_por_precio" | "nxm" | "otro";
+          promo_piezas: number | null;
+          promo_precio_total: number | null;
+          promo_paga_piezas: number | null;
+          promo_condicion: "ninguna" | "tarjeta" | "app" | "otro";
+          observaciones: string | null;
+          created_at: string;
+          /** Hora (del servidor) en que su autor la quitó. null = vigente. */
+          descartada_at: string | null;
+        };
+        /** Sin id, usuario_id, created_at, descartada_at ni las calculadas (no hay permiso). */
+        Insert: {
+          visita_id: string;
+          articulo: string;
+          cantidad: number;
+          unidad: "g" | "kg" | "ml" | "l" | "pza";
+          piezas: number;
+          precio_regular: number;
+          marca: string | null;
+          marca_de_lista: boolean;
+          area: string | null;
+          area_de_lista: boolean;
+          promo_tipo: "ninguna" | "precio_rebajado" | "n_por_precio" | "nxm" | "otro";
+          promo_piezas: number | null;
+          promo_precio_total: number | null;
+          promo_paga_piezas: number | null;
+          promo_condicion: "ninguna" | "tarjeta" | "app" | "otro";
+          observaciones: string | null;
+        };
+        /** Solo quitar una fila propia. El servidor pone su hora. */
+        Update: {
+          descartada_at: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "capturas_manuales_visita_id_fkey";
+            columns: ["visita_id"];
+            isOneToOne: false;
+            referencedRelation: "visitas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: SinCambios;
     Functions: {
@@ -142,6 +208,14 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: { usuario_id: string; correo: string }[];
       };
+      /**
+       * 010: nombres para las sugerencias de la captura manual. Solo (tipo, valor):
+       * áreas del catálogo (sin claves, precios ni descripciones) y marcas ya capturadas.
+       */
+      sugerencias_captura: {
+        Args: Record<PropertyKey, never>;
+        Returns: { tipo: "area" | "marca"; valor: string }[];
+      };
     };
     Enums: SinCambios;
     CompositeTypes: SinCambios;
@@ -155,6 +229,8 @@ export type Visita = Tablas["visitas"]["Row"];
 export type NuevaVisita = Tablas["visitas"]["Insert"];
 export type Foto = Tablas["fotos"]["Row"];
 export type NuevaFoto = Tablas["fotos"]["Insert"];
+export type CapturaManual = Tablas["capturas_manuales"]["Row"];
+export type NuevaCapturaManual = Tablas["capturas_manuales"]["Insert"];
 
 // Nombre del bucket de Storage donde viven las fotos.
 export const BUCKET_FOTOS = "fotos";

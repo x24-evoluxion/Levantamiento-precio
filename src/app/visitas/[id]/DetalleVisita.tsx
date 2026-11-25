@@ -4,6 +4,7 @@
 // La base de datos solo deja ver visitas propias (el admin, todas): si alguien abre
 // el link de una visita de otra persona, la consulta no regresa nada y se muestra
 // "no existe". El admin ve además quién la creó y puede corregir la tienda.
+// Debajo de las fotos va la sección opcional de captura manual (CapturaManual).
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -14,6 +15,7 @@ import type { Visita } from "@/lib/tipos";
 import { enlaceMapa, formatearPrecision } from "@/lib/ubicacion";
 import FotosVisita from "./FotosVisita";
 import CorregirTienda from "./CorregirTienda";
+import CapturaManual from "./CapturaManual";
 import TituloError from "@/components/TituloError";
 
 type VisitaConCompetidor = Visita & { competidores: { nombre: string } | null };
@@ -154,6 +156,10 @@ export default function DetalleVisita({ id }: { id: string }) {
       </dl>
 
       <FotosVisita visitaId={v.id} />
+
+      {/* Opcional: datos del levantamiento escritos a mano (010). Solo quien creó la
+          visita escribe; el admin ve los de cualquier visita. */}
+      <CapturaManual visitaId={v.id} esMia={v.usuario_id === usuario.id} />
     </section>
   );
 }
