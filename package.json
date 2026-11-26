@@ -11,7 +11,8 @@
     "test:etapa2": "node --test src/lib/etapa2/*.test.ts",
     "test:errores": "node --test src/lib/errores.test.ts",
     "test:capturas": "node --test src/lib/capturas.test.ts",
-    "test:lista": "node --test src/lib/listaVisitas.test.ts"
+    "test:lista": "node --test src/lib/listaVisitas.test.ts",
+    "test:ubicacion": "node --test src/lib/ubicacion.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.1",

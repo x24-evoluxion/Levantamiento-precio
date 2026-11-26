@@ -8,6 +8,10 @@
 // ningún agente leyó sus fotos; el admin, siempre. Una visita borrada solo la ve el
 // admin, marcada "Borrada" y con "Restaurar visita".
 // Debajo de las fotos va la sección opcional de captura manual (CapturaManual).
+// 013: el admin tiene además "Cambiar responsable" y "Corregir ubicación" (AdminVisita) y
+// ve el último cambio (quién y cuándo). Si la ubicación fue corregida, TODOS ven
+// "Ubicación corregida por administrador" con la fecha y la ubicación original del
+// celular; el admin ve también quién la corrigió.
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -18,6 +22,7 @@ import type { Visita } from "@/lib/tipos";
 import { enlaceMapa, formatearPrecision } from "@/lib/ubicacion";
 import FotosVisita from "./FotosVisita";
 import AccionesVisita from "./AccionesVisita";
+import AdminVisita from "./AdminVisita";
 import CapturaManual from "./CapturaManual";
 import TituloError from "@/components/TituloError";
 
@@ -104,6 +109,15 @@ export default function DetalleVisita({ id }: { id: string }) {
   }
 
   const v = estado.visita;
+  // "?? null": con una base sin 013 las columnas no llegan (undefined).
+  const corregidaAt = v.ubicacion_corregida_at ?? null;
+  const origLat = v.ubicacion_original_latitud ?? null;
+  const origLon = v.ubicacion_original_longitud ?? null;
+  const origPrecision = v.ubicacion_original_precision_metros ?? null;
+  const cambioAt = v.actualizado_at ?? null;
+  /** Quién (para el admin): usuario, o "desde el panel de Supabase" si no hubo sesión. */
+  const quien = (id: string | null | undefined) =>
+    id ? textoCreador(id, estado.correos, usuario) : "desde el panel de Supabase";
   return (
     <section className="flex flex-col gap-4">
       <h1 className="text-3xl font-bold">{v.competidores?.nombre ?? "Competidor desconocido"}</h1>
@@ -119,6 +133,17 @@ export default function DetalleVisita({ id }: { id: string }) {
         alCambiar={() => setIntento((n) => n + 1)}
       />
 
+      {esAdmin && (
+        <AdminVisita
+          // key: después de un cambio, empieza de nuevo con lo actual.
+          key={`${v.usuario_id ?? ""}-${v.latitud ?? ""}-${v.longitud ?? ""}`}
+          visitaId={v.id}
+          duenoId={v.usuario_id}
+          correos={estado.correos}
+          alCambiar={() => setIntento((n) => n + 1)}
+        />
+      )}
+
       <dl className="flex flex-col gap-3 rounded-xl border-2 border-borde bg-tarjeta p-4 text-texto">
         {esAdmin && (
           <div>
@@ -132,6 +157,14 @@ export default function DetalleVisita({ id }: { id: string }) {
           <dt className="text-base text-texto-suave">Visita guardada</dt>
           <dd className="text-lg font-semibold">{formatearFecha(v.created_at)}</dd>
         </div>
+        {esAdmin && cambioAt && (
+          <div>
+            <dt className="text-base text-texto-suave">Último cambio</dt>
+            <dd className="text-lg break-words">
+              {formatearFecha(cambioAt)} · {quien(v.actualizado_por)}
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-base text-texto-suave">Ubicación</dt>
           {v.latitud != null && v.longitud != null ? (
@@ -155,6 +188,31 @@ export default function DetalleVisita({ id }: { id: string }) {
             </dd>
           ) : (
             <dd className="text-lg font-semibold text-texto-suave">Sin ubicación</dd>
+          )}
+          {corregidaAt && (
+            <dd className="mt-2 rounded-lg border-2 border-aviso-borde bg-aviso-fondo px-3 py-2 text-base text-aviso-texto">
+              <span className="block font-bold">📍 Ubicación corregida por administrador</span>
+              <span className="block break-words">
+                {formatearFecha(corregidaAt)}
+                {esAdmin && ` · ${quien(v.ubicacion_corregida_por)}`}
+              </span>
+              {origLat != null && origLon != null ? (
+                <span className="block">
+                  Original del celular
+                  {origPrecision != null && ` (${formatearPrecision(origPrecision)})`}:{" "}
+                  <a
+                    href={enlaceMapa(origLat, origLon)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="enlace"
+                  >
+                    ver en el mapa
+                  </a>
+                </span>
+              ) : (
+                <span className="block">El celular no había guardado ubicación.</span>
+              )}
+            </dd>
           )}
         </div>
       </dl>

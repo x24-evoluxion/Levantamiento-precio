@@ -26,7 +26,7 @@
 | — | Captura rápida de productos (`011`) — fuera del plan original | 🟡 falta ejecutar; el orden completo está en "Editar y borrar lo capturado" |
 | — | Editar y borrar lo capturado (`012`, `012b` por revisar) — fuera del plan original | 🟡 falta: `010` (si aún no) → `010b` → `011` → prueba `011` → `012` → prueba `012` → (`012b` si se aprueba) → push → prueba en el celular |
 | — | Lista de visitas por día con conteos (solo app) — fuera del plan original | 🟡 falta publicar y probar en el celular |
-| — | Admin edita todo (parte app), sugerencias con todas las coincidencias y filtro de fechas — fuera del plan original | 🟡 parte de app hecha; **migración `013` en espera de las respuestas del usuario** (reasignar dueño, corregir ubicación, auditoría de visitas); falta publicar y probar |
+| — | Admin edita todo (parte app), sugerencias con todas las coincidencias y filtro de fechas — fuera del plan original | 🟡 hecho con la migración `013` (respuestas del usuario: sí a las tres); falta: (lo de `012` primero) → `013` → prueba `013` → push → prueba en el celular |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -2674,3 +2674,98 @@ tenía `actualizado_por`).
 - Respuestas pendientes (a), (b), (c) y los dos huecos de la auditoría.
 
 **Commit:** ver `git log` — `Admin edita todo (app), sugerencias completas y filtro de fechas`
+
+### Parte 1 (continuación) — Migración `013`: reasignar, corregir ubicación y auditoría (2026-11-26)
+
+**Respuestas del usuario:** (a) **sí**, el admin reasigna visitas; (b) **sí**, el admin corrige
+la ubicación, con marcador visible; (c) **las tres**: último cambio (`actualizado_at/_por`), quién y
+cuándo se corrigió la ubicación, y la ubicación original del celular. Los dos huecos extra de la
+auditoría (editar columnas del formulario de `010` y que el admin agregue productos en visitas
+ajenas) **no** se tocaron: no se respondieron.
+
+**Qué se hizo:**
+- `supabase/013_admin_visitas.sql` (**aditiva**, repetible, una transacción, freno si falta `012`):
+  - BLOQUE 1: 8 columnas en `visitas` (`actualizado_at/_por`, `ubicacion_corregida_at/_por`,
+    `ubicacion_original_latitud/_longitud/_precision_metros/_at`).
+  - BLOQUE 2: trigger `visitas_auditoria` (insert: todo vacío; update: último cambio = `now()` y
+    `auth.uid()`; si cambió la ubicación → marca corregida y, la **primera** vez, copia la original;
+    si no cambió → las de corrección y original no se pueden tocar).
+  - BLOQUE 3: `admin_reasignar_visita(visita, usuario)` y `admin_corregir_ubicacion(visita, lat,
+    lon, precisión)`: `security definer`, `search_path` vacío, **lo primero** es `es_admin()`
+    (42501); validan cuenta existente / coordenadas en rango, sin NaN (22023) y visita existente
+    (P0002). Solo `authenticated` (y `service_role`); `anon` no.
+  - BLOQUE 4: **ningún permiso nuevo de escritura** para la app; se repite que no manda dueño,
+    ubicación ni auditoría. Sin `DELETE`; `anon` nada.
+  - **Ninguna regla RLS nueva ni cambiada** (no hay riesgo de "infinite recursion"; las funciones
+    de `privado` siguen igual).
+  - BLOQUE 5: comprobación, 8 filas `ok`.
+- `supabase/pruebas/013_prueba_admin_visitas.sql`: freno + **35 casos** con datos inventados, JWT
+  simulados, termina con `rollback`: el admin reasigna (C1 deja de ver visita, fotos y productos;
+  C2 los ve; el producto sigue a nombre de C1), corrige ubicación (original guardada, segunda
+  corrección no la pisa, visita sin ubicación), datos inválidos rechazados; el personal de campo
+  no usa las funciones de admin (ni con `rol: admin` en `user_metadata`); nadie falsea
+  `usuario_id`, ubicación ni auditoría con un update directo (ni el admin); al crear no se manda
+  dueño ni auditoría (con control positivo); la auditoría registra a C1 o a AD según quién cambie;
+  C2 no ve lo de C1; `anon` nada; sin `DELETE`; sin "infinite recursion".
+- App:
+  - `src/app/visitas/[id]/AdminVisita.tsx` (nuevo, solo admin): **"Cambiar responsable"** (lista de
+    cuentas de `admin_correos_usuarios`; confirmación "La visita pasará de X a Y…") y **"Corregir
+    ubicación"** (coordenadas, enlace de Google Maps pegado o "Usar mi ubicación actual"; vista
+    previa "Revisar en el mapa"; confirmación). Errores: 42501/22023 con aviso claro; P0002 → aviso y
+    recarga; red/sesión/Supabase con el criterio actual.
+  - `DetalleVisita.tsx`: muestra `AdminVisita`; "Último cambio: fecha · quién" (admin); recuadro
+    **"📍 Ubicación corregida por administrador"** con fecha y enlace a la original del celular
+    (todos), y quién la corrigió (admin). Con una base sin `013` no se rompe (columnas `undefined`).
+  - `src/lib/ubicacion.ts`: `leerCoordenadas` + `src/lib/ubicacion.test.ts` (3 pruebas,
+    `npm run test:ubicacion`).
+  - `src/lib/tipos.ts`: columnas nuevas de `visitas` y las dos funciones.
+- Docs: `PLAN.md` (cambio del 2026-11-26, 4.1, 4.3, 4.4, 5), `PLAN_ETAPA2.md` (número libre `014`),
+  `RESUMEN_PROYECTO.md` y este archivo.
+
+**⚠️ ORDEN DE DESPLIEGUE (reemplaza el de arriba). Migraciones → pruebas → push:**
+1. Lo pendiente de "Editar y borrar lo capturado" (pasos 1–7: `010` si falta → `010b` → `011` →
+   prueba `011` → `012` → prueba `012` → `012b` opcional).
+2. `013` (`supabase/013_admin_visitas.sql`) → 8 filas `ok`. La app publicada sigue funcionando.
+3. Prueba `013` (`supabase/pruebas/013_prueba_admin_visitas.sql`) → `0. RESUMEN` `ok` (35 casos).
+4. **Push** y esperar **Ready** en Vercel.
+5. Probar en el celular (abajo y en la sección anterior).
+
+**Qué pruebas anteriores dejan de aplicar después de `013`** (comprobado en local): **ninguna
+nueva**. La prueba `012` sigue 47/47, la `009` 12/12 y la `006` corre bien. Siguen fallando solo las
+que ya fallaban antes de `013`, por las mismas razones: `008` caso 9 (desde `012`), `007` (desde
+`009`), prueba `011` casos 22 y 43 y `010b` (no se corren después de `012`).
+
+**Cómo probarlo (además de lo de la sección anterior):**
+1. Admin, visita de Campo 1 → "Cambiar responsable" → elegir Campo 2 → confirmar → "Creada por"
+   cambia. Campo 1 ya no la ve; Campo 2 sí, con fotos y productos (los productos de Campo 1 no los
+   puede editar; el admin sí).
+2. Admin → "Corregir ubicación" → pegar un enlace de Google Maps → "Revisar en el mapa" → "Guardar"
+   → confirmar → recuadro "Ubicación corregida por administrador" con la original. Campo ve el
+   mismo recuadro en su visita (sin el nombre de quien corrigió).
+3. Admin ve "Último cambio" después de cambiar tienda, borrar, restaurar, reasignar o corregir.
+
+**Decisiones tomadas por el agente (y por qué):**
+- **Funciones en vez de permiso de columna** para dueño y ubicación: así nadie de la app tiene
+  `UPDATE` en esas columnas (ni el admin con un update directo); la función valida y revisa
+  `es_admin()`.
+- **Productos y fotos conservan a su autor** al reasignar (`usuario_id`, `subida_por` son "quién
+  capturó"). Consecuencia: el nuevo responsable ve esos productos pero no los edita; el admin sí.
+- **`ubicacion_at` pasa a ser la hora de la corrección**; la del celular queda en
+  `ubicacion_original_at`. La precisión queda vacía si se escribió o pegó, o la del GPS si se usó
+  "Usar mi ubicación actual".
+- **Cambios desde el panel de Supabase** también quedan registrados (hora sin persona; la app dice
+  "desde el panel de Supabase"). Si alguien corrige la ubicación desde el panel, también se marca.
+- El campo ve el marcador de corrección y la original (son datos de su visita), pero no el nombre
+  de quien corrigió (la app no puede leer correos sin ser admin).
+
+**Problemas encontrados / pendientes:**
+- **No probado en el navegador ni contra Supabase real.** Probado en local con PGlite (Postgres en
+  WASM, **no es Supabase**; arnés de sesiones anteriores copiado al scratchpad, sin instalar
+  nada): sin `012`, `013` se detiene con su freno; `013` dos veces seguidas (8/8 `ok`); prueba
+  `013` **35/35**; pruebas anteriores como se describe arriba. `npm run lint` ✅, `npm run build` ✅,
+  `test:lista` 33/33, `test:capturas` 22/22, `test:errores` 10/10, `test:etapa2` 14/14,
+  `test:ubicacion` 3/3.
+- Por decidir: editar columnas del formulario de `010` y que el admin agregue productos en visitas
+  ajenas.
+
+**Commit:** ver `git log` — `Admin reasigna visitas y corrige ubicación (013), auditoría y docs`

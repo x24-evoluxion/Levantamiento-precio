@@ -2,7 +2,7 @@
 // Deben coincidir con supabase/001_esquema.sql y las migraciones que le siguen
 // (002_fotos_hora_captura.sql, 003_quitar_competidor_elegido_at.sql, 004_tablas_competencia.sql,
 // 007_descartar_fotos.sql, 008_autenticacion.sql, 010_capturas_manuales.sql,
-// 011_captura_rapida.sql, 012_editar_borrar.sql).
+// 011_captura_rapida.sql, 012_editar_borrar.sql, 013_admin_visitas.sql).
 // Si cambias una tabla, cambia también este archivo.
 //
 // Las tablas nuevas de la Etapa 2 (lecturas, artículos de la competencia, lotes) NO
@@ -64,6 +64,24 @@ export type Database = {
            * El personal de campo nunca recibe visitas borradas (la base las esconde).
            */
           descartada_at: string | null;
+          /**
+           * 013: último cambio de la visita (tienda, borrar, restaurar, dueño o ubicación).
+           * Los pone un trigger (hora del servidor y auth.uid()); null = nunca se cambió, o
+           * actualizado_por null = se cambió desde el panel. La app no los puede mandar.
+           */
+          actualizado_at: string | null;
+          actualizado_por: string | null;
+          /** 013: última corrección de ubicación (admin). null = la del celular. */
+          ubicacion_corregida_at: string | null;
+          ubicacion_corregida_por: string | null;
+          /**
+           * 013: la ubicación que guardó el celular, copiada en la PRIMERA corrección y
+           * nunca más cambiada. Vacías si no se ha corregido o si no tenía ubicación.
+           */
+          ubicacion_original_latitud: number | null;
+          ubicacion_original_longitud: number | null;
+          ubicacion_original_precision_metros: number | null;
+          ubicacion_original_at: string | null;
         };
         Insert: {
           competidor_id: number;
@@ -75,7 +93,9 @@ export type Database = {
         /**
          * 012: cambiar la tienda o borrar (descartada_at). El dueño, solo en SU visita no
          * borrada y sin fotos leídas; el admin, en cualquiera, y restaura (null). La tienda
-         * nueva debe estar activa. Nunca usuario_id, ubicación ni created_at.
+         * nueva debe estar activa. Nunca usuario_id, ubicación ni created_at (013: el dueño
+         * y la ubicación solo los cambia el admin con admin_reasignar_visita y
+         * admin_corregir_ubicacion).
          */
         Update: {
           competidor_id?: number;
@@ -243,6 +263,19 @@ export type Database = {
       /** Admin: corrige la tienda de una visita (solo a un competidor activo). */
       admin_cambiar_competidor: {
         Args: { p_visita_id: string; p_competidor_id: number };
+        Returns: undefined;
+      };
+      /** 013 Admin: pasa la visita a otra cuenta existente (si no existe: 22023). */
+      admin_reasignar_visita: {
+        Args: { p_visita_id: string; p_usuario_id: string };
+        Returns: undefined;
+      };
+      /**
+       * 013 Admin: corrige la ubicación (en rango; si no: 22023). La original del celular
+       * se conserva y queda quién corrigió. Visita inexistente: P0002.
+       */
+      admin_corregir_ubicacion: {
+        Args: { p_visita_id: string; p_latitud: number; p_longitud: number; p_precision_metros?: number | null };
         Returns: undefined;
       };
       /** Admin: vuelve a poner a la vista una foto quitada. */

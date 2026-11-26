@@ -325,7 +325,7 @@ propias en `src/lib/etapa2/validar.ts`.
 | `supabase/012b_etapa2_sin_visitas_borradas.sql` | Fuera del plan (2026-11-25) | **Para revisar antes de ejecutar.** `lecturas_analisis` y `comparacion_precios` ignoran visitas borradas (una línea cada una) y `guardar_lecturas` rechaza fotos quitadas o de visitas borradas. Va después de `012` |
 
 Todos estos archivos son de fases **🧱 base**. Si la fase de agentes que define el método de
-equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ ~~`011_...`~~ ~~`012_...`~~ el siguiente número libre: `013_...`; `010`, `011` y `012`/`012b` ya son la captura manual y editar/borrar).
+equivalencias (E2-7) necesita columnas nuevas, va en un archivo **nuevo** (~~`007_...`~~ ~~`010_...`~~ ~~`011_...`~~ ~~`012_...`~~ ~~`013_...`~~ el siguiente número libre: `014_...`; `010`, `011` y `012`/`012b` ya son la captura manual y editar/borrar, y `013` las opciones del admin en visitas).
 
 Todos se ejecutan **a mano** en el SQL Editor, se pueden ejecutar varias veces, y el agente
 **avisa y explica cada bloque antes** de que el usuario los ejecute.

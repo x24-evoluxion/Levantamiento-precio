@@ -78,3 +78,29 @@ export function formatearPrecision(metros: number): string {
 
 // A partir de esta precisión avisamos que la ubicación es poco exacta.
 export const PRECISION_DUDOSA_METROS = 100;
+
+/**
+ * Lee coordenadas escritas o pegadas por el admin para corregir una ubicación (013):
+ *   "19.4326, -99.1332" · "19.4326 -99.1332" · enlaces de Google Maps con
+ *   "@19.4326,-99.1332", "?q=19.4326,-99.1332" o "query=19.4326,-99.1332".
+ * Devuelve null si no se entiende o si está fuera de rango (latitud ±90, longitud ±180).
+ */
+export function leerCoordenadas(texto: string): { latitud: number; longitud: number } | null {
+  const limpio = decodeURIComponent(texto.trim().replace(/%(?![0-9a-f]{2})/gi, "%25"));
+  const numero = String.raw`[-+]?\d{1,3}(?:\.\d+)?`;
+  const patrones = [
+    new RegExp(String.raw`@(${numero}),\s*(${numero})`),
+    new RegExp(String.raw`[?&](?:q|query|ll|center)=(${numero}),\s*(${numero})`),
+    new RegExp(String.raw`^(${numero})\s*[,;\s]\s*(${numero})$`),
+  ];
+  for (const p of patrones) {
+    const m = limpio.match(p);
+    if (!m) continue;
+    const latitud = Number(m[1]);
+    const longitud = Number(m[2]);
+    if (!Number.isFinite(latitud) || !Number.isFinite(longitud)) return null;
+    if (Math.abs(latitud) > 90 || Math.abs(longitud) > 180) return null;
+    return { latitud, longitud };
+  }
+  return null;
+}
