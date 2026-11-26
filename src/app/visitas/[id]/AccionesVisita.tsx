@@ -13,7 +13,11 @@
 //
 // Todo se guarda con UN update directo (permiso solo de competidor_id y
 // descartada_at). Si la base no deja (por ejemplo, justo leyeron una foto), el update
-// afecta 0 filas: se revisa por qué y se explica sin tecnicismos.
+// afecta 0 filas: se revisa por qué, se explica sin tecnicismos y se vuelve a leer la
+// visita.
+//
+// Admin y fotos leídas: puede cambiar la tienda, pero antes se le pide confirmar
+// (TEXTO_CONFIRMAR_LEIDAS), porque cambia a qué competidor pertenecen esos precios.
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -40,6 +44,12 @@ type Props = {
 /** Ya no se puede: el texto para la persona de campo. */
 export const TEXTO_FOTOS_LEIDAS =
   "Esta visita ya no se puede cambiar ni borrar porque ya se leyeron los precios de sus fotos. Si hace falta corregirla, avisa al administrador.";
+
+/** Admin: confirmación antes de cambiar la tienda de una visita con fotos ya leídas. */
+export const TEXTO_CONFIRMAR_LEIDAS =
+  "Esta visita ya tiene fotos leídas. Cambiar la tienda cambia a qué competidor pertenecen esos precios.";
+const TEXTO_CONFIRMAR_SIN_SABER =
+  "No se pudo revisar si esta visita ya tiene fotos leídas. Si las tiene, cambiar la tienda cambia a qué competidor pertenecen esos precios.";
 
 type Mensaje = { tipo: "aviso"; texto: string } | { tipo: "falla"; inicio: string; falla: Falla };
 
@@ -69,12 +79,20 @@ export default function AccionesVisita({
   const [opciones, setOpciones] = useState<Opcion[] | null>(null);
   const [elegido, setElegido] = useState(competidorActualId);
   const [preguntandoBorrar, setPreguntandoBorrar] = useState(false);
+  /** Admin: texto de la pregunta "¿Cambiar la tienda?" (null = cerrada). */
+  const [preguntaTienda, setPreguntaTienda] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState<Mensaje | null>(null);
 
   // Con cacheComponents la pantalla se esconde (no se desmonta): al volver, la
   // pregunta "¿Borrar esta visita?" aparece cerrada.
-  useLayoutEffect(() => () => setPreguntandoBorrar(false), []);
+  useLayoutEffect(
+    () => () => {
+      setPreguntandoBorrar(false);
+      setPreguntaTienda(null);
+    },
+    [],
+  );
 
   const puedeActuar = esAdmin || esMia;
 
@@ -130,7 +148,23 @@ export default function AccionesVisita({
     return { tipo: "falla", inicio, falla: fallaConCodigo("SIN-CAMBIO") };
   }
 
+  /** "Guardar" la tienda nueva. Admin: si la visita tiene fotos leídas, primero pregunta. */
+  async function pedirGuardarTienda() {
+    if (guardando || elegido === competidorActualId) return;
+    if (!esAdmin) {
+      void guardarTienda();
+      return;
+    }
+    setGuardando(true);
+    setMensaje(null);
+    const leidas = await tieneFotosLeidas(visitaId);
+    setGuardando(false);
+    if (leidas === false) void guardarTienda();
+    else setPreguntaTienda(leidas ? TEXTO_CONFIRMAR_LEIDAS : TEXTO_CONFIRMAR_SIN_SABER);
+  }
+
   async function guardarTienda() {
+    setPreguntaTienda(null);
     if (guardando || elegido === competidorActualId) return;
     setGuardando(true);
     setMensaje(null);
@@ -141,8 +175,10 @@ export default function AccionesVisita({
         .eq("id", visitaId)
         .select("id");
       if (error) setMensaje(falla("No se cambió la tienda.", error, status));
-      else if (data.length === 0) setMensaje(await explicarSinCambio("No se cambió la tienda."));
-      else {
+      else if (data.length === 0) {
+        setMensaje(await explicarSinCambio("No se cambió la tienda."));
+        alCambiar();
+      } else {
         setEligiendo(false);
         alCambiar();
       }
@@ -165,7 +201,10 @@ export default function AccionesVisita({
         .eq("id", visitaId)
         .select("id");
       if (error) setMensaje(falla("No se borró la visita.", error, status));
-      else if (data.length === 0) setMensaje(await explicarSinCambio("No se borró la visita."));
+      else if (data.length === 0) {
+        setMensaje(await explicarSinCambio("No se borró la visita."));
+        alCambiar();
+      }
       // El admin se queda viendo la visita (marcada "Borrada"); el personal de campo
       // ya no la puede ver: regresa a su lista.
       else if (esAdmin) alCambiar();
@@ -190,6 +229,7 @@ export default function AccionesVisita({
       if (error) setMensaje(falla("No se restauró la visita.", error, status));
       else if (data.length === 0) {
         setMensaje({ tipo: "falla", inicio: "No se restauró la visita.", falla: fallaConCodigo("SIN-CAMBIO") });
+        alCambiar();
       } else alCambiar();
     } catch (e) {
       setMensaje({ tipo: "falla", inicio: "No se restauró la visita.", falla: clasificarFalla(e) });
@@ -321,7 +361,7 @@ export default function AccionesVisita({
             </button>
             <button
               type="button"
-              onClick={() => void guardarTienda()}
+              onClick={() => void pedirGuardarTienda()}
               disabled={guardando || !opciones || elegido === competidorActualId}
               className="boton-primario min-h-12 rounded-xl px-4 py-3 text-lg font-bold"
             >
@@ -332,6 +372,15 @@ export default function AccionesVisita({
       )}
 
       {cajaMensaje}
+
+      <DialogoConfirmar
+        abierto={preguntaTienda !== null}
+        titulo="¿Cambiar la tienda?"
+        texto={preguntaTienda}
+        textoConfirmar="Cambiar tienda"
+        alConfirmar={() => void guardarTienda()}
+        alCancelar={() => setPreguntaTienda(null)}
+      />
 
       <DialogoConfirmar
         abierto={preguntandoBorrar}

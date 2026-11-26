@@ -10,6 +10,9 @@
 //      defecto), así que nunca se pide "todo": se piden 14 días completos a la vez y, dentro
 //      del tramo, páginas de 500 filas. Los tramos van de medianoche a medianoche (hora de
 //      México), así un día nunca queda partido entre dos tramos.
+//   4. FILTRO POR FECHA DE INGRESO ("Desde" / "Hasta"): valida las fechas, convierte el
+//      rango de días de México a instantes UTC (con Intl, sin fijar el desfase a mano),
+//      lo pide al servidor por páginas (sin repetir ni saltar) y resume el periodo.
 //
 // Conteos: llegan de Supabase como "fotos(count)" y "capturas_manuales(count)" (ver
 // src/app/ListaVisitas.tsx). Solo cuentan filas con descartada_at nulo. Las visitas
@@ -219,20 +222,23 @@ export function agruparPorDia(visitas: readonly VisitaLista[], hoy: ClaveDia): G
     .sort(([a], [b]) => (a < b ? 1 : a > b ? -1 : 0))
     .map(([clave, lista]) => {
       lista.sort(compararVisitas);
-      const vigentes = lista.filter((v) => !v.descartada_at);
-      const sinArticulos = lista.some((v) => v.articulos === null);
-      return {
-        clave,
-        titulo: tituloDia(clave, hoy),
-        visitas: lista,
-        totales: {
-          visitas: vigentes.length,
-          fotos: vigentes.reduce((s, v) => s + v.fotos, 0),
-          articulos: sinArticulos ? null : vigentes.reduce((s, v) => s + (v.articulos ?? 0), 0),
-          borradas: lista.length - vigentes.length,
-        },
-      };
+      return { clave, titulo: tituloDia(clave, hoy), visitas: lista, totales: calcularTotales(lista) };
     });
+}
+
+/**
+ * Totales de un grupo de visitas (un día o todo un periodo). Las borradas no suman;
+ * fotos y artículos ya llegan contados sin las filas descartadas.
+ */
+export function calcularTotales(lista: readonly VisitaLista[]): TotalesDia {
+  const vigentes = lista.filter((v) => !v.descartada_at);
+  const sinArticulos = lista.some((v) => v.articulos === null);
+  return {
+    visitas: vigentes.length,
+    fotos: vigentes.reduce((s, v) => s + v.fotos, 0),
+    articulos: sinArticulos ? null : vigentes.reduce((s, v) => s + (v.articulos ?? 0), 0),
+    borradas: lista.length - vigentes.length,
+  };
 }
 
 /** "3 visitas · 24 fotos · 41 artículos" (sin artículos si no se pudieron contar). */
@@ -313,13 +319,79 @@ async function llamar<T>(fn: () => Promise<RespuestaApi<T>>): Promise<RespuestaA
 /** Máximo de páginas por tramo (freno de seguridad; 200 × 500 = 100,000 visitas en 14 días). */
 const MAX_PAGINAS = 200;
 
+type Cursor = PeticionPagina["despuesDe"];
+
+type ResultadoPaginas =
+  | { tipo: "ok"; filas: FilaCruda[]; conArticulos: boolean; fallaArticulos: Falla | null; cursor: Cursor; lleno: boolean }
+  | { tipo: "falla"; falla: Falla };
+
+/**
+ * Lee páginas de [desde, antesDe) a partir de `inicio` (o desde la más reciente).
+ * - Avanza con "después de la última fila" (created_at, id), no con números de fila:
+ *   si alguien guarda una visita mientras se carga, nada se recorre.
+ * - Para cuando una página llega incompleta (ya no hay más) o al llegar a `maxPaginas`
+ *   (`lleno` = true; `cursor` = dónde seguir).
+ * - Si falla SOLO el conteo de artículos (error de Supabase), vuelve a empezar sin
+ *   artículos y lo reporta. Fallas de red o de sesión se devuelven tal cual.
+ */
+async function leerPaginas(
+  api: ApiLista,
+  desde: string,
+  antesDe: string | null,
+  inicio: Cursor,
+  conArticulos: boolean,
+  maxPaginas: number,
+  clasificar: (error: unknown, estado?: number) => Falla,
+): Promise<ResultadoPaginas> {
+  let usarArticulos = conArticulos;
+  let fallaArticulos: Falla | null = null;
+  let filas: FilaCruda[] = [];
+  let despuesDe: Cursor = inicio;
+  let lleno = false;
+
+  for (let pagina = 0; pagina < maxPaginas; pagina++) {
+    const r = await llamar(() =>
+      api.leerPagina({ desde, antesDe, despuesDe, limite: FILAS_POR_PAGINA, conArticulos: usarArticulos }),
+    );
+    if (r.error) {
+      const falla = clasificar(r.error, r.status);
+      if (usarArticulos && falla.tipo === "supabase") {
+        // Se vuelve a empezar, ahora sin el conteo de artículos.
+        usarArticulos = false;
+        fallaArticulos = falla;
+        filas = [];
+        despuesDe = inicio;
+        pagina = -1;
+        continue;
+      }
+      return { tipo: "falla", falla };
+    }
+    const datos = r.data ?? [];
+    filas = filas.concat(datos);
+    if (datos.length < FILAS_POR_PAGINA) break;
+    const ultima = datos[datos.length - 1];
+    if (despuesDe && ultima.id === despuesDe.id) break; // el servidor no avanzó: no repetir
+    despuesDe = { created_at: ultima.created_at, id: ultima.id };
+    if (pagina === maxPaginas - 1) lleno = true;
+  }
+  return { tipo: "ok", filas, conArticulos: usarArticulos, fallaArticulos, cursor: despuesDe, lleno };
+}
+
+/** Quita repetidas (por id), normaliza y ordena de la más reciente a la más antigua. */
+function aVisitas(filas: readonly FilaCruda[], conArticulos: boolean): VisitaLista[] {
+  const vistas = new Set<string>();
+  return filas
+    .filter((f) => (vistas.has(f.id) ? false : (vistas.add(f.id), true)))
+    .map((f) => normalizarFila(f, conArticulos))
+    .sort(compararVisitas);
+}
+
 /**
  * Carga un tramo completo (todas sus páginas) y averigua si hay visitas más antiguas.
  *
  * - Sin repetir ni saltar: los tramos son intervalos [desde, antesDe) pegados uno al otro
  *   (el `desde` de uno es el `antesDe` del siguiente). Dentro del tramo se avanza con
- *   "después de la última fila" (created_at, id), no con números de fila: si alguien
- *   guarda una visita mientras se carga, nada se recorre.
+ *   "después de la última fila" (leerPaginas).
  * - Si no hay visitas en las semanas de en medio, el siguiente tramo empieza en el día de
  *   la visita más antigua que sí existe (no se muestran tramos vacíos).
  * - Si falla SOLO el conteo de artículos (error de Supabase, por ejemplo porque la tabla
@@ -333,48 +405,149 @@ export async function cargarTramo(
   clasificar: (error: unknown, estado?: number) => Falla = clasificarFalla,
 ): Promise<ResultadoTramo> {
   const desde = inicioDelTramo(tramo);
-  let usarArticulos = conArticulos;
-  let fallaArticulos: Falla | null = null;
-  let filas: FilaCruda[] = [];
-  let despuesDe: PeticionPagina["despuesDe"] = null;
-
-  for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
-    const r = await llamar(() =>
-      api.leerPagina({ desde, antesDe: tramo.antesDe, despuesDe, limite: FILAS_POR_PAGINA, conArticulos: usarArticulos }),
-    );
-    if (r.error) {
-      const falla = clasificar(r.error, r.status);
-      if (usarArticulos && falla.tipo === "supabase") {
-        // Se vuelve a empezar el tramo, ahora sin el conteo de artículos.
-        usarArticulos = false;
-        fallaArticulos = falla;
-        filas = [];
-        despuesDe = null;
-        pagina = -1;
-        continue;
-      }
-      return { tipo: "falla", falla };
-    }
-    const datos = r.data ?? [];
-    filas = filas.concat(datos);
-    if (datos.length < FILAS_POR_PAGINA) break;
-    const ultima = datos[datos.length - 1];
-    if (despuesDe && ultima.id === despuesDe.id) break; // el servidor no avanzó: no repetir
-    despuesDe = { created_at: ultima.created_at, id: ultima.id };
-  }
+  const r = await leerPaginas(api, desde, tramo.antesDe, null, conArticulos, MAX_PAGINAS, clasificar);
+  if (r.tipo === "falla") return r;
 
   const masAntigua = await llamar(() => api.leerMasReciente(desde));
   if (masAntigua.error) return { tipo: "falla", falla: clasificar(masAntigua.error, masAntigua.status) };
   const fila = masAntigua.data?.[0];
   const siguiente: Tramo | null = fila ? { diaSuperior: claveDia(fila.created_at), antesDe: desde } : null;
 
-  const vistas = new Set<string>();
-  const visitas = filas
-    .filter((f) => (vistas.has(f.id) ? false : (vistas.add(f.id), true)))
-    .map((f) => normalizarFila(f, usarArticulos))
-    .sort(compararVisitas);
+  return {
+    tipo: "ok",
+    visitas: aVisitas(r.filas, r.conArticulos),
+    conArticulos: r.conArticulos,
+    fallaArticulos: r.fallaArticulos,
+    siguiente,
+  };
+}
 
-  return { tipo: "ok", visitas, conArticulos: usarArticulos, fallaArticulos, siguiente };
+// --- Filtro por fecha de ingreso ---------------------------------------------------------
+// "Desde" y "Hasta" son días de México (AAAA-MM-DD, como los da <input type="date">). El
+// rango incluye TODO el día "Hasta": va de la medianoche de "Desde" a la medianoche del
+// día siguiente a "Hasta" (sin incluir esa), ambas en hora de México y convertidas a UTC
+// con inicioDelDia (Intl.DateTimeFormat; el desfase no se escribe a mano).
+
+export type FiltroFechas = { desde: ClaveDia; hasta: ClaveDia };
+
+export type FiltroLeido =
+  | { tipo: "sin-filtro" }
+  | { tipo: "ok"; filtro: FiltroFechas }
+  /** Fechas que no se pueden usar: se avisa y NO se consulta. */
+  | { tipo: "error"; mensaje: string };
+
+const FORMA_CLAVE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** true si es "AAAA-MM-DD" y la fecha existe (no "2026-02-30"). */
+export function esClaveValida(texto: string): boolean {
+  return FORMA_CLAVE.test(texto) && sumarDias(texto, 0) === texto && Number(texto.slice(0, 4)) >= 2000;
+}
+
+/** Revisa "Desde" y "Hasta" (de los campos o de la URL). `hoy` = día de hoy en México. */
+export function validarFiltro(desde: string | null, hasta: string | null, hoy: ClaveDia): FiltroLeido {
+  const d = (desde ?? "").trim();
+  const h = (hasta ?? "").trim();
+  if (!d && !h) return { tipo: "sin-filtro" };
+  if (!d || !h) return { tipo: "error", mensaje: "Elige las dos fechas: “Desde” y “Hasta”." };
+  if (!esClaveValida(d)) return { tipo: "error", mensaje: "La fecha “Desde” no es válida." };
+  if (!esClaveValida(h)) return { tipo: "error", mensaje: "La fecha “Hasta” no es válida." };
+  if (d > hoy || h > hoy) {
+    return { tipo: "error", mensaje: "No se pueden elegir fechas futuras. Elige hoy o un día anterior." };
+  }
+  if (d > h) {
+    return { tipo: "error", mensaje: "La fecha “Desde” es posterior a “Hasta”. Cámbiala para ver las visitas." };
+  }
+  return { tipo: "ok", filtro: { desde: d, hasta: h } };
+}
+
+/** Instantes UTC del rango: created_at >= desde y created_at < antesDe. */
+export function rangoDelFiltro(f: FiltroFechas): { desde: string; antesDe: string } {
+  return { desde: inicioDelDia(f.desde), antesDe: inicioDelDia(sumarDias(f.hasta, 1)) };
+}
+
+/** Atajos de un toque. "Este mes" va del día 1 a hoy. */
+export function atajosFiltro(hoy: ClaveDia): { etiqueta: string; filtro: FiltroFechas }[] {
+  const ayer = sumarDias(hoy, -1);
+  return [
+    { etiqueta: "Hoy", filtro: { desde: hoy, hasta: hoy } },
+    { etiqueta: "Ayer", filtro: { desde: ayer, hasta: ayer } },
+    { etiqueta: "Últimos 7 días", filtro: { desde: sumarDias(hoy, -6), hasta: hoy } },
+    { etiqueta: "Este mes", filtro: { desde: `${hoy.slice(0, 8)}01`, hasta: hoy } },
+  ];
+}
+
+/** "?desde=2026-11-20&hasta=2026-11-24" (o "" sin filtro). Para la URL y los enlaces. */
+export function consultaFiltro(f: FiltroFechas | null): string {
+  if (!f) return "";
+  return `?${new URLSearchParams({ desde: f.desde, hasta: f.hasta }).toString()}`;
+}
+
+const formatoPeriodo = new Intl.DateTimeFormat("es-MX", {
+  timeZone: ZONA_MEXICO,
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/** "20 nov 2026 – 24 nov 2026" o, si es un solo día, "24 nov 2026". */
+export function textoPeriodo(f: FiltroFechas): string {
+  const dia = (c: ClaveDia) => formatoPeriodo.format(new Date(new Date(inicioDelDia(c)).getTime() + 12 * 3600000));
+  return f.desde === f.hasta ? dia(f.desde) : `${dia(f.desde)} – ${dia(f.hasta)}`;
+}
+
+/**
+ * Visitas que se piden de una vez con el filtro (4 páginas de 500). Si el periodo trae
+ * más, se avisa y se ofrece "Cargar más visitas del periodo" (sigue donde se quedó).
+ */
+export const MAX_VISITAS_POR_CARGA = 2000;
+
+export type ResultadoRango =
+  | {
+      tipo: "ok";
+      visitas: VisitaLista[];
+      conArticulos: boolean;
+      fallaArticulos: Falla | null;
+      /** Dónde seguir si quedan visitas del periodo por cargar; null = ya están todas. */
+      pendiente: Cursor;
+    }
+  | { tipo: "falla"; falla: Falla };
+
+/**
+ * Carga las visitas del filtro (consulta al SERVIDOR por rango; no filtra lo ya cargado).
+ * `desdeCursor`: para "Cargar más" (sigue después de la última que ya se tiene).
+ * Sin repetir ni saltar: mismas páginas por "después de la última fila" que los tramos.
+ */
+export async function cargarRango(
+  api: ApiLista,
+  filtro: FiltroFechas,
+  conArticulos: boolean,
+  desdeCursor: Cursor = null,
+  maxVisitas = MAX_VISITAS_POR_CARGA,
+  clasificar: (error: unknown, estado?: number) => Falla = clasificarFalla,
+): Promise<ResultadoRango> {
+  const rango = rangoDelFiltro(filtro);
+  const paginas = Math.max(1, Math.floor(maxVisitas / FILAS_POR_PAGINA));
+  const r = await leerPaginas(api, rango.desde, rango.antesDe, desdeCursor, conArticulos, paginas, clasificar);
+  if (r.tipo === "falla") return r;
+
+  let pendiente: Cursor = null;
+  if (r.lleno && r.cursor) {
+    // ¿De verdad queda algo? Se pregunta por UNA fila más (así no se avisa de más).
+    const cursor = r.cursor;
+    const prueba = await llamar(() =>
+      api.leerPagina({ desde: rango.desde, antesDe: rango.antesDe, despuesDe: cursor, limite: 1, conArticulos: false }),
+    );
+    if (prueba.error) return { tipo: "falla", falla: clasificar(prueba.error, prueba.status) };
+    if ((prueba.data ?? []).length > 0) pendiente = cursor;
+  }
+
+  return {
+    tipo: "ok",
+    visitas: aVisitas(r.filas, r.conArticulos),
+    conArticulos: r.conArticulos,
+    fallaArticulos: r.fallaArticulos,
+    pendiente,
+  };
 }
 
 /** Mensaje para la persona cuando falla CARGAR (no guardar). */

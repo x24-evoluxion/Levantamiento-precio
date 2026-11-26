@@ -6,8 +6,16 @@ import assert from "node:assert/strict";
 import {
   DIAS_POR_TRAMO,
   FILAS_POR_PAGINA,
+  MAX_VISITAS_POR_CARGA,
   agruparPorDia,
+  atajosFiltro,
+  calcularTotales,
+  cargarRango,
   cargarTramo,
+  consultaFiltro,
+  rangoDelFiltro,
+  textoPeriodo,
+  validarFiltro,
   claveDia,
   compararVisitas,
   inicioDelDia,
@@ -462,4 +470,162 @@ test("unirVisitas no repite y deja todo de la más reciente a la más antigua", 
   const b = visita("b", "2026-11-20T18:00:00Z");
   const c = visita("c", "2026-11-01T18:00:00Z");
   assert.deepEqual(unirVisitas([a, b], [b, c]).map((v) => v.id), ["a", "b", "c"]);
+});
+
+// --- Filtro por fecha de ingreso ----------------------------------------------------------
+
+test("filtro: límites del día en México (23:30 y 00:30) y 'Hasta' incluye TODO el día", async () => {
+  const filtro = { desde: "2026-11-23", hasta: "2026-11-23" };
+  // Medianoche de México del 23 y del 24, en UTC (las calcula Intl, no un desfase fijo).
+  assert.deepEqual(rangoDelFiltro(filtro), {
+    desde: "2026-11-23T06:00:00.000Z",
+    antesDe: "2026-11-24T06:00:00.000Z",
+  });
+  const filas = [
+    fila("antes-2330", "2026-11-23T05:30:00Z"), // 23:30 del 22 en México → NO
+    fila("dia-0030", "2026-11-23T06:30:00Z"), // 00:30 del 23 → sí
+    fila("dia-medianoche", "2026-11-23T06:00:00Z"), // 00:00:00 del 23 → sí (incluido)
+    fila("dia-2330", "2026-11-24T05:30:00Z"), // 23:30 del 23 → sí
+    fila("dia-235959", "2026-11-24T05:59:59.999Z"), // 23:59:59.999 del 23 → sí
+    fila("despues-0000", "2026-11-24T06:00:00Z"), // 00:00 del 24 → NO
+    fila("despues-0030", "2026-11-24T06:30:00Z"), // 00:30 del 24 → NO
+  ];
+  const { api } = baseFalsa(filas);
+  const r = await cargarRango(api, filtro, true);
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  assert.deepEqual(r.visitas.map((v) => v.id).sort(), ["dia-0030", "dia-2330", "dia-235959", "dia-medianoche"]);
+  assert.equal(r.pendiente, null);
+  // Todas caen en el mismo día de México.
+  assert.deepEqual(new Set(r.visitas.map((v) => claveDia(v.created_at))), new Set(["2026-11-23"]));
+});
+
+test("filtro: varios días; 'Hasta' es el último día completo", async () => {
+  const filas = [fila("a", "2026-11-20T06:00:00Z"), fila("b", "2026-11-25T05:59:00Z"), fila("c", "2026-11-25T06:00:00Z")];
+  const { api } = baseFalsa(filas);
+  const r = await cargarRango(api, { desde: "2026-11-20", hasta: "2026-11-24" }, true);
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  assert.deepEqual(r.visitas.map((v) => v.id), ["b", "a"]);
+});
+
+test("filtro: 'Desde' posterior a 'Hasta', fechas futuras, una sola fecha o inválidas → aviso y NO se consulta", () => {
+  const hoy = HOY;
+  const r1 = validarFiltro("2026-11-24", "2026-11-20", hoy);
+  assert.equal(r1.tipo, "error");
+  if (r1.tipo === "error") assert.match(r1.mensaje, /posterior/);
+  const r2 = validarFiltro("2026-11-20", "2026-11-26", hoy);
+  assert.equal(r2.tipo, "error");
+  if (r2.tipo === "error") assert.match(r2.mensaje, /futuras/);
+  assert.equal(validarFiltro("2026-11-26", "2026-11-26", hoy).tipo, "error");
+  assert.equal(validarFiltro("2026-11-20", "", hoy).tipo, "error");
+  assert.equal(validarFiltro(null, "2026-11-20", hoy).tipo, "error");
+  assert.equal(validarFiltro("2026-02-30", "2026-03-01", hoy).tipo, "error");
+  assert.equal(validarFiltro("20/11/2026", "2026-11-21", hoy).tipo, "error");
+  assert.deepEqual(validarFiltro(null, null, hoy), { tipo: "sin-filtro" });
+  assert.deepEqual(validarFiltro("", " ", hoy), { tipo: "sin-filtro" });
+  assert.deepEqual(validarFiltro("2026-11-20", "2026-11-20", hoy), {
+    tipo: "ok",
+    filtro: { desde: "2026-11-20", hasta: "2026-11-20" },
+  });
+  assert.deepEqual(validarFiltro("2026-11-01", hoy, hoy), { tipo: "ok", filtro: { desde: "2026-11-01", hasta: hoy } });
+});
+
+test("filtro: atajos Hoy, Ayer, Últimos 7 días y Este mes; URL y texto del periodo", () => {
+  assert.deepEqual(atajosFiltro("2026-11-25"), [
+    { etiqueta: "Hoy", filtro: { desde: "2026-11-25", hasta: "2026-11-25" } },
+    { etiqueta: "Ayer", filtro: { desde: "2026-11-24", hasta: "2026-11-24" } },
+    { etiqueta: "Últimos 7 días", filtro: { desde: "2026-11-19", hasta: "2026-11-25" } },
+    { etiqueta: "Este mes", filtro: { desde: "2026-11-01", hasta: "2026-11-25" } },
+  ]);
+  // El 1 de enero: "Ayer" y "Últimos 7 días" cruzan de año.
+  const enero = atajosFiltro("2027-01-01");
+  assert.deepEqual(enero[1].filtro, { desde: "2026-12-31", hasta: "2026-12-31" });
+  assert.deepEqual(enero[2].filtro, { desde: "2026-12-26", hasta: "2027-01-01" });
+  assert.deepEqual(enero[3].filtro, { desde: "2027-01-01", hasta: "2027-01-01" });
+  for (const a of atajosFiltro(HOY)) assert.equal(validarFiltro(a.filtro.desde, a.filtro.hasta, HOY).tipo, "ok");
+  assert.equal(consultaFiltro({ desde: "2026-11-20", hasta: "2026-11-24" }), "?desde=2026-11-20&hasta=2026-11-24");
+  assert.equal(consultaFiltro(null), "");
+  assert.match(textoPeriodo({ desde: "2026-11-20", hasta: "2026-11-24" }), /20 .*nov.* – 24 .*nov.*2026/);
+});
+
+test("filtro: más visitas que el corte del servidor → páginas sin repetir ni saltar, y avisa lo que falta", async () => {
+  // 4,300 visitas en el periodo (de 3 en 3 con la misma hora) + algunas fuera del periodo.
+  const filas: FilaFalsa[] = [];
+  const base = Date.parse("2026-11-24T05:00:00Z"); // 23:00 del 23 en México
+  for (let i = 0; i < 4300; i++) {
+    filas.push(fila(`r${String(i).padStart(5, "0")}`, new Date(base - Math.floor(i / 3) * 60000).toISOString(), 1, 2));
+  }
+  filas.push(fila("fuera-despues", "2026-11-25T06:30:00Z"), fila("fuera-antes", "2026-11-17T05:00:00Z"));
+  const filtro = { desde: "2026-11-18", hasta: "2026-11-24" };
+  const { api, peticiones } = baseFalsa(filas, { corteServidor: 1000 });
+
+  const ids: string[] = [];
+  let cursor = null;
+  let cargas = 0;
+  do {
+    const r = await cargarRango(api, filtro, true, cursor);
+    assert.equal(r.tipo, "ok");
+    if (r.tipo !== "ok") return;
+    assert.ok(r.visitas.length <= MAX_VISITAS_POR_CARGA);
+    ids.push(...r.visitas.map((v) => v.id));
+    cursor = r.pendiente;
+    cargas++;
+    if (cargas < 3) assert.notEqual(cursor, null, "avisa que quedan visitas por cargar");
+  } while (cursor && cargas < 10);
+
+  assert.equal(cargas, 3); // 2,000 + 2,000 + 300
+  assert.equal(ids.length, 4300, "ninguna se salta");
+  assert.equal(new Set(ids).size, 4300, "ninguna se repite");
+  assert.ok(!ids.includes("fuera-despues") && !ids.includes("fuera-antes"));
+  // Cada página pide menos que el corte del servidor (500 < 1,000).
+  assert.ok(peticiones.every((p) => p.limite <= FILAS_POR_PAGINA));
+});
+
+test("filtro: exactamente el máximo de visitas → NO avisa de más (pregunta por una fila extra)", async () => {
+  const filas: FilaFalsa[] = [];
+  for (let i = 0; i < MAX_VISITAS_POR_CARGA; i++) {
+    filas.push(fila(`e${String(i).padStart(5, "0")}`, new Date(Date.parse("2026-11-24T05:00:00Z") - i * 1000).toISOString()));
+  }
+  const { api } = baseFalsa(filas);
+  const r = await cargarRango(api, { desde: "2026-11-23", hasta: "2026-11-23" }, true);
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  assert.equal(r.visitas.length, MAX_VISITAS_POR_CARGA);
+  assert.equal(r.pendiente, null);
+});
+
+test("filtro: el resumen del periodo no cuenta fotos, artículos ni visitas descartadas", async () => {
+  const a = fila("a", "2026-11-24T18:00:00Z", 3, 4);
+  a.fotos.push({ descartada: true }, { descartada: true });
+  a.articulos.push({ descartada: true });
+  const b = fila("b", "2026-11-23T18:00:00Z", 1, 0);
+  const borrada = { ...fila("borrada", "2026-11-23T17:00:00Z", 5, 5), descartada_at: "2026-11-23T19:00:00Z" };
+  const { api } = baseFalsa([a, b, borrada]);
+  const r = await cargarRango(api, { desde: "2026-11-20", hasta: "2026-11-24" }, true);
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  const t = calcularTotales(r.visitas);
+  assert.deepEqual(t, { visitas: 2, fotos: 4, articulos: 4, borradas: 1 });
+  assert.equal(textoTotales(t), "2 visitas · 4 fotos · 4 artículos");
+  // Sin resultados.
+  assert.deepEqual(calcularTotales([]), { visitas: 0, fotos: 0, articulos: 0, borradas: 0 });
+});
+
+test("filtro: si falla el conteo de artículos, sale con fotos y lo avisa; una falla de red se reporta", async () => {
+  const { api } = baseFalsa([fila("a", "2026-11-24T18:00:00Z", 2, 1)], { sinTablaArticulos: true });
+  const r = await cargarRango(api, { desde: "2026-11-24", hasta: "2026-11-24" }, true);
+  assert.equal(r.tipo, "ok");
+  if (r.tipo !== "ok") return;
+  assert.equal(r.conArticulos, false);
+  assert.notEqual(r.fallaArticulos, null);
+  assert.equal(calcularTotales(r.visitas).articulos, null);
+
+  const sinRed: ApiLista = {
+    leerPagina: async () => ({ data: null, error: new TypeError("Failed to fetch") }),
+    leerMasReciente: async () => ({ data: [], error: null }),
+  };
+  const r2 = await cargarRango(sinRed, { desde: "2026-11-24", hasta: "2026-11-24" }, true);
+  assert.equal(r2.tipo, "falla");
+  if (r2.tipo === "falla") assert.equal(r2.falla.tipo, "red");
 });

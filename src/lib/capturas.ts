@@ -189,8 +189,14 @@ export function normalizar(texto: string): string {
     .trim();
 }
 
-export const MAX_SUGERENCIAS = 6;
 export const MIN_CARACTERES_SUGERENCIA = 2;
+/**
+ * La lista de sugerencias muestra TODAS las coincidencias, pero las pinta en bloques de
+ * este tamaño: al acercarse al final del scroll se agrega el siguiente bloque.
+ */
+export const SUGERENCIAS_POR_BLOQUE = 50;
+/** Renglones a la vista en la caja de sugerencias (o el 45 % de la pantalla, lo que sea menor). */
+export const RENGLONES_VISIBLES = 6;
 
 /** Cada lista de opciones se normaliza UNA vez (el catálogo tiene miles de artículos). */
 const normalizadas = new WeakMap<readonly string[], string[]>();
@@ -205,11 +211,13 @@ function versionNormalizada(opciones: readonly string[]): string[] {
 }
 
 /**
- * Hasta 6 sugerencias para lo escrito (mínimo 2 letras), sin distinguir mayúsculas ni
+ * TODAS las sugerencias para lo escrito (mínimo 2 letras), sin distinguir mayúsculas ni
  * acentos. Lo escrito se parte en palabras y TODAS deben aparecer, en cualquier orden:
  * "coca zero" encuentra "Refresco coca cola zero 250 ml". Primero las que EMPIEZAN con
- * lo escrito y luego las demás, cada grupo en orden alfabético.
+ * lo escrito y luego las que lo CONTIENEN, cada grupo en orden alfabético.
  * Si lo escrito ya es IDÉNTICO a una opción (por ejemplo, recién elegida), no sugiere nada.
+ * La pantalla decide cuántas pinta a la vez (SUGERENCIAS_POR_BLOQUE); el total es
+ * siempre el largo de esta lista.
  */
 export function filtrarSugerencias(opciones: readonly string[], texto: string): string[] {
   const buscado = normalizar(texto);
@@ -227,8 +235,48 @@ export function filtrarSugerencias(opciones: readonly string[], texto: string): 
     else contienen.push(opciones[i]);
   }
   const porNombre = (a: string, b: string) => a.localeCompare(b, "es");
-  if (empiezan.length >= MAX_SUGERENCIAS) return empiezan.sort(porNombre).slice(0, MAX_SUGERENCIAS);
-  return [...empiezan.sort(porNombre), ...contienen.sort(porNombre)].slice(0, MAX_SUGERENCIAS);
+  return [...empiezan.sort(porNombre), ...contienen.sort(porNombre)];
+}
+
+/** "1 coincidencia", "128 coincidencias". */
+export function textoCoincidencias(n: number): string {
+  return `${n.toLocaleString("es-MX")} ${n === 1 ? "coincidencia" : "coincidencias"}`;
+}
+
+/**
+ * Cuántas sugerencias pintar después de mover el scroll o la selección:
+ *   - nunca más que el total ni menos de un bloque (si hay);
+ *   - si el scroll está a menos de `margen` px del final, o la selección (teclado) llegó
+ *     al último bloque pintado, se agrega el siguiente bloque.
+ * Así el bloque nuevo aparece ANTES de llegar al final: no se nota el corte.
+ */
+export function cantidadAPintar(
+  actual: number,
+  total: number,
+  opciones: { distanciaAlFinal?: number; margen?: number; activa?: number } = {},
+): number {
+  const { distanciaAlFinal, margen = 0, activa = -1 } = opciones;
+  let n = Math.min(total, Math.max(actual, SUGERENCIAS_POR_BLOQUE));
+  const cercaDelFinal = distanciaAlFinal !== undefined && distanciaAlFinal <= margen;
+  const seleccionAlFinal = activa >= n - 1 - Math.floor(SUGERENCIAS_POR_BLOQUE / 5);
+  if (n < total && (cercaDelFinal || (activa >= 0 && seleccionAlFinal))) {
+    n = Math.min(total, n + SUGERENCIAS_POR_BLOQUE);
+  }
+  return n;
+}
+
+/**
+ * Al guardar un artículo EDITADO: articulo_de_lista es true solo si el texto final es
+ * EXACTAMENTE igual a una sugerencia. Si las sugerencias no se pudieron cargar, no se
+ * puede comprobar: se conserva la marca original solo si el texto no cambió.
+ */
+export function articuloEsDeLista(
+  articuloFinal: string,
+  opciones: readonly string[] | null,
+  original?: { articulo: string; articulo_de_lista: boolean },
+): boolean {
+  if (opciones && opciones.length > 0) return opciones.includes(articuloFinal);
+  return original !== undefined && original.articulo === articuloFinal && original.articulo_de_lista;
 }
 
 // --- Borrador en el celular (localStorage) -----------------------------------------

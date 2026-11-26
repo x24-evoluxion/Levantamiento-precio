@@ -26,6 +26,7 @@
 | — | Captura rápida de productos (`011`) — fuera del plan original | 🟡 falta ejecutar; el orden completo está en "Editar y borrar lo capturado" |
 | — | Editar y borrar lo capturado (`012`, `012b` por revisar) — fuera del plan original | 🟡 falta: `010` (si aún no) → `010b` → `011` → prueba `011` → `012` → prueba `012` → (`012b` si se aprueba) → push → prueba en el celular |
 | — | Lista de visitas por día con conteos (solo app) — fuera del plan original | 🟡 falta publicar y probar en el celular |
+| — | Admin edita todo (parte app), sugerencias con todas las coincidencias y filtro de fechas — fuera del plan original | 🟡 parte de app hecha; **migración `013` en espera de las respuestas del usuario** (reasignar dueño, corregir ubicación, auditoría de visitas); falta publicar y probar |
 
 ### Etapa 2 — Leer precios de las fotos (plan: `docs/PLAN_ETAPA2.md`)
 
@@ -2518,3 +2519,158 @@ ni `datos-privados/`, **no** se usó la secret key y **no** se instaló nada.
   `test:capturas` 17/17, `test:etapa2` 14/14.
 
 **Commit:** ver `git log` — `Lista de visitas por día con conteos de fotos y artículos (solo app)`
+
+---
+
+## Admin edita todo, sugerencias completas y filtro de fechas (2026-11-26) — 🟡 parte de app hecha; `013` en espera de respuestas
+
+Cambio **fuera del plan original**, pedido por el usuario, en tres partes. **No** se ejecutó nada
+en Supabase, **no** se leyó `.env.local` ni `datos-privados/`, **no** se usó la secret key, **no**
+se instaló nada y **no** se editó ninguna migración. **No hay migración nueva todavía:** la parte
+de base de datos de la parte 1 espera las respuestas del usuario a tres preguntas (abajo).
+
+### Parte 1 — El administrador edita todo
+
+**Auditoría (base = migraciones hasta `012`, escrita pero aún sin ejecutar en Supabase; pantalla =
+la app antes de este cambio).** ✅ = puede · ⛔ = no puede (correcto) · ❌ = falta.
+
+| Qué | Admin: base | Admin: pantalla | Campo: base | Campo: pantalla |
+|---|---|---|---|---|
+| **Visitas** — ver | ✅ todas (también borradas y sin dueño) | ✅ | ✅ solo suyas no borradas | ✅ |
+| Visitas — cambiar tienda (`competidor_id`) | ✅ cualquiera, también con fotos leídas | ✅ (faltaba la confirmación con fotos leídas → **hecho**) | ✅ suya, sin fotos leídas | ✅ |
+| Visitas — ubicación (latitud, longitud, precisión, `ubicacion_at`) | ❌ sin permiso de columna | ❌ | ⛔ | ⛔ |
+| Visitas — dueño (`usuario_id`) | ❌ sin permiso | ❌ | ⛔ | ⛔ |
+| Visitas — `created_at` | ⛔ (no se pide) | ⛔ | ⛔ | ⛔ |
+| Visitas — borrar (descartar) | ✅ | ✅ | ✅ suya, sin fotos leídas | ✅ |
+| Visitas — restaurar | ✅ | ✅ | ⛔ | ⛔ |
+| Visitas — quién y cuándo se editó | ❌ no hay columnas (solo `descartada_at`) | ❌ | — | — |
+| **Fotos** — ver | ✅ todas, también quitadas | ✅ ("Fotos quitadas") | ✅ de sus visitas, sin quitadas | ✅ |
+| Fotos — subir | ✅ a cualquier visita no borrada | ✅ | ✅ a sus visitas | ✅ |
+| Fotos — editar otros campos | ⛔ (solo `descartada_at`; no se pide) | ⛔ | ⛔ | ⛔ |
+| Fotos — quitar (descartar) | ✅ cualquiera, también leídas | ✅ | ✅ pendientes de sus visitas | ✅ |
+| Fotos — restaurar | ✅ (`admin_restaurar_foto`) | ✅ | ⛔ | ⛔ |
+| **Productos** — ver | ✅ todos, también borrados | ✅ | ✅ de sus visitas, sin borrados | ✅ |
+| Productos — editar artículo, precios, observaciones, `articulo_de_lista` | ✅ de cualquiera, también borrados | ✅ (en borrados faltaba "Editar" → **hecho**) | ✅ solo suyos no borrados | ✅ |
+| Productos — editar columnas del formulario viejo de `010` (cantidad, unidad, marca, área, promoción) | ❌ sin permiso de columna | ❌ | ⛔ | ⛔ |
+| Productos — borrar | ✅ | ✅ | ✅ suyos | ✅ |
+| Productos — restaurar | ✅ | ✅ | ⛔ | ⛔ |
+| Productos — agregar en una visita **ajena** | ❌ la regla de `010` lo impide | ❌ | ⛔ | ⛔ |
+| Productos — quién y cuándo se editó | ✅ `actualizado_at` / `actualizado_por` (`012`) | solo "cuándo" → **hecho** "Último cambio por …" | — | — |
+| Todas — falsear `usuario_id`, `visita_id`, `created_at`, `descartada_at`, `actualizado_*`; `DELETE`; `anon` | ⛔ (permisos por columna, triggers, sin `DELETE`, `anon` sin nada) | — | ⛔ | — |
+
+**Hecho en la app (sin tocar la base, todo ya lo permite `012`):**
+- `CapturaManual.tsx`: el admin ve **Editar** también en productos **borrados** (junto a
+  "Restaurar"; el formulario avisa "sigue borrado hasta que lo restaures"), y "👤 Creado por …" /
+  "✎ Último cambio por …" (con `actualizado_por` y `admin_correos_usuarios`, que ya existía; no se
+  abre `auth.users`). Al guardar una edición, `articulo_de_lista` = `true` **solo** si el texto
+  final es **exactamente** una sugerencia (`articuloEsDeLista` en `src/lib/capturas.ts`); si las
+  sugerencias no cargaron, se conserva la marca solo si el texto no cambió. Corregido: al editar
+  un producto de una visita **ajena**, el foco no llegaba al campo (el formulario aún no existía).
+- `AccionesVisita.tsx`: si el admin cambia la tienda de una visita con fotos leídas, primero
+  pregunta "¿Cambiar la tienda?" con el texto pedido ("Esta visita ya tiene fotos leídas. Cambiar
+  la tienda cambia a qué competidor pertenecen esos precios."). Si no se pudo revisar (sin señal),
+  también pregunta. Si un cambio, borrado o restauración afecta 0 filas, avisa y **vuelve a leer
+  la visita** (antes solo avisaba).
+
+**Preguntas al usuario (no se diseña la migración hasta tener las respuestas):**
+(a) ¿reasignar una visita a otro colaborador (cambiar el dueño)?; (b) ¿corregir la ubicación de
+una visita, con marcador visible "corregida por administrador" y quién la corrigió?; (c) ¿qué
+columnas de auditoría agregar a `visitas` (`actualizado_at`, `actualizado_por`, por trigger con
+`auth.uid()`, sin permiso de escritura para la app)? Además quedan dos huecos de la auditoría
+por decidir: editar las columnas del formulario viejo (`010`) y que el admin agregue productos en
+visitas ajenas. Si hace falta, la migración será `013` (aditiva, repetible) con su prueba.
+
+### Parte 2 — Sugerencias de artículo con todas las coincidencias
+
+- `src/lib/capturas.ts`: `filtrarSugerencias` ya **no corta en 6**: devuelve todas, con las
+  mismas reglas (palabras en cualquier orden, sin mayúsculas ni acentos, mínimo 2 caracteres;
+  primero las que empiezan, luego las que contienen, alfabético en cada grupo; nada si el texto
+  ya es idéntico a una opción). Nuevas: `cantidadAPintar` (bloques de 50 que se agregan **antes**
+  de llegar al final: a 8 renglones del final con el dedo, o a 10 de la última pintada con el
+  teclado), `textoCoincidencias` ("128 coincidencias") y `articuloEsDeLista`.
+- `src/components/CampoSugerencias.tsx`: caja con el total arriba y lista con scroll propio de
+  máximo **6 renglones o 45 % de lo visible** (`visualViewport`), lo que sea menor, con
+  `overscroll-behavior: contain`. Toda la caja hace `preventDefault` en `pointerdown` y
+  `mousedown`: tocar, deslizar o arrastrar la barra no le quita el foco al campo ni la cierra.
+  Al enfocar (y al abrir el teclado), si la lista no cabe, el campo sube cerca de la parte de
+  arriba. Flechas: la marcada queda a la vista **dentro** del scroll (sin mover la página);
+  arriba de la primera regresa al texto; Enter elige; Esc cierra. `role="listbox"`,
+  `aria-expanded`, `aria-activedescendant`, `aria-setsize`/`aria-posinset` (el total real aunque
+  no estén pintadas). Renglones de 48 px y letra de 18 px. Elegir pasa a "Precio regular", como
+  antes.
+
+### Parte 3 — Filtro de fechas en la pantalla principal
+
+- `src/lib/listaVisitas.ts`: `validarFiltro` (las dos fechas, formato y fecha real, sin futuras,
+  "Desde" posterior a "Hasta" → aviso y **no** se consulta), `rangoDelFiltro` (medianoche de
+  México de "Desde" hasta la medianoche del día **siguiente** a "Hasta", en UTC con `inicioDelDia`,
+  que usa `Intl.DateTimeFormat`), `atajosFiltro`, `consultaFiltro` (URL), `textoPeriodo`,
+  `calcularTotales` (mismas reglas que los días) y `cargarRango` (páginas de 500 por "después de
+  la última fila", hasta 2,000 visitas por carga; si hay más, lo confirma pidiendo una fila extra
+  y devuelve dónde seguir). La lectura por páginas de los tramos se movió a `leerPaginas` (la usan
+  los dos; las 25 pruebas anteriores siguen pasando).
+- `src/app/ListaVisitas.tsx`: panel "Filtrar por fecha de ingreso" (atajos en 2×2, Desde/Hasta con
+  `max` = hoy, "Ver esas fechas", "Limpiar filtro"), resumen del periodo o "No hay visitas en esas
+  fechas.", aviso y "Cargar más visitas del periodo" si faltan; con filtro no aparece "Ver días
+  anteriores". El filtro va en la URL con `router.replace` (sin localStorage); las tarjetas abren
+  `/visitas/<id>?desde=…&hasta=…`.
+- `src/app/page.tsx`: `<Suspense>` alrededor de la lista (lee `useSearchParams`; lo exige
+  `cacheComponents`). `src/app/visitas/[id]/EnlaceVolver.tsx` + `page.tsx`: "← Volver a la lista"
+  regresa con el mismo filtro (solo copia fechas válidas), también dentro de `<Suspense>`.
+- Roles: el filtro solo acota fechas; las reglas de la base siguen decidiendo (campo: solo sus
+  visitas).
+
+**Archivos:** `src/lib/capturas.ts`, `src/lib/capturas.test.ts`, `src/components/CampoSugerencias.tsx`,
+`src/app/visitas/[id]/CapturaManual.tsx`, `src/app/visitas/[id]/AccionesVisita.tsx`,
+`src/lib/listaVisitas.ts`, `src/lib/listaVisitas.test.ts`, `src/app/ListaVisitas.tsx`,
+`src/app/page.tsx`, `src/app/visitas/[id]/page.tsx`, `src/app/visitas/[id]/EnlaceVolver.tsx`,
+`docs/PLAN.md`, `docs/RESUMEN_PROYECTO.md` y este archivo. `src/lib/tipos.ts` **no** cambió (ya
+tenía `actualizado_por`).
+
+**⚠️ ORDEN DE DESPLIEGUE:**
+1. Primero, lo pendiente de "Editar y borrar lo capturado" (pasos 1–7: `010` si falta → `010b` →
+   `011` → prueba `011` → `012` → prueba `012` → `012b` opcional). Este cambio **no** agrega
+   migración.
+2. Si después se aprueba la migración `013`: ejecutarla y su prueba **antes** del push que la use.
+3. **Push** y esperar **Ready** en Vercel.
+4. Probar en el celular (abajo).
+
+**Qué pruebas anteriores dejan de aplicar:** ninguna por este cambio (no hay migración). Las de
+`capturas` y `lista` se actualizaron: "máximo 6 sugerencias" ahora es "todas".
+
+**Cómo probarlo:**
+1. `npm run test:capturas` → 22/22 y `npm run test:lista` → 33/33. Cubren: 23:30 y 00:30 en
+   México, "Hasta" incluye todo el día (hasta 23:59:59.999), Desde > Hasta, fechas futuras,
+   paginación de 4,300 visitas sin repetir ni saltar con aviso de lo que falta, exactamente 2,000
+   sin aviso falso, resumen sin descartadas, búsqueda por palabras y orden, bloques de 50 hasta el
+   total real sin perder ninguna.
+2. Celular, captura: escribir "co" → caja con "N coincidencias" y scroll; deslizar la lista no la
+   cierra ni baja el teclado; al llegar abajo aparecen más sin corte; tocar una pasa a "Precio
+   regular".
+3. Computadora: flechas recorren la lista (la marcada siempre visible), Enter elige, Esc cierra.
+4. Lista: "Ayer" → resumen y visitas de ayer; abrir una → "← Volver a la lista" → sigue el filtro.
+   Desde > Hasta → aviso y no busca. "Limpiar filtro" → vista normal con "Ver días anteriores".
+   Copiar el enlace con `?desde=…&hasta=…` y abrirlo en otra pestaña.
+5. Admin: en una visita de otra persona, "Editar" un producto → se guarda y sale "Último cambio
+   por …"; en uno borrado, "Editar" y "Restaurar". Cambiar la tienda de una visita con una foto
+   leída (simular con `estado_proceso` desde el panel) → sale la confirmación.
+6. Campo: el filtro solo muestra sus visitas.
+
+**Decisiones tomadas (y por qué):**
+- **Tope de 2,000 visitas por carga con filtro** y "Cargar más": evita bajar decenas de miles de
+  filas de golpe; si hay más, se avisa y el resumen dice que cuenta solo lo cargado.
+- **Se piden las dos fechas** (Desde y Hasta); los atajos las llenan solas.
+- **Flecha abajo en la última no da la vuelta** (antes sí): con cientos de coincidencias, dar la
+  vuelta obligaría a pintarlas todas.
+- **Admin puede editar un producto borrado** sin restaurarlo (la base ya lo permitía); se avisa
+  que sigue borrado.
+- `articulo_de_lista` estricto solo **al editar** (lo pedido); al agregar sigue como antes (true al
+  elegir una sugerencia, false al escribir).
+
+**Problemas encontrados / pendientes:**
+- **No probado en el navegador ni contra Supabase real** (no se debía consultar Supabase). Lógica
+  probada con datos inventados. `npm run lint` ✅, `npm run build` ✅, `test:lista` 33/33,
+  `test:capturas` 22/22, `test:errores` 10/10, `test:etapa2` 14/14.
+- Respuestas pendientes (a), (b), (c) y los dos huecos de la auditoría.
+
+**Commit:** ver `git log` — `Admin edita todo (app), sugerencias completas y filtro de fechas`

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import ListaVisitas, { TituloVisitas } from "./ListaVisitas";
 import ReiniciarAlSalir from "@/components/ReiniciarAlSalir";
 
@@ -19,7 +20,12 @@ export default function Inicio() {
         <TituloVisitas />
         {/* Al volver a esta pantalla, la lista se lee de nuevo (no se muestra la de antes). */}
         <ReiniciarAlSalir>
-          <ListaVisitas />
+          {/* La lista lee el filtro de fechas de la URL (useSearchParams): con
+              cacheComponents eso necesita un <Suspense> arriba (doc de Next:
+              use-search-params.md). */}
+          <Suspense fallback={<p className="caja-info">Cargando visitas…</p>}>
+            <ListaVisitas />
+          </Suspense>
         </ReiniciarAlSalir>
       </section>
     </main>

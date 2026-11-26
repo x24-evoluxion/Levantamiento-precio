@@ -26,7 +26,10 @@
 //   4 campos y guarda con UN solo update) y "Borrar" (con "¿Borrar este producto?").
 //   BORRAR = descartar (descartada_at): no se borra nada; al personal de campo ya no se
 //   le muestra. El admin ve también los borrados (marcados "Borrado"), con quién creó
-//   cada uno, y puede editar, borrar y restaurar cualquiera.
+//   cada uno y quién lo editó por última vez (actualizado_por, 012), y puede editar,
+//   borrar y restaurar cualquiera, de cualquier colaborador (también editar uno borrado).
+// - Al guardar una edición, articulo_de_lista es true SOLO si el artículo queda
+//   EXACTAMENTE igual a una sugerencia (src/lib/capturas.ts → articuloEsDeLista).
 // - Si la base no deja (el producto ya está borrado o no es tuyo), el update afecta 0
 //   filas: se avisa y se vuelve a cargar la lista.
 // - Quién escribe productos nuevos: solo en visitas PROPIAS no borradas (la base lo
@@ -40,6 +43,7 @@ import type { CapturaManual as FilaGuardada } from "@/lib/tipos";
 import {
   MAX_ARTICULO,
   MAX_OBSERVACIONES,
+  articuloEsDeLista,
   avisosProducto,
   faltantes,
   formatearPesos,
@@ -175,11 +179,22 @@ export default function CapturaManual({
     };
     refs[campo].current?.focus();
   }
+  /**
+   * El admin edita productos de visitas AJENAS: ahí el formulario no existe hasta que
+   * empieza la edición, así que el foco se pone en cuanto aparece.
+   */
+  const enfocarAlAparecer = useRef(false);
 
   // Con cacheComponents, Next.js esconde (no desmonta) esta pantalla al ir a otra.
   // Si se fue con la pregunta "¿Borrar este producto?" abierta, al volver aparece
   // cerrada (doc de Next: preserving-ui-state.md).
   useLayoutEffect(() => () => setPorBorrar(null), []);
+
+  useLayoutEffect(() => {
+    if (!editando || !enfocarAlAparecer.current) return;
+    enfocarAlAparecer.current = false;
+    refArticulo.current?.focus();
+  }, [editando]);
 
   /** "nada" → "pidiendo" → "listo". La lista de artículos se pide una sola vez. */
   const pedidoArticulos = useRef<"nada" | "pidiendo" | "listo">("nada");
@@ -459,7 +474,8 @@ export default function CapturaManual({
     });
     setMensaje(null);
     setAnuncio(`Editando: ${fila.articulo}.`);
-    enfocar("articulo");
+    if (refArticulo.current) enfocar("articulo");
+    else enfocarAlAparecer.current = true;
   }
 
   /** Termina la edición y regresa lo que había en el formulario. */
@@ -475,12 +491,15 @@ export default function CapturaManual({
     setGuardandoEdicion(true);
     setMensaje(null);
     const v = productoParaGuardar(visitaId, form);
+    // true SOLO si el texto final es EXACTAMENTE una sugerencia (no basta con haberla
+    // elegido y luego cambiarla, ni con conservar la marca vieja si el texto cambió).
+    const deLista = articuloEsDeLista(v.articulo, articulos.tipo === "ok" ? articulos.lista : null, fila);
     try {
       const { data, error, status } = await supabase
         .from("capturas_manuales")
         .update({
           articulo: v.articulo,
-          articulo_de_lista: v.articulo_de_lista,
+          articulo_de_lista: deLista,
           precio_regular: v.precio_regular,
           promo_precio_pieza: v.promo_precio_pieza,
           observaciones: v.observaciones,
@@ -646,6 +665,12 @@ export default function CapturaManual({
                   <h3 id="titulo-formulario-captura" className="text-xl font-bold">
                     {editando ? "Editar producto guardado" : correccion ? "Corregir producto" : "Agregar producto"}
                   </h3>
+                  {editando?.descartada_at && (
+                    <p className="text-base font-semibold text-aviso-texto">
+                      Este producto está borrado: se guardan los cambios, pero sigue borrado hasta que lo
+                      restaures.
+                    </p>
+                  )}
 
                   <CampoSugerencias
                     etiqueta="Artículo"
@@ -888,9 +913,14 @@ export default function CapturaManual({
                       <FilaGuardadaVista
                         key={f.id}
                         fila={f}
-                        puedeEditar={!borrada && (esAdmin || (f.usuario_id === usuario.id && !visitaBorrada))}
+                        puedeEditar={esAdmin || (!borrada && f.usuario_id === usuario.id && !visitaBorrada)}
                         puedeRestaurar={borrada && esAdmin}
                         creador={esAdmin ? textoCreador(f.usuario_id, correos, usuario) : null}
+                        editor={
+                          esAdmin && f.actualizado_at && f.actualizado_por
+                            ? textoCreador(f.actualizado_por, correos, usuario)
+                            : null
+                        }
                         editandoEsta={editando?.id === f.id}
                         ocupada={ocupadas.has(f.id) || guardandoEdicion}
                         alEditar={() => empezarEdicion(f)}
@@ -1083,7 +1113,7 @@ function FilaPendiente({
 
 // -----------------------------------------------------------------------------
 // Un producto GUARDADO, compacto: "Editar" y "Borrar" (su autor o el admin) o, si
-// está borrado (solo lo ve el admin), "Borrado" y "Restaurar". Las filas del
+// está borrado (solo lo ve el admin), "Borrado", "Editar" y "Restaurar". Las filas del
 // formulario anterior (010) muestran también su contenido y su promoción.
 // -----------------------------------------------------------------------------
 
@@ -1092,6 +1122,7 @@ function FilaGuardadaVista({
   puedeEditar,
   puedeRestaurar,
   creador,
+  editor,
   editandoEsta,
   ocupada,
   alEditar,
@@ -1103,6 +1134,8 @@ function FilaGuardadaVista({
   puedeRestaurar: boolean;
   /** Solo admin: quién lo creó. */
   creador: string | null;
+  /** Solo admin: quién lo editó por última vez (actualizado_por). */
+  editor: string | null;
   editandoEsta: boolean;
   ocupada: boolean;
   alEditar: () => void;
@@ -1140,41 +1173,49 @@ function FilaGuardadaVista({
         Guardado {formatearFecha(fila.created_at)}
         {fila.actualizado_at && ` · editado ${formatearFecha(fila.actualizado_at)}`}
       </p>
-      {creador && <p className="text-base text-texto-suave break-words">👤 {creador}</p>}
+      {creador && <p className="text-base text-texto-suave break-words">👤 Creado por {creador}</p>}
+      {editor && <p className="text-base text-texto-suave break-words">✎ Último cambio por {editor}</p>}
       {editandoEsta && <p className="text-base font-semibold">Editando arriba…</p>}
 
-      {puedeEditar && !editandoEsta && (
+      {!editandoEsta && (puedeEditar || puedeRestaurar) && (
         <div className="mt-2 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={alEditar}
-            disabled={ocupada}
-            aria-label={`Editar ${fila.articulo}`}
-            className="boton-contorno min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
-          >
-            Editar
-          </button>
-          <button
-            type="button"
-            onClick={alBorrar}
-            disabled={ocupada}
-            aria-label={`Borrar ${fila.articulo}`}
-            className="boton-gris min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
-          >
-            {ocupada ? "…" : "Borrar"}
-          </button>
+          {puedeEditar && (
+            <button
+              type="button"
+              onClick={alEditar}
+              disabled={ocupada}
+              aria-label={`Editar ${fila.articulo}`}
+              className="boton-contorno min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
+            >
+              Editar
+            </button>
+          )}
+          {borrada ? (
+            puedeRestaurar && (
+              <button
+                type="button"
+                onClick={alRestaurar}
+                disabled={ocupada}
+                aria-label={`Restaurar ${fila.articulo}`}
+                className="boton-gris min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
+              >
+                {ocupada ? "Restaurando…" : "Restaurar"}
+              </button>
+            )
+          ) : (
+            puedeEditar && (
+              <button
+                type="button"
+                onClick={alBorrar}
+                disabled={ocupada}
+                aria-label={`Borrar ${fila.articulo}`}
+                className="boton-gris min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
+              >
+                {ocupada ? "…" : "Borrar"}
+              </button>
+            )
+          )}
         </div>
-      )}
-      {puedeRestaurar && (
-        <button
-          type="button"
-          onClick={alRestaurar}
-          disabled={ocupada}
-          aria-label={`Restaurar ${fila.articulo}`}
-          className="boton-gris mt-2 min-h-12 w-full rounded-xl px-3 py-2 text-lg font-semibold"
-        >
-          {ocupada ? "Restaurando…" : "Restaurar"}
-        </button>
       )}
     </li>
   );

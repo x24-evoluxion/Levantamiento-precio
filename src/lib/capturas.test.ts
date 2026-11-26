@@ -3,7 +3,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  SUGERENCIAS_POR_BLOQUE,
+  articuloEsDeLista,
   avisosProducto,
+  cantidadAPintar,
   faltantes,
   filtrarSugerencias,
   guardarBorrador,
@@ -14,6 +17,8 @@ import {
   productoParaGuardar,
   productoTieneDatos,
   productoVacio,
+  normalizar,
+  textoCoincidencias,
   textoFalta,
   textoPromocion,
   type ProductoBorrador,
@@ -56,20 +61,110 @@ test("sugerencias: sin distinguir mayúsculas ni acentos", () => {
   assert.deepEqual(filtrarSugerencias(ARTICULOS, "clasico café"), ["Café soluble clásico 100 g"]);
 });
 
-test("sugerencias: mínimo 2 letras, máximo 6, nada si ya es igual a una opción", () => {
+test("sugerencias: mínimo 2 letras, SIN tope (todas), nada si ya es igual a una opción", () => {
   assert.deepEqual(filtrarSugerencias(ARTICULOS, "c"), []);
   assert.deepEqual(filtrarSugerencias(ARTICULOS, "  "), []);
-  assert.equal(filtrarSugerencias(ARTICULOS, "co").length, 6);
+  // "co" aparece en 7 de las 9 descripciones inventadas: salen las 7 (antes, máximo 6).
+  assert.equal(filtrarSugerencias(ARTICULOS, "co").length, 7);
   assert.deepEqual(filtrarSugerencias(ARTICULOS, "Agua mineral 1 l"), []);
   assert.deepEqual(filtrarSugerencias(ARTICULOS, "xyz"), []);
 });
 
-test("sugerencias: con más de 3,000 opciones responde rápido", () => {
-  const muchas = Array.from({ length: 3500 }, (_, i) => `Articulo de prueba ${i} coca ${i % 7}`);
+test('sugerencias: orden = primero las que EMPIEZAN, luego las que CONTIENEN, alfabético en cada grupo', () => {
+  assert.deepEqual(filtrarSugerencias(ARTICULOS, "co"), [
+    // EMPIEZAN con "co" (alfabético)
+    "Coca cola light 600 ml",
+    "Cocoa en polvo 200 g",
+    // CONTIENEN "co" (alfabético; "clásico" cuenta sin acento)
+    "Café soluble clásico 100 g",
+    "Chocolate en polvo 400 g",
+    "Galletas de coco 200 g",
+    "Refresco coca cola nr 250 ml",
+    "Refresco coca cola zero 250 ml",
+  ]);
+});
+
+/** Catálogo inventado grande: 3,500 descripciones, varias con las mismas palabras. */
+const MUCHAS = Array.from({ length: 3500 }, (_, i) =>
+  i % 3 === 0 ? `Coca ${i} articulo de prueba ${i % 7}` : `Articulo de prueba ${i} coca ${i % 7}`,
+);
+
+/** Lo que debe salir, calculado a la fuerza bruta (sin la función). */
+function esperadas(opciones: readonly string[], texto: string): string[] {
+  const buscado = normalizar(texto);
+  const palabras = buscado.split(" ");
+  const ok = opciones.filter((o) => palabras.every((p) => normalizar(o).includes(p)));
+  const empiezan = ok.filter((o) => normalizar(o).startsWith(buscado)).sort((a, b) => a.localeCompare(b, "es"));
+  const contienen = ok.filter((o) => !normalizar(o).startsWith(buscado)).sort((a, b) => a.localeCompare(b, "es"));
+  return [...empiezan, ...contienen];
+}
+
+test("sugerencias: con más de 3,000 opciones responde rápido y el total es el real", () => {
   const inicio = performance.now();
-  for (let i = 0; i < 20; i++) filtrarSugerencias(muchas, "coca 3");
-  assert.equal(filtrarSugerencias(muchas, "coca 3").length, 6);
-  assert.ok(performance.now() - inicio < 500);
+  for (let i = 0; i < 20; i++) filtrarSugerencias(MUCHAS, "coca 3");
+  assert.ok(performance.now() - inicio < 1000);
+  const r = filtrarSugerencias(MUCHAS, "coca 3");
+  assert.deepEqual(r, esperadas(MUCHAS, "coca 3"));
+  assert.ok(r.length > 1000, `se esperaban cientos de coincidencias, salieron ${r.length}`);
+  // Sin repetidas.
+  assert.equal(new Set(r).size, r.length);
+  // Las que empiezan con "coca 3" van antes que las que solo contienen las palabras.
+  const primeraQueNoEmpieza = r.findIndex((x) => !normalizar(x).startsWith("coca 3"));
+  assert.ok(r.slice(primeraQueNoEmpieza).every((x) => !normalizar(x).startsWith("coca 3")));
+});
+
+test('sugerencias: "128 coincidencias", "1 coincidencia"', () => {
+  assert.equal(textoCoincidencias(128), "128 coincidencias");
+  assert.equal(textoCoincidencias(1), "1 coincidencia");
+  assert.equal(textoCoincidencias(1500), "1,500 coincidencias");
+});
+
+test("sugerencias: se pintan de 50 en 50 al bajar, sin perder ninguna, hasta el total real", () => {
+  const todas = filtrarSugerencias(MUCHAS, "coca");
+  const total = todas.length;
+  assert.ok(total > 3 * SUGERENCIAS_POR_BLOQUE);
+  // Al abrir: un bloque.
+  let n = cantidadAPintar(0, total);
+  assert.equal(n, SUGERENCIAS_POR_BLOQUE);
+  // Lejos del final: no cambia.
+  assert.equal(cantidadAPintar(n, total, { distanciaAlFinal: 2000, margen: 384 }), n);
+  // Bajando: cada vez que el scroll se acerca al final, un bloque más.
+  const pasos: number[] = [n];
+  while (n < total) {
+    const siguiente = cantidadAPintar(n, total, { distanciaAlFinal: 100, margen: 384 });
+    assert.ok(siguiente > n, "siempre avanza");
+    assert.ok(siguiente - n <= SUGERENCIAS_POR_BLOQUE, "nunca más de un bloque a la vez");
+    n = siguiente;
+    pasos.push(n);
+  }
+  assert.equal(n, total, "termina exactamente en el total real");
+  // Lo pintado (slice) es la lista completa, en el mismo orden, sin huecos ni repetidas.
+  assert.deepEqual(todas.slice(0, n), todas);
+  // Ya no pinta más de lo que hay.
+  assert.equal(cantidadAPintar(n, total, { distanciaAlFinal: 0, margen: 384 }), total);
+  // Con pocas coincidencias, pinta solo esas.
+  assert.equal(cantidadAPintar(0, 7), 7);
+});
+
+test("sugerencias: con el teclado, al acercarse al final pintado se agrega otro bloque", () => {
+  const total = 500;
+  assert.equal(cantidadAPintar(50, total, { activa: 10 }), 50);
+  assert.equal(cantidadAPintar(50, total, { activa: 45 }), 100);
+  assert.equal(cantidadAPintar(100, total, { activa: 99 }), 150);
+  assert.equal(cantidadAPintar(500, total, { activa: 499 }), 500);
+});
+
+test("editar: articulo_de_lista = true SOLO si el texto es EXACTAMENTE una sugerencia", () => {
+  assert.equal(articuloEsDeLista("Agua mineral 1 l", ARTICULOS), true);
+  assert.equal(articuloEsDeLista("Agua mineral 1 L", ARTICULOS), false);
+  assert.equal(articuloEsDeLista("Agua mineral 1 l extra", ARTICULOS), false);
+  assert.equal(articuloEsDeLista("agua mineral 1 l", ARTICULOS, { articulo: "Agua mineral 1 l", articulo_de_lista: true }), false);
+  // Sin sugerencias cargadas: solo se conserva si no cambió el texto.
+  const original = { articulo: "Agua mineral 1 l", articulo_de_lista: true };
+  assert.equal(articuloEsDeLista("Agua mineral 1 l", null, original), true);
+  assert.equal(articuloEsDeLista("Agua mineral 2 l", null, original), false);
+  assert.equal(articuloEsDeLista("Agua mineral 1 l", [], { ...original, articulo_de_lista: false }), false);
+  assert.equal(articuloEsDeLista("Agua mineral 1 l", null), false);
 });
 
 // --- Precios ---------------------------------------------------------------------

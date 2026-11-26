@@ -21,8 +21,18 @@
 //
 // Carga por tramos de 14 días (la API corta cada respuesta en 1,000 filas): la lógica está
 // en src/lib/listaVisitas.ts, con sus pruebas.
+//
+// FILTRO POR FECHA DE INGRESO (created_at): "Desde" y "Hasta" (<input type="date">) y
+// atajos Hoy / Ayer / Últimos 7 días / Este mes. Consulta al SERVIDOR por ese rango (días
+// completos de México convertidos a UTC), por páginas, y resume el periodo ("12 visitas ·
+// 80 fotos · 130 artículos", sin lo descartado). El filtro vive en la URL
+// (?desde=2026-11-20&hasta=2026-11-24): se conserva al abrir una visita y volver, y el
+// enlace se puede compartir. Sin localStorage. Por cacheComponents, leer la URL
+// (useSearchParams) exige un <Suspense> arriba (page.tsx). Cada persona de campo sigue
+// viendo solo sus visitas: el filtro solo acota fechas; las reglas de la base no cambian.
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useSesion } from "@/lib/sesion";
@@ -32,8 +42,14 @@ import type { Falla } from "@/lib/errores";
 import {
   DIAS_POR_TRAMO,
   agruparPorDia,
+  atajosFiltro,
+  calcularTotales,
+  cargarRango,
   cargarTramo,
   claveDia,
+  consultaFiltro,
+  textoPeriodo,
+  validarFiltro,
   horaVisita,
   mensajeFallaCarga,
   primerTramo,
@@ -44,6 +60,8 @@ import {
   type ApiLista,
   type ClaveDia,
   type FilaCruda,
+  type FiltroFechas,
+  type PeticionPagina,
   type Tramo,
   type VisitaLista,
 } from "@/lib/listaVisitas";
@@ -105,7 +123,10 @@ type Estado =
       conArticulos: boolean;
       /** Por qué no se contaron los artículos (si pasó en algún tramo). */
       fallaArticulos: Falla | null;
+      /** Sin filtro: el siguiente tramo de días ("Ver días anteriores"). */
       siguiente: Tramo | null;
+      /** Con filtro: dónde seguir si quedan visitas del periodo por cargar. */
+      pendiente: PeticionPagina["despuesDe"];
       cargandoMas: boolean;
       fallaMas: Falla | null;
     };
@@ -113,6 +134,16 @@ type Estado =
 export default function ListaVisitas() {
   const { usuario } = useSesion();
   const esAdmin = usuario.esAdmin;
+  const router = useRouter();
+  const ruta = usePathname();
+  const parametros = useSearchParams();
+  const hoyAhora = claveDia(new Date());
+  const desdeUrl = parametros.get("desde");
+  const hastaUrl = parametros.get("hasta");
+  const leido = validarFiltro(desdeUrl, hastaUrl, hoyAhora);
+  const filtro: FiltroFechas | null = leido.tipo === "ok" ? leido.filtro : null;
+  /** Cambia solo si cambia el filtro válido (así el efecto no se repite de más). */
+  const claveFiltro = filtro ? `${filtro.desde}|${filtro.hasta}` : "";
   const [estado, setEstado] = useState<Estado>({ tipo: "cargando" });
   const [intento, setIntento] = useState(0);
   // Para no escribir en una lista que ya se cerró (por ejemplo, al salir a una visita).
@@ -130,7 +161,11 @@ export default function ListaVisitas() {
 
     async function cargar() {
       const hoy = claveDia(new Date());
-      const r = await cargarTramo(api, primerTramo(hoy), true);
+      const [desde, hasta] = claveFiltro ? claveFiltro.split("|") : [];
+      // Con filtro: el rango pedido al servidor. Sin filtro: los últimos 14 días.
+      const r = desde
+        ? await cargarRango(api, { desde, hasta }, true)
+        : await cargarTramo(api, primerTramo(hoy), true);
       // Solo el admin pide los correos (a cualquier otra cuenta la base se los niega).
       const correos = r.tipo === "ok" && esAdmin ? await leerCorreos() : null;
       if (cancelado) return;
@@ -145,7 +180,8 @@ export default function ListaVisitas() {
         correos,
         conArticulos: r.conArticulos,
         fallaArticulos: r.fallaArticulos,
-        siguiente: r.siguiente,
+        siguiente: "siguiente" in r ? r.siguiente : null,
+        pendiente: "pendiente" in r ? r.pendiente : null,
         cargandoMas: false,
         fallaMas: null,
       });
@@ -155,11 +191,42 @@ export default function ListaVisitas() {
     return () => {
       cancelado = true;
     };
-  }, [intento, esAdmin]);
+  }, [intento, esAdmin, claveFiltro]);
+
+  /** Aplica (o quita) el filtro: va a la URL; la lista se vuelve a pedir al servidor. */
+  function aplicarFiltro(f: FiltroFechas | null) {
+    setEstado({ tipo: "cargando" });
+    // Mismo filtro (por ejemplo, volver a tocar "Hoy"): la URL no cambia, así que se
+    // vuelve a pedir a mano (también sirve para ver lo más nuevo).
+    if ((f ? `${f.desde}|${f.hasta}` : "") === claveFiltro) setIntento((n) => n + 1);
+    router.replace(`${ruta}${consultaFiltro(f)}`, { scroll: false });
+  }
 
   function reintentar() {
     setEstado({ tipo: "cargando" });
     setIntento((n) => n + 1);
+  }
+
+  /** Con filtro: trae las visitas del periodo que faltaron (sigue donde se quedó). */
+  async function cargarMasDelPeriodo() {
+    if (estado.tipo !== "ok" || !filtro || !estado.pendiente || estado.cargandoMas) return;
+    const { pendiente, conArticulos } = estado;
+    setEstado({ ...estado, cargandoMas: true, fallaMas: null });
+    const r = await cargarRango(api, filtro, conArticulos, pendiente);
+    if (!vivo.current) return;
+    setEstado((antes) => {
+      if (antes.tipo !== "ok") return antes;
+      if (r.tipo === "falla") return { ...antes, cargandoMas: false, fallaMas: r.falla };
+      return {
+        ...antes,
+        visitas: unirVisitas(antes.visitas, r.visitas),
+        conArticulos: r.conArticulos,
+        fallaArticulos: antes.fallaArticulos ?? r.fallaArticulos,
+        pendiente: r.pendiente,
+        cargandoMas: false,
+        fallaMas: null,
+      };
+    });
   }
 
   async function verDiasAnteriores() {
@@ -183,41 +250,90 @@ export default function ListaVisitas() {
     });
   }
 
+  const panel = (
+    <PanelFiltro
+      // Al cambiar la URL, los campos vuelven a mostrar lo que dice la URL.
+      key={`${desdeUrl ?? ""}|${hastaUrl ?? ""}`}
+      hoy={hoyAhora}
+      desdeInicial={desdeUrl ?? ""}
+      hastaInicial={hastaUrl ?? ""}
+      aplicado={filtro}
+      errorUrl={leido.tipo === "error" ? leido.mensaje : null}
+      alAplicar={aplicarFiltro}
+    />
+  );
+
   if (estado.tipo === "cargando") {
-    return <p className="caja-info">Cargando visitas…</p>;
+    return (
+      <div className="flex flex-col gap-4">
+        {panel}
+        <p className="caja-info">{filtro ? "Buscando visitas en esas fechas…" : "Cargando visitas…"}</p>
+      </div>
+    );
   }
 
   if (estado.tipo === "error") {
     return (
-      <div className="caja-error">
-        <TituloError>No se pudieron cargar las visitas</TituloError>
-        <p className="mt-1 text-base break-words">{mensajeFallaCarga(estado.falla)}</p>
-        {estado.falla.tipo === "sesion" && <BotonEntrarOtraVez />}
-        <button
-          type="button"
-          onClick={reintentar}
-          className="boton-gris mt-3 min-h-12 w-full rounded-xl px-4 py-3 text-lg font-semibold"
-        >
-          Reintentar
-        </button>
+      <div className="flex flex-col gap-4">
+        {panel}
+        <div className="caja-error">
+          <TituloError>No se pudieron cargar las visitas</TituloError>
+          <p className="mt-1 text-base break-words">{mensajeFallaCarga(estado.falla)}</p>
+          {estado.falla.tipo === "sesion" && <BotonEntrarOtraVez />}
+          <button
+            type="button"
+            onClick={reintentar}
+            className="boton-gris mt-3 min-h-12 w-full rounded-xl px-4 py-3 text-lg font-semibold"
+          >
+            Reintentar
+          </button>
+        </div>
       </div>
     );
   }
 
   const grupos = agruparPorDia(estado.visitas, estado.hoy);
+  const enlaceExtra = consultaFiltro(filtro);
 
-  if (grupos.length === 0 && !estado.siguiente) {
+  if (!filtro && grupos.length === 0 && !estado.siguiente) {
     return (
-      <p className="caja-info">
-        {esAdmin
-          ? "Todavía no hay visitas."
-          : "Todavía no tienes visitas. Toca “Nueva visita” para registrar la primera."}
-      </p>
+      <div className="flex flex-col gap-4">
+        {panel}
+        <p className="caja-info">
+          {esAdmin
+            ? "Todavía no hay visitas."
+            : "Todavía no tienes visitas. Toca “Nueva visita” para registrar la primera."}
+        </p>
+      </div>
     );
   }
 
+  const totalesPeriodo = filtro ? calcularTotales(estado.visitas) : null;
+
   return (
     <div className="flex flex-col gap-6">
+      {panel}
+
+      {filtro && totalesPeriodo && (
+        <div role="status" className="rounded-xl border-2 border-texto bg-fondo px-4 py-3">
+          <p className="text-base text-texto-suave">{textoPeriodo(filtro)}</p>
+          {estado.visitas.length === 0 ? (
+            <p className="text-lg font-bold">No hay visitas en esas fechas.</p>
+          ) : (
+            <p className="text-lg font-bold">
+              {textoTotales(totalesPeriodo)}
+              {totalesPeriodo.borradas > 0 &&
+                ` · ${totalesPeriodo.borradas} ${totalesPeriodo.borradas === 1 ? "borrada" : "borradas"}`}
+            </p>
+          )}
+          {estado.pendiente && (
+            <p className="mt-1 text-base font-semibold text-aviso-texto">
+              Faltan visitas de este periodo por cargar: el resumen cuenta solo las cargadas.
+            </p>
+          )}
+        </div>
+      )}
+
       {estado.fallaArticulos && (
         <p className="caja-aviso text-base">
           No se pudieron contar los artículos; se muestran solo las fotos. Si sigue pasando, avisa
@@ -225,7 +341,7 @@ export default function ListaVisitas() {
         </p>
       )}
 
-      {grupos.length === 0 && (
+      {!filtro && grupos.length === 0 && (
         <p className="caja-info">No hay visitas en los últimos {DIAS_POR_TRAMO} días.</p>
       )}
 
@@ -246,7 +362,7 @@ export default function ListaVisitas() {
           <ul className="flex flex-col gap-2">
             {g.visitas.map((v) => (
               <li key={v.id}>
-                <TarjetaVisita visita={v} correos={estado.correos} />
+                <TarjetaVisita visita={v} correos={estado.correos} enlaceExtra={enlaceExtra} />
               </li>
             ))}
           </ul>
@@ -255,13 +371,32 @@ export default function ListaVisitas() {
 
       {estado.fallaMas && (
         <div className="caja-error">
-          <TituloError>No se pudieron cargar los días anteriores</TituloError>
+          <TituloError>
+            {filtro ? "No se pudieron cargar más visitas del periodo" : "No se pudieron cargar los días anteriores"}
+          </TituloError>
           <p className="mt-1 text-base break-words">{mensajeFallaCarga(estado.fallaMas)}</p>
           {estado.fallaMas.tipo === "sesion" && <BotonEntrarOtraVez />}
         </div>
       )}
 
-      {estado.siguiente ? (
+      {/* Con el filtro activo, "Ver días anteriores" no aplica: en su lugar, si el periodo
+          trae más visitas de las que se piden de una vez, "Cargar más visitas del periodo". */}
+      {filtro ? (
+        estado.pendiente && (
+          <button
+            type="button"
+            onClick={cargarMasDelPeriodo}
+            disabled={estado.cargandoMas}
+            className="boton-gris min-h-12 w-full rounded-xl px-4 py-3 text-lg font-semibold"
+          >
+            {estado.cargandoMas
+              ? "Cargando más visitas…"
+              : estado.fallaMas
+                ? "Reintentar: cargar más visitas del periodo"
+                : "Cargar más visitas del periodo"}
+          </button>
+        )
+      ) : estado.siguiente ? (
         <button
           type="button"
           onClick={verDiasAnteriores}
@@ -281,15 +416,170 @@ export default function ListaVisitas() {
   );
 }
 
+/**
+ * Filtro por fecha de ingreso: "Desde" y "Hasta" (en el celular abre el selector nativo; en
+ * la compu se teclean los números), atajos de un toque y "Limpiar filtro". Valida antes de
+ * consultar: si algo está mal, avisa y NO cambia la URL (no se manda la consulta).
+ */
+function PanelFiltro({
+  hoy,
+  desdeInicial,
+  hastaInicial,
+  aplicado,
+  errorUrl,
+  alAplicar,
+}: {
+  hoy: ClaveDia;
+  desdeInicial: string;
+  hastaInicial: string;
+  aplicado: FiltroFechas | null;
+  /** El enlace trae fechas que no se pueden usar (se muestra la lista normal). */
+  errorUrl: string | null;
+  alAplicar: (f: FiltroFechas | null) => void;
+}) {
+  const [desde, setDesde] = useState(desdeInicial);
+  const [hasta, setHasta] = useState(hastaInicial);
+  const [error, setError] = useState<string | null>(errorUrl);
+
+  function ver() {
+    const r = validarFiltro(desde, hasta, hoy);
+    if (r.tipo === "error") {
+      setError(r.mensaje);
+      return;
+    }
+    if (r.tipo === "sin-filtro") {
+      setError("Elige las dos fechas: “Desde” y “Hasta”.");
+      return;
+    }
+    setError(null);
+    alAplicar(r.filtro);
+  }
+
+  const claseFecha =
+    "min-h-12 w-full rounded-xl border-2 border-borde bg-fondo px-3 py-2 text-lg text-texto outline-offset-2 focus-visible:outline-3 focus-visible:outline-marca";
+
+  return (
+    <section
+      aria-labelledby="titulo-filtro"
+      className="flex flex-col gap-3 rounded-xl border-2 border-borde bg-tarjeta p-3"
+    >
+      <h3 id="titulo-filtro" className="text-lg font-semibold">
+        Filtrar por fecha de ingreso
+      </h3>
+
+      <div className="grid grid-cols-2 gap-2">
+        {atajosFiltro(hoy).map((a) => {
+          const activo = aplicado?.desde === a.filtro.desde && aplicado?.hasta === a.filtro.hasta;
+          return (
+            <button
+              key={a.etiqueta}
+              type="button"
+              aria-pressed={activo}
+              onClick={() => {
+                setError(null);
+                alAplicar(a.filtro);
+              }}
+              className={`min-h-12 rounded-xl border-2 px-3 py-2 text-lg font-semibold ${
+                activo
+                  ? "border-marca bg-marca text-sobre-marca"
+                  : "border-borde bg-fondo text-texto active:bg-tarjeta-presionada"
+              }`}
+            >
+              {a.etiqueta}
+            </button>
+          );
+        })}
+      </div>
+
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault();
+          ver();
+        }}
+        className="flex flex-col gap-3"
+      >
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex min-w-0 flex-col gap-1 text-base font-semibold">
+            Desde
+            <input
+              type="date"
+              value={desde}
+              max={hoy}
+              onChange={(e) => {
+                setDesde(e.target.value);
+                setError(null);
+              }}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "error-filtro" : undefined}
+              className={claseFecha}
+            />
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-base font-semibold">
+            Hasta
+            <input
+              type="date"
+              value={hasta}
+              max={hoy}
+              onChange={(e) => {
+                setHasta(e.target.value);
+                setError(null);
+              }}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "error-filtro" : undefined}
+              className={claseFecha}
+            />
+          </label>
+        </div>
+
+        {error && (
+          <p id="error-filtro" role="alert" className="text-base font-semibold text-error-texto">
+            {error}
+          </p>
+        )}
+
+        <div className={`grid gap-2 ${aplicado || errorUrl ? "grid-cols-2" : "grid-cols-1"}`}>
+          <button type="submit" className="boton-primario min-h-12 rounded-xl px-3 py-2 text-lg font-bold">
+            Ver esas fechas
+          </button>
+          {(aplicado || errorUrl) && (
+            <button
+              type="button"
+              onClick={() => {
+                setDesde("");
+                setHasta("");
+                setError(null);
+                alAplicar(null);
+              }}
+              className="boton-gris min-h-12 rounded-xl px-3 py-2 text-lg font-semibold"
+            >
+              Limpiar filtro
+            </button>
+          )}
+        </div>
+      </form>
+    </section>
+  );
+}
+
 
 /** Una visita: tienda, hora, fotos y artículos (y, para el admin, quién la creó). Toda la tarjeta abre la visita. */
-function TarjetaVisita({ visita: v, correos }: { visita: VisitaLista; correos: Correos }) {
+function TarjetaVisita({
+  visita: v,
+  correos,
+  enlaceExtra,
+}: {
+  visita: VisitaLista;
+  correos: Correos;
+  /** "?desde=…&hasta=…": la visita lo pasa a "Volver a la lista" (se conserva el filtro). */
+  enlaceExtra: string;
+}) {
   const { usuario } = useSesion();
   const esAdmin = usuario.esAdmin;
   const borrada = Boolean(v.descartada_at);
   return (
     <Link
-      href={`/visitas/${v.id}`}
+      href={`/visitas/${v.id}${enlaceExtra}`}
       className={`flex min-h-11 flex-col gap-1 rounded-xl border-2 px-4 py-3 text-texto active:bg-tarjeta-presionada ${
         borrada ? "border-dashed border-aviso-borde bg-aviso-fondo opacity-75" : "border-borde bg-tarjeta"
       }`}
